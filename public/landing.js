@@ -12,7 +12,7 @@ DC.api("/api/prijzen").then(p=>{
     el.querySelector("b").textContent=x?money(x):"Binnenkort";
     el.querySelector("span").textContent=x?(x.interval==="year"?"per jaar":"per maand"):"";
   });
-  if(!p.beschikbaar) $("prijsNoot").textContent="Online aanmelden opent binnenkort. Wilt u nu al starten? Neem contact op via WhatsApp; de knoppen hieronder openen een bericht.";
+  if(!p.beschikbaar) $("prijsNoot").textContent="Online aanmelden opent binnenkort. Wilt u nu al starten? Neem contact op via WhatsApp; de knoppen hierboven openen een bericht.";
 }).catch(()=>{});
 
 function openStart(){

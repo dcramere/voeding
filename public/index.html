@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DCRAMERE Voeding</title>
-<meta name="description" content="Persoonlijk voedingsplan: calorieën, macro's en menu op basis van uw gewicht. Begeleiding door Dino E. Cramer — DCRAMERE.">
+<title>DCRAMERE Coaching</title>
+<meta name="description" content="Persoonlijk voedings- en trainingsplan op basis van uw metingen. Begeleiding door Dino E. Cramer — DCRAMERE.">
 <meta name="theme-color" content="#0a0a0a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -20,7 +20,7 @@
 <body>
 <div class="wrap">
   <header class="top" id="topbar" hidden>
-    <a class="brand" href="/" aria-label="DCRAMERE Voeding"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Voeding</small></span></a>
+    <a class="brand" href="/" aria-label="DCRAMERE Coaching"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coaching</small></span></a>
     <div class="hello" id="hello"></div>
   </header>
 
@@ -31,7 +31,7 @@
     <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720"><p class="tagline">MEET. ANALYSEER. PRESTEER.</p></div>
     <div class="auth-card">
       <h1 id="t-login">Inloggen</h1>
-      <p class="sub">Uw persoonlijke voedingsplan, afgestemd op uw metingen.</p>
+      <p class="sub">Uw persoonlijke voedings- en trainingsplan, afgestemd op uw metingen.</p>
       <form id="fLogin" novalidate>
         <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
         <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
@@ -98,6 +98,10 @@
 
   <!-- PLAN -->
   <section class="view" id="v-plan"><div id="plan"></div></section>
+
+  <!-- TRAINING -->
+  <section class="view" id="v-training"><div id="trOverview"></div></section>
+  <section class="view" id="v-workout"><div id="trWorkout"></div></section>
 
   <!-- BOODSCHAPPEN -->
   <section class="view" id="v-boodschappen" aria-labelledby="t-shop">
@@ -177,15 +181,23 @@
 </div>
 
 <nav class="tabs" id="tabs" aria-label="Hoofdmenu" hidden>
-  <button type="button" data-v="plan">Mijn plan</button>
+  <button type="button" data-v="plan">Voeding</button>
+  <button type="button" data-v="training">Training</button>
   <button type="button" data-v="checkin">Check-in</button>
   <button type="button" data-v="voortgang">Voortgang</button>
   <button type="button" data-v="profiel">Profiel</button>
 </nav>
 
+<div class="resttimer" id="rest" hidden role="timer" aria-live="polite">
+  <span>Rust <b id="restTime">0:00</b></span>
+  <button class="btn small ghost" type="button" data-rest="30">+30 s</button>
+  <button class="btn small" type="button" data-rest="stop">Klaar</button>
+</div>
+
 <div id="print" aria-hidden="true"></div>
 
 <script src="/core.js"></script>
+<script src="/training.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

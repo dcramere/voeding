@@ -94,6 +94,7 @@
     <div id="clientInvite"></div>
     <nav class="seg" aria-label="Onderdelen">
       <button type="button" data-pane="plan">Plan</button>
+      <button type="button" data-pane="training">Training</button>
       <button type="button" data-pane="metingen">Metingen</button>
       <button type="button" data-pane="checkins">Check-ins</button>
       <button type="button" data-pane="fotos">Foto's</button>
@@ -114,6 +115,13 @@
           </form>
         </div>
       </div>
+    </div>
+    <div class="pane" data-pane-body="training">
+      <div id="pTrAssign"></div>
+      <div id="pTrOverview"></div>
+      <div id="pTrDetail"></div>
+      <div id="pTrGrid"></div>
+      <div id="pTrProgress"></div>
     </div>
     <div class="pane" data-pane-body="checkins" id="pCheckins"></div>
     <div class="pane" data-pane-body="fotos">
@@ -149,6 +157,7 @@
 <div id="print" aria-hidden="true"></div>
 
 <script src="/core.js"></script>
+<script src="/training.js"></script>
 <script src="/coach.js"></script>
 </body>
 </html>

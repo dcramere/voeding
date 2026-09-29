@@ -1,6 +1,6 @@
-# DCRAMERE Voeding
+# DCRAMERE Coaching (voeding + training)
 
-Voedingsplan-app voor cliënten met coachdashboard. Cliënten volgen een intake, voeren wekelijks hun gewicht en een check-in in, en krijgen een persoonlijk menu met recepten, een boodschappenlijst en een PDF in de DCRAMERE-huisstijl. Cliënten maken elke 4 weken progressiefoto's (voor, achter, zijkant), met een herinnering in de app. De coach beheert cliënten, metingen (incl. huidplooien), check-ins, progressiefoto's, intake, profielen en notities.
+Voedingsplan-app voor cliënten met coachdashboard. Cliënten volgen een intake, voeren wekelijks hun gewicht en een check-in in, en krijgen een persoonlijk menu met recepten, een boodschappenlijst en een PDF in de DCRAMERE-huisstijl. Daarnaast is er een trainingsprogramma van 12 weken (Push/Pull/Legs, 6 dagen per week, met de fasen Fundament → Opbouw → Intensiteit → Deload). Cliënten loggen daarin per set het gewicht en de herhalingen, met 'vorige keer', een suggestie om het gewicht te verhogen, een rusttimer en records. Cliënten maken elke 4 weken progressiefoto's (voor, achter, zijkant), met een herinnering in de app. De coach beheert cliënten, metingen (incl. huidplooien), check-ins, progressiefoto's, intake, profielen en notities.
 
 Live: https://dcramere-voeding.dcramere.workers.dev · Coach: `/coach/`
 
@@ -9,6 +9,7 @@ Live: https://dcramere-voeding.dcramere.workers.dev · Coach: `/coach/`
 - **Cloudflare Worker** (`src/worker.js`): API onder `/api/*`, serveert daarnaast `public/` als static assets. Zodra de coach het dashboard opent en de laatste back-up ouder is dan 7 dagen, schrijft de Worker op de achtergrond een volledige back-up naar KV (`BACKUPS`, 60 dagen bewaard). Een cron-trigger is niet mogelijk, omdat de 5 gratis cron-slots van het account al in gebruik zijn; de `scheduled`-handler bestaat nog voor als er een slot vrijkomt.
 - **D1** (SQLite): schema in `migrations/`.
 - **R2** (`dcramere-voeding-fotos`, privé): progressiefoto's onder `c/<client_id>/…`. De foto's worden alleen via de Worker geserveerd na een check van de sessie (cliënt: eigen foto's, coach: eigen cliënten). De app verkleint ze vóór het uploaden tot max. 1600 px; via canvas verdwijnt de EXIF, dus ook de GPS-locatie. De server controleert type (JPEG/WebP, op de bytes) en grootte (max. 5 MB).
+- **Training**: `public/training.js` bevat de programma's, de oefeningen (met Nederlandse techniekcue, rusttijd en spiergroepen), de body-map-pictogrammen en de log-analyse. De programma-id's die de coach kan toewijzen staan ook in `PROGRAMMAS` in `src/worker.js`. Een sessie is één rij in `workouts`, met de sets als gevalideerde JSON.
 - **Frontend**: plain HTML/JS, geen build. `public/core.js` bevat de berekeningen, de menu-optimalisatie, de boodschappenlijst en het PDF-document. Dit bestand wordt gedeeld door de cliënt-app (`/`) en het dashboard (`/coach/`).
 - **Huisstijl**: Cinzel + Overpass (zelf gehost in `public/fonts/`), zwart/goud `#f4d03f`, logo in `public/img/`.
 

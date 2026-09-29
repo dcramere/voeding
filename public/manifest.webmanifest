@@ -1,7 +1,7 @@
 {
-  "name": "DCRAMERE Voeding",
+  "name": "DCRAMERE Coaching",
   "short_name": "DCRAMERE",
-  "description": "Uw persoonlijke voedingsplan, afgestemd op uw metingen.",
+  "description": "Uw persoonlijke voedings- en trainingsplan.",
   "lang": "nl",
   "start_url": "/",
   "scope": "/",

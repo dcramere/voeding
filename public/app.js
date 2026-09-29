@@ -4,10 +4,11 @@
 const DC=window.DC, $=id=>document.getElementById(id);
 const COACH_WHATSAPP="5978514920";
 const AUTH_VIEWS=["login","vergeten","uitnodiging","laden","toestemming"];
-const TAB_VIEWS=["plan","checkin","voortgang","profiel"];
+const TAB_VIEWS=["plan","training","workout","checkin","voortgang","profiel"];
 const CHECKIN_EVERY=7; // days
 let me=null, menuTimer=null, inviteToken=null, viewDag=null; // viewDag null = today's day type
 let cmpA=null, cmpB=null; // photo comparison dates (null = first / latest)
+let trWeek=null, wo=null, woTimer=null, woRetry=null, rest=null; // training state
 const fotoSrc=id=>"/api/fotos/"+id;
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML();
@@ -21,7 +22,9 @@ function show(v){
   document.querySelectorAll("section.view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
   $("tabs").hidden=!TAB_VIEWS.includes(v)||onboarding();
   $("topbar").hidden=AUTH_VIEWS.includes(v);
-  document.querySelectorAll("#tabs button").forEach(b=>{if(b.dataset.v===v)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
+  const tab=v==="workout"?"training":v;
+  document.querySelectorAll("#tabs button").forEach(b=>{if(b.dataset.v===tab)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
+  if(v!=="workout") stopRest();
   if(v==="boodschappen") renderShop();
   window.scrollTo(0,0);
 }
@@ -69,9 +72,80 @@ function renderFotos(){
     :`Foto's van vandaag. Uw volgende set is over ${DC.FOTO_EVERY-DC.daysSince(last)} dagen (laatste set: ${DC.dateNL(last,{day:"numeric",month:"long"})}).`;
   $("fotoUpload").innerHTML=DC.fotoUploadHTML(me.fotos,DC.today(),fotoSrc,{del:true});
 }
+// ---------- training ----------
+const draftKey=()=>wo&&me&&me.programma?`dc-wo:${me.email}:${me.programma.id}:${wo.week}:${wo.dag}`:null;
+function renderTraining(){
+  const el=$("trOverview");
+  if(!me.programma){el.innerHTML='<h1>Training</h1><p class="empty">Er is nog geen trainingsprogramma voor u klaargezet. Uw coach wijst dit aan u toe.</p>';return}
+  if(trWeek==null) trWeek=TR.weekOf(me.programma.start);
+  el.innerHTML=TR.overviewHTML(me.programma,me.workouts,trWeek);
+}
+function openWorkout(week,dag){
+  const saved=me.workouts.find(w=>w.week===week&&w.dag===dag);
+  wo=saved?JSON.parse(JSON.stringify(saved)):{week,dag,datum:DC.today(),sets:{},notitie:"",afgerond:null};
+  // an unsent local draft (e.g. no signal in the gym) wins over an older server copy
+  try{const d=JSON.parse(localStorage.getItem(draftKey())||"null");if(d&&d.local>(saved?saved.updated_at*1000:0)){wo=d.wo;queueSave(0)}}catch(e){}
+  $("trWorkout").innerHTML=TR.workoutHTML(me.programma,me.workouts,wo);
+  show("workout");
+}
+function setSaved(txt,err){const el=document.querySelector("[data-wo-saved]");if(el){el.textContent=txt;el.classList.toggle("err",!!err)}}
+function queueSave(delay){
+  try{localStorage.setItem(draftKey(),JSON.stringify({local:Date.now(),wo}))}catch(e){}
+  setSaved("Opslaan…");
+  clearTimeout(woTimer); woTimer=setTimeout(saveWorkout,delay==null?800:delay);
+}
+async function saveWorkout(){
+  clearTimeout(woRetry);
+  const cur=wo, key=draftKey(); if(!cur) return;
+  try{
+    const res=await DC.api("/api/workouts","PUT",{programma:me.programma.id,week:cur.week,dag:cur.dag,datum:cur.datum,sets:cur.sets,notitie:cur.notitie,afgerond:!!cur.afgerond});
+    me.workouts=res.workouts;
+    try{localStorage.removeItem(key)}catch(e){}
+    setSaved("Opgeslagen");
+    return true;
+  }catch(err){
+    if(err.status===409||err.status===400){setSaved(err.message,true);return false}
+    setSaved("Niet opgeslagen (geen verbinding?). Wordt opnieuw geprobeerd; uw invoer staat veilig op dit toestel.",true);
+    woRetry=setTimeout(saveWorkout,10000);
+    return false;
+  }
+}
+function setRow(id,si){
+  const arr=wo.sets[id]=wo.sets[id]||[];
+  for(let i=0;i<=si;i++) arr[i]=arr[i]||{kg:null,reps:null,ok:false};
+  return arr[si];
+}
+const numVal=v=>{const n=parseFloat(String(v).replace(",","."));return isFinite(n)?n:null};
+function updateCount(){
+  const day=TR.dayOf(me.programma.id,wo.dag);
+  const total=day.ex.reduce((t,x)=>t+TR.setsFor(x.reps,wo.week).length,0);
+  const done=Object.values(wo.sets).reduce((t,a)=>t+a.filter(s=>s&&s.ok).length,0);
+  const c=document.querySelector("[data-wo-count]"); if(c) c.textContent=`${done} van ${total} sets`;
+  const bar=document.querySelector(".wo-progress i"); if(bar) bar.style.width=(total?done/total*100:0)+"%";
+}
+function startRest(sec){
+  stopRest();
+  const end=Date.now()+sec*1000; $("rest").hidden=false;
+  const tick=()=>{
+    const left=Math.max(0,Math.round((rest.end-Date.now())/1000));
+    $("restTime").textContent=Math.floor(left/60)+":"+String(left%60).padStart(2,"0");
+    if(left<=0){stopRest();try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){}}
+  };
+  rest={end,iv:setInterval(tick,500)}; tick();
+}
+function stopRest(){if(rest){clearInterval(rest.iv);rest=null}$("rest").hidden=true}
+document.addEventListener("input",e=>{
+  const t=e.target;
+  if(t.matches("[data-set]")&&wo){
+    const [id,si,f]=t.dataset.set.split(":");
+    setRow(id,+si)[f]=f==="reps"?(numVal(t.value)==null?null:Math.round(numVal(t.value))):numVal(t.value);
+    queueSave();
+  }else if(t.matches("[data-wo-note]")&&wo){wo.notitie=t.value;queueSave()}
+});
+
 function renderAll(){
   $("hello").textContent=me.naam?me.naam.split(" ")[0]:"";
-  renderPlan(); renderProgress(); renderCheckin(); renderFotos();
+  renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining();
   const fp=$("fProfiel");
   fp.elements.naam.value=me.naam||"";
   DC.fillProfiel(fp,me.profiel);
@@ -92,6 +166,38 @@ function printPlan(){
 
 // ---------- events ----------
 document.addEventListener("click",async e=>{
+  const tr=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-back],[data-set-ok],[data-wo-finish],[data-rest]");
+  if(tr){
+    if(tr.dataset.trWeek){trWeek=+tr.dataset.trWeek;renderTraining()}
+    else if(tr.dataset.trDay) openWorkout(trWeek,tr.dataset.trDay);
+    else if(tr.hasAttribute("data-tr-back")){wo=null;renderTraining();show("training")}
+    else if(tr.dataset.rest){if(tr.dataset.rest==="stop")stopRest();else if(rest)rest.end+=30000}
+    else if(tr.dataset.setOk){
+      const [id,si]=tr.dataset.setOk.split(":"), s=setRow(id,+si), row=tr.closest("tr");
+      s.ok=!s.ok;
+      if(s.ok){
+        // fill empty fields with the target reps and the previous set's (or last time's) weight
+        const kgIn=row.querySelector('[data-set$=":kg"]'), repIn=row.querySelector('[data-set$=":reps"]');
+        if(s.reps==null){s.reps=numVal(repIn.placeholder);repIn.value=s.reps??""}
+        if(s.kg==null){const prev=+si>0?wo.sets[id][+si-1]:null;s.kg=prev&&prev.kg!=null?prev.kg:numVal(kgIn.placeholder);kgIn.value=s.kg??""}
+        if(!Object.values(wo.sets).some(a=>a.some(x=>x&&x.ok&&x!==s))) wo.datum=DC.today();
+        startRest(TR.EX[id].rust);
+      }
+      tr.setAttribute("aria-pressed",s.ok); row.classList.toggle("done",s.ok);
+      updateCount(); queueSave();
+    }
+    else if(tr.hasAttribute("data-wo-finish")){
+      const done=Object.values(wo.sets).reduce((t,a)=>t+a.filter(x=>x&&x.ok).length,0);
+      if(!done&&!confirm("U heeft nog geen sets afgevinkt. Toch afronden?")) return;
+      wo.afgerond=wo.afgerond||Date.now(); clearTimeout(woTimer); tr.disabled=true;
+      const ok=await saveWorkout(); tr.disabled=false;
+      if(!ok) return;
+      stopRest();
+      $("trWorkout").innerHTML=TR.summaryHTML(me.programma,me.workouts.filter(w=>!(w.week===wo.week&&w.dag===wo.dag)),wo);
+      window.scrollTo(0,0);
+    }
+    return;
+  }
   const t=e.target.closest("[data-v],[data-dag],[data-swap],[data-new-menu],[data-print],[data-boodschappen],[data-del],[data-foto-del]"); if(!t) return;
   if(t.dataset.v){show(t.dataset.v);if(t.hasAttribute("data-goto-fotos"))$("fotoTitle").scrollIntoView({behavior:"smooth"})}
   else if(t.dataset.fotoDel){
@@ -199,7 +305,7 @@ async function boot(){
   try{
     me=await DC.api("/api/me");
     me.menu=me.menu||{seed:0,off:[]}; me.menu.off=me.menu.off||[]; me.menu.offT=me.menu.offT||[];
-    me.checkins=me.checkins||[]; me.fotos=me.fotos||[];
+    me.checkins=me.checkins||[]; me.fotos=me.fotos||[]; me.workouts=me.workouts||[];
     renderAll();
     show(nextStep());
   }catch(err){

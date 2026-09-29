@@ -8,6 +8,8 @@ const COOKIE = { client: "vc", coach: "vk" };
 const MAX_BODY = 20000;
 const MAX_FOTO = 5 * 1024 * 1024; // client resizes to ~1600 px, typically 150–400 KB
 const POSES = ["voor", "achter", "zijkant"];
+// training programs the coach can assign (definitions live in public/training.js)
+const PROGRAMMAS = { ppl12: { weken: 12, dagen: ["pushA", "pullA", "legsA", "pushB", "pullB", "legsB"] } };
 
 const ACTIVITEIT = [1.35, 1.45, 1.55, 1.7, 1.85];
 const DOEL = [-0.2, -0.1, 0, 0.1];
@@ -303,6 +305,7 @@ const ROUTES = [
   ["PUT", "/intake", withClient(clientPutIntake)],
   ["POST", "/privacy", withClient(clientAcceptPrivacy)],
   ["POST", "/fotos", withClient((c) => storeFoto(c, c.client.id, "client")), RAW],
+  ["PUT", "/workouts", withClient(clientPutWorkout)],
   ["GET", /^\/fotos\/(\d+)$/, withClient(clientGetFoto)],
   ["DELETE", /^\/fotos\/(\d+)$/, withClient(clientDelFoto)],
   ["POST", "/checkins", withClient(clientAddCheckin)],
@@ -371,7 +374,7 @@ async function checkinsOf(env, clientId, limit = 52) {
 
 async function exportData(env, coachId) {
   const { results: clients } = await env.DB.prepare(
-    `SELECT id, naam, email, actief, profiel, intake, notities, privacy_akkoord, created_at, last_seen
+    `SELECT id, naam, email, actief, profiel, intake, programma, notities, privacy_akkoord, created_at, last_seen
      FROM clients WHERE coach_id = ? ORDER BY id`,
   ).bind(coachId).all();
   for (const cl of clients) {
@@ -379,6 +382,8 @@ async function exportData(env, coachId) {
     cl.intake = cl.intake ? JSON.parse(cl.intake) : null;
     cl.metingen = await metingenOf(env, cl.id);
     cl.checkins = await checkinsOf(env, cl.id, 10000);
+    const { results: wo } = await env.DB.prepare("SELECT programma, week, dag, datum, sets, notitie, afgerond FROM workouts WHERE client_id = ?").bind(cl.id).all();
+    cl.workouts = wo.map((w) => ({ ...w, sets: JSON.parse(w.sets) }));
   }
   return { clients };
 }
@@ -444,17 +449,19 @@ async function inviteAccept(c) {
 
 async function clientMe(c) {
   const { client: cl, env } = c;
-  const [coach, metingen, checkins, fotos] = await Promise.all([
+  const [coach, metingen, checkins, fotos, workouts] = await Promise.all([
     env.DB.prepare("SELECT naam FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
     metingenOf(env, cl.id),
     checkinsOf(env, cl.id, 12),
     fotosOf(env, cl.id),
+    workoutsOf(env, cl),
     env.DB.prepare("UPDATE clients SET last_seen = ? WHERE id = ?").bind(c.now, cl.id).run(),
   ]);
   return json({
     naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "",
     profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
+    programma: cl.programma ? JSON.parse(cl.programma) : null, workouts,
   });
 }
 
@@ -560,7 +567,7 @@ function publicClient(r) {
     id: r.id, naam: r.naam, email: r.email, actief: !!r.actief, geactiveerd: !!r.pw_hash,
     uitnodigingVerloopt: r.invite_expires, notities: r.notities, privacyAkkoord: r.privacy_akkoord,
     profiel: r.profiel ? JSON.parse(r.profiel) : null, intake: r.intake ? JSON.parse(r.intake) : null,
-    menu: JSON.parse(r.menu),
+    programma: r.programma ? JSON.parse(r.programma) : null, menu: JSON.parse(r.menu),
     aangemaakt: r.created_at, laatstGezien: r.last_seen,
   };
 }
@@ -579,11 +586,12 @@ async function listClients(c) {
        (SELECT json_object('datum', datum, 'energie', energie, 'honger', honger, 'slaap', slaap,
                            'stress', stress, 'naleving', naleving)
           FROM checkins k WHERE k.client_id = c.id ORDER BY datum DESC LIMIT 1) AS checkin,
-       (SELECT MAX(datum) FROM fotos f WHERE f.client_id = c.id) AS laatste_foto
+       (SELECT MAX(datum) FROM fotos f WHERE f.client_id = c.id) AS laatste_foto,
+       (SELECT MAX(datum) FROM workouts w WHERE w.client_id = c.id AND w.afgerond IS NOT NULL) AS laatste_training
      FROM clients c WHERE c.coach_id = ? ORDER BY c.naam COLLATE NOCASE`,
   ).bind(c.coach.id).all();
   return json(results.map((r) => ({
-    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto,
+    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto, laatsteTraining: r.laatste_training,
     eerste: r.eerste ? JSON.parse(r.eerste) : null, laatste: r.laatste ? JSON.parse(r.laatste) : null,
   })));
 }
@@ -609,8 +617,9 @@ async function createClient(c) {
 
 async function getClient(c) {
   const row = await ownClient(c, c.params[0]);
-  const [metingen, checkins, fotos] = await Promise.all([metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id)]);
-  return json({ ...publicClient(row), metingen, checkins, fotos });
+  const [metingen, checkins, fotos, workouts] = await Promise.all([
+    metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id), workoutsOf(c.env, row)]);
+  return json({ ...publicClient(row), metingen, checkins, fotos, workouts });
 }
 
 async function coachExport(c) {
@@ -640,6 +649,7 @@ async function updateClient(c) {
   }
   if ("notities" in b) { sets.push("notities = ?"); vals.push(str(b.notities, 10000, "Notities")); }
   if ("profiel" in b) { sets.push("profiel = ?"); vals.push(JSON.stringify(cleanProfiel(b.profiel))); }
+  if ("programma" in b) { sets.push("programma = ?"); vals.push(b.programma === null ? null : JSON.stringify(cleanProgramma(b.programma))); }
   if ("actief" in b) {
     sets.push("actief = ?"); vals.push(b.actief ? 1 : 0);
     if (!b.actief) extra.push(c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id));
@@ -657,6 +667,7 @@ async function deleteClient(c) {
   await deleteAllFotos(c.env, row.id);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM workouts WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM metingen WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
@@ -769,4 +780,59 @@ async function coachGetFoto(c) {
 async function coachDelFoto(c) {
   const row = await ownClient(c, c.params[0]);
   return removeFoto(c, row.id, c.params[1]);
+}
+
+// ---------- training ----------
+function cleanProgramma(p) {
+  if (!p || typeof p !== "object" || !PROGRAMMAS[p.id]) fail(400, "Onbekend trainingsprogramma.");
+  if (!isDate(p.start)) fail(400, "Kies een geldige startdatum.");
+  return { id: p.id, start: p.start };
+}
+
+// sets: {exerciseId: [{kg, reps, ok}]} — shape and ranges only; exercise ids are defined client-side
+function cleanSets(sets) {
+  if (!sets || typeof sets !== "object" || Array.isArray(sets)) fail(400, "Ongeldige sets.");
+  const keys = Object.keys(sets);
+  if (keys.length > 15) fail(400, "Te veel oefeningen.");
+  const out = {};
+  for (const k of keys) {
+    if (!/^[a-z0-9_]{1,40}$/.test(k) || !Array.isArray(sets[k]) || sets[k].length > 10) fail(400, "Ongeldige sets.");
+    out[k] = sets[k].map((s) => ({
+      kg: s && s.kg !== null && s.kg !== undefined && s.kg !== "" ? num(s.kg, 0, 1000, "Gewicht") : null,
+      reps: s && s.reps !== null && s.reps !== undefined && s.reps !== "" ? Math.round(num(s.reps, 0, 500, "Herhalingen")) : null,
+      ok: !!(s && s.ok),
+    }));
+  }
+  return out;
+}
+
+async function workoutsOf(env, client) {
+  if (!client.programma) return [];
+  const p = JSON.parse(client.programma);
+  const { results } = await env.DB.prepare(
+    "SELECT week, dag, datum, sets, notitie, afgerond, updated_at FROM workouts WHERE client_id = ? AND programma = ? ORDER BY week, dag",
+  ).bind(client.id, p.id).all();
+  return results.map((w) => ({ ...w, sets: JSON.parse(w.sets) }));
+}
+
+async function clientPutWorkout(c) {
+  const cl = c.client;
+  if (!cl.programma) fail(400, "Er is geen trainingsprogramma toegewezen.");
+  const p = JSON.parse(cl.programma), def = PROGRAMMAS[p.id], b = c.body;
+  if (b.programma !== p.id) fail(409, "Uw trainingsprogramma is gewijzigd. Vernieuw de pagina.");
+  const week = Number(b.week);
+  if (!Number.isInteger(week) || week < 1 || week > def.weken) fail(400, "Ongeldige week.");
+  if (!def.dagen.includes(b.dag)) fail(400, "Ongeldige trainingsdag.");
+  if (!isDate(b.datum)) fail(400, "Ongeldige datum.");
+  const sets = JSON.stringify(cleanSets(b.sets));
+  const notitie = str(b.notitie, 1000, "Notitie");
+  await c.env.DB.prepare(
+    `INSERT INTO workouts (client_id, programma, week, dag, datum, sets, notitie, afgerond, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (client_id, programma, week, dag) DO UPDATE SET
+       datum = excluded.datum, sets = excluded.sets, notitie = excluded.notitie,
+       afgerond = CASE WHEN excluded.afgerond IS NULL THEN NULL ELSE COALESCE(workouts.afgerond, excluded.afgerond) END,
+       updated_at = excluded.updated_at`,
+  ).bind(cl.id, p.id, week, b.dag, b.datum, sets, notitie, b.afgerond ? c.now : null, c.now).run();
+  return json({ workouts: await workoutsOf(c.env, cl) });
 }

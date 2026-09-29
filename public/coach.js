@@ -3,7 +3,7 @@
 "use strict";
 const DC=window.DC, esc=DC.esc, $=id=>document.getElementById(id);
 const STALE_DAYS=14, CHECKIN_LATE=10;
-let coach=null, clients=[], cur=null, pane="plan", viewDag=null, cmpA=null, cmpB=null;
+let coach=null, clients=[], cur=null, pane="plan", viewDag=null, cmpA=null, cmpB=null, trWeek=null, trSel=null;
 const fotoSrc=id=>"/api/coach/fotos/"+id;
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML({open:true});
@@ -37,6 +37,7 @@ function attentionReasons(c){
   if(checkinLate(c)) r.push("check-in achter");
   const fotoAge=c.laatsteFoto?DC.daysSince(c.laatsteFoto):Math.floor((Date.now()/1000-c.aangemaakt)/86400);
   if(c.laatste&&fotoAge>DC.FOTO_EVERY+7) r.push("foto's achter");
+  if(c.programma&&DC.daysSince(c.programma.start)>=7&&(!c.laatsteTraining||DC.daysSince(c.laatsteTraining)>7)) r.push("training achter");
   const flags=DC.checkinFlags(c.checkin);
   if(flags.length) r.push(flags.join(", "));
   return r;
@@ -132,6 +133,7 @@ function renderClient(){
   $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins);
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
   renderFotos();
+  renderTraining();
   const fp=$("fProfiel");
   fp.reset(); fp.elements.naam.value=c.naam; fp.elements.email.value=c.email; DC.fillProfiel(fp,c.profiel);
   $("fNotities").elements.notities.value=c.notities||"";
@@ -156,6 +158,33 @@ document.addEventListener("change",async e=>{
     renderFotos(); msg.textContent="Foto opgeslagen.";
   }catch(err){slot.classList.remove("busy");msg.className="err";msg.textContent=err.message}
 });
+function renderTraining(){
+  const c=cur, P=c.programma;
+  if(!P){
+    $("pTrAssign").innerHTML=`<h2 style="margin-top:0">Trainingsprogramma toewijzen</h2>
+      <p class="sub">${esc(c.naam)} heeft nog geen trainingsprogramma. Na het toewijzen verschijnt het tabblad Training in de app van de cliënt.</p>
+      <form id="fTrAssign" class="narrow" novalidate><label>Programma<select name="id">${Object.values(TR.PROGRAMS).map(p=>`<option value="${p.id}">${p.naam} (${p.sub})</option>`).join("")}</select></label>
+      <label>Startdatum (week 1)<input type="date" name="start" value="${DC.today()}" required></label>
+      <div><button class="btn" type="submit">Toewijzen</button></div><div class="flash" data-msg role="status"></div></form>`;
+    ["pTrOverview","pTrDetail","pTrGrid","pTrProgress"].forEach(id=>$(id).innerHTML="");
+    DC.handleForm($("fTrAssign"),async f=>{
+      cur=await call("/api/coach/clients/"+cur.id,"PUT",{programma:{id:f.elements.id.value,start:f.elements.start.value}});
+      trWeek=null; renderClient();
+    });
+    return;
+  }
+  if(trWeek==null) trWeek=TR.weekOf(P.start);
+  $("pTrAssign").innerHTML=`<div class="actions" style="margin:0 0 6px;justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:400">Startdatum<input type="date" id="trStart" value="${P.start}" style="width:auto;padding:6px 8px"></label><button class="btn small danger" type="button" data-tr-remove>Programma verwijderen</button></div>`;
+  $("pTrOverview").innerHTML=TR.overviewHTML(P,c.workouts,trWeek,{coach:true});
+  const w=trSel&&c.workouts.find(x=>x.week===trSel.week&&x.dag===trSel.dag);
+  $("pTrDetail").innerHTML=trSel?(w?`<div class="tr-detail">${TR.workoutHTML(P,c.workouts,w,{readonly:true})}</div>`
+    :`<p class="empty">${TR.dayOf(P.id,trSel.dag).naam} van week ${trSel.week} is nog niet gelogd.</p>`):"";
+  $("pTrGrid").innerHTML=`<h2>Alle weken</h2>${TR.coachGridHTML(P,c.workouts,trSel)}`;
+  $("pTrProgress").innerHTML=`<h2>Krachtprogressie</h2>${TR.progressionHTML(P,c.workouts)}`;
+  $("trStart").onchange=async e=>{
+    try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{programma:{id:P.id,start:e.target.value}});trWeek=null;renderClient()}catch(err){alert(err.message)}
+  };
+}
 function setPane(p){
   pane=p;
   document.querySelectorAll("[data-pane]").forEach(b=>{if(b.dataset.pane===p)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current")});
@@ -169,6 +198,19 @@ document.addEventListener("click",async e=>{
     const input=copy.parentElement.querySelector("input");
     try{await navigator.clipboard.writeText(input.value)}catch(err){input.select();document.execCommand("copy")}
     copy.textContent="Gekopieerd"; setTimeout(()=>copy.textContent="Kopiëren",1500); return;
+  }
+  const trb=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-cell],[data-tr-remove]");
+  if(trb&&cur){
+    if(trb.dataset.trWeek){trWeek=+trb.dataset.trWeek;trSel=null}
+    else if(trb.dataset.trDay){trSel={week:trWeek,dag:trb.dataset.trDay}}
+    else if(trb.dataset.trCell){const [w,d]=trb.dataset.trCell.split(":");trWeek=+w;trSel={week:+w,dag:d}}
+    else if(trb.hasAttribute("data-tr-remove")){
+      if(!confirm("Het trainingsprogramma bij deze cliënt verwijderen? De gelogde trainingen blijven bewaard en komen terug als u het programma opnieuw toewijst.")) return;
+      try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{programma:null})}catch(err){alert(err.message);return}
+    }
+    renderTraining();
+    if(trSel&&$("pTrDetail").firstElementChild) $("pTrDetail").scrollIntoView({behavior:"smooth",block:"start"});
+    return;
   }
   const dag=e.target.closest("[data-dag]");
   if(dag&&cur){viewDag=dag.dataset.dag;renderClient();return}
@@ -246,7 +288,7 @@ async function route(){
   const m=location.hash.match(/^#\/client\/(\d+)/);
   try{
     if(m){
-      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
+      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
       show("client"); await loadClient(+m[1]);
     }else{
       cur=null; show("lijst"); await loadList();

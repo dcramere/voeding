@@ -152,6 +152,45 @@ test("progress photos: upload, validation, access control, replace, delete", asy
   assert.equal((await anna(`/api/fotos/${voor[0].id}`, "DELETE")).data.fotos.length, 1);
 });
 
+test("training: assignment, logging, validation, coach view", async () => {
+  const wo = { programma: "ppl12", week: 1, dag: "pushA", datum: "2026-09-29", notitie: "Goed", afgerond: false,
+    sets: { incline_db_press: [{ kg: 30, reps: 10, ok: true }, { kg: "32,5", reps: 8, ok: true }] } };
+  assert.equal((await anna("/api/workouts", "PUT", wo)).status, 400, "no program assigned yet");
+  assert.equal((await coach(`/api/coach/clients/${annaId}`, "PUT", { programma: { id: "nope", start: "2026-09-29" } })).status, 400);
+  const asg = await coach(`/api/coach/clients/${annaId}`, "PUT", { programma: { id: "ppl12", start: "2026-09-29" } });
+  assert.deepEqual(asg.data.programma, { id: "ppl12", start: "2026-09-29" });
+  assert.deepEqual((await anna("/api/me")).data.programma, { id: "ppl12", start: "2026-09-29" });
+  // "32,5" is not a number for the API (the app converts commas) → rejected
+  assert.equal((await anna("/api/workouts", "PUT", wo)).status, 400);
+  wo.sets.incline_db_press[1].kg = 32.5;
+  const r = await anna("/api/workouts", "PUT", wo);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.workouts.length, 1);
+  assert.equal(r.data.workouts[0].afgerond, null);
+  assert.equal((await anna("/api/workouts", "PUT", { ...wo, week: 13 })).status, 400);
+  assert.equal((await anna("/api/workouts", "PUT", { ...wo, dag: "armDay" })).status, 400);
+  assert.equal((await anna("/api/workouts", "PUT", { ...wo, programma: "other" })).status, 409);
+  assert.equal((await anna("/api/workouts", "PUT", { ...wo, sets: { "bad key!": [] } })).status, 400);
+  assert.equal((await anna("/api/workouts", "PUT", { ...wo, sets: { x: [{ kg: 5000, reps: 1, ok: true }] } })).status, 400);
+  // finishing keeps the first finish time; editing afterwards keeps it finished
+  const fin = await anna("/api/workouts", "PUT", { ...wo, afgerond: true });
+  const t1 = fin.data.workouts[0].afgerond; assert.ok(t1 > 0);
+  const again = await anna("/api/workouts", "PUT", { ...wo, notitie: "aangepast", afgerond: true });
+  assert.equal(again.data.workouts[0].afgerond, t1);
+  assert.equal(again.data.workouts.length, 1, "same week/day upserts");
+  // coach sees it; list shows last finished training
+  const c = (await coach(`/api/coach/clients/${annaId}`)).data;
+  assert.equal(c.workouts[0].sets.incline_db_press[1].kg, 32.5);
+  assert.equal((await coach("/api/coach/clients")).data.find((x) => x.id === annaId).laatsteTraining, "2026-09-29");
+  // bram (no program) cannot write anything
+  assert.equal((await bram("/api/workouts", "PUT", wo)).status, 400);
+  // removing the program hides the logs; re-assigning brings them back
+  await coach(`/api/coach/clients/${annaId}`, "PUT", { programma: null });
+  assert.deepEqual((await anna("/api/me")).data.workouts, []);
+  await coach(`/api/coach/clients/${annaId}`, "PUT", { programma: { id: "ppl12", start: "2026-09-29" } });
+  assert.equal((await anna("/api/me")).data.workouts.length, 1);
+});
+
 test("security: cross-origin writes, non-JSON bodies, lockout, deactivation", async () => {
   assert.equal((await anna("/api/profiel", "PUT", { naam: "x" }, { origin: "https://evil.example" })).status, 403);
   assert.equal((await fetch(`${BASE}/api/login`, { method: "POST", body: "email=a" })).status, 415);
@@ -171,6 +210,7 @@ test("backups: coach export and weekly snapshot", async () => {
   const raw = JSON.stringify(exp.data);
   assert.ok(!raw.includes("pw_hash") && !raw.includes("pbkdf2$"), "no password hashes in exports");
   assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").checkins.length, 1);
+  assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").workouts.length, 1);
   // opening the client list triggers the weekly snapshot in the background
   await coach("/api/coach/clients");
   await new Promise((r) => setTimeout(r, 1500));

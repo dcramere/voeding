@@ -1,0 +1,151 @@
+// Integration tests: boots the real Worker with `wrangler dev` on a throwaway local D1/KV and drives the API.
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { spawn, execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const PORT = 8799, BASE = `http://127.0.0.1:${PORT}`, SETUP = "test-setup-code-123";
+const persist = mkdtempSync(join(tmpdir(), "voeding-test-"));
+const wrangler = (args, opts = {}) => execFileSync("npx", ["wrangler", ...args], { stdio: "pipe", ...opts }).toString();
+let dev;
+
+before(async () => {
+  wrangler(["d1", "migrations", "apply", "dcramere-voeding", "--local", "--persist-to", persist]);
+  dev = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
+    "--var", `SETUP_CODE:${SETUP}`, "--test-scheduled", "--show-interactive-dev-session=false"], { stdio: "pipe" });
+  for (let i = 0; i < 120; i++) {
+    try { if ((await fetch(`${BASE}/api/coach/status`)).ok) return; } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("wrangler dev did not start");
+});
+after(() => { dev?.kill(); rmSync(persist, { recursive: true, force: true }); });
+
+// minimal cookie-jar client (one per browser/user)
+function client() {
+  const jar = new Map();
+  return async (path, method = "GET", body, headers = {}) => {
+    const res = await fetch(BASE + path, {
+      method, headers: { ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; "), ...headers },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    for (const c of res.headers.getSetCookie()) { const [kv] = c.split(";"); const [k, v] = kv.split("="); v ? jar.set(k, v) : jar.delete(k); }
+    const text = await res.text();
+    let data; try { data = JSON.parse(text); } catch { data = text; }
+    return { status: res.status, data, headers: res.headers };
+  };
+}
+const coach = client(), anna = client(), bram = client(), anon = client();
+const PROFIEL = { geslacht: "v", geboorte: "1992-03-10", lengte: 168, maaltijden: 4, activiteit: 1.55, doel: -0.1,
+  geenRood: true, excl: ["zalm"], trainingsdagen: [1, 3, 5], trainingsmoment: "avond" };
+const tokenOf = (link) => new URL(link).searchParams.get("invite");
+let annaId, bramLink;
+
+test("coach setup: wrong code rejected, first setup works, second blocked", async () => {
+  assert.equal((await coach("/api/coach/status")).data.setupNodig, true);
+  assert.equal((await coach("/api/coach/setup", "POST", { code: "nope", naam: "X", email: "x@t.nl", password: "0123456789" })).status, 403);
+  const ok = await coach("/api/coach/setup", "POST", { code: SETUP, naam: "Coach", email: "coach@t.nl", password: "coach-pass-123" });
+  assert.equal(ok.status, 200);
+  assert.equal((await anon("/api/coach/setup", "POST", { code: SETUP, naam: "Evil", email: "e@t.nl", password: "0123456789" })).status, 403);
+  assert.equal((await coach("/api/coach/me")).data.naam, "Coach");
+});
+
+test("coach creates clients; duplicate e-mail rejected", async () => {
+  const a = await coach("/api/coach/clients", "POST", { naam: "Anna Test", email: "anna@t.nl" });
+  assert.equal(a.status, 201); annaId = a.data.id;
+  assert.equal((await coach("/api/coach/clients", "POST", { naam: "A2", email: "ANNA@t.nl" })).status, 409);
+  bramLink = (await coach("/api/coach/clients", "POST", { naam: "Bram", email: "bram@t.nl" })).data.link;
+  const inv = await anna(`/api/invite?token=${tokenOf(a.data.link)}`);
+  assert.deepEqual(inv.data, { naam: "Anna Test", email: "anna@t.nl" });
+  // activation requires privacy consent; the link then works exactly once
+  assert.equal((await anna("/api/invite", "POST", { token: tokenOf(a.data.link), password: "anna-pass-1" })).status, 400);
+  assert.equal((await anna("/api/invite", "POST", { token: tokenOf(a.data.link), password: "anna-pass-1", privacy: true })).status, 200);
+  assert.equal((await anon(`/api/invite?token=${tokenOf(a.data.link)}`)).status, 404);
+});
+
+test("client onboarding: intake, profile, weight, check-in", async () => {
+  const me = (await anna("/api/me")).data;
+  assert.equal(me.intake, null); assert.equal(me.profiel, null); assert.deepEqual(me.checkins, []);
+  assert.ok(me.privacyAkkoord > 0, "consent recorded at activation");
+  assert.equal((await anna("/api/privacy", "POST", { akkoord: false })).status, 400);
+  assert.equal((await anna("/api/privacy", "POST", { akkoord: true })).data.privacyAkkoord, me.privacyAkkoord, "first consent time is kept");
+  assert.equal((await anna("/api/intake", "PUT", { doel: "" })).status, 400);
+  const intake = await anna("/api/intake", "PUT", { doel: "5 kg vet kwijt", streefgewicht: 66, werk: "zittend", alcohol: "hacker", slaap: 7 });
+  assert.equal(intake.status, 200);
+  assert.equal(intake.data.alcohol, "", "unknown choice values are dropped");
+  const prof = await anna("/api/profiel", "PUT", { naam: "Anna Test", profiel: { ...PROFIEL, excl: ["zalm", "<b>"], trainingsdagen: [1, 1, 3, 9] } });
+  assert.equal(prof.status, 200);
+  assert.deepEqual(prof.data.profiel.excl, ["zalm"]);
+  assert.deepEqual(prof.data.profiel.trainingsdagen, [1, 3]);
+  assert.equal((await anna("/api/metingen", "POST", { datum: "2026-09-01", gewicht: 72.4, p1: 5 })).status, 400, "partial skinfolds");
+  assert.equal((await anna("/api/metingen", "POST", { datum: "2026-09-01", gewicht: 72.4 })).status, 200);
+  const m2 = await anna("/api/metingen", "POST", { datum: "2026-09-28", gewicht: 70.9 });
+  assert.equal(m2.data.metingen.length, 2);
+  assert.equal((await anna("/api/checkins", "POST", { datum: "2026-09-28", energie: 6, honger: 3, slaap: 3, stress: 3, naleving: 3 })).status, 400);
+  const k = { datum: "2026-09-28", energie: 2, honger: 4, slaap: 3, stress: 3, naleving: 5, training: 3, opmerking: "Zware week" };
+  assert.equal((await anna("/api/checkins", "POST", k)).status, 200);
+  const again = await anna("/api/checkins", "POST", { ...k, energie: 3 });
+  assert.equal(again.data.checkins.length, 1, "same date upserts");
+  assert.equal(again.data.checkins[0].energie, 3);
+  assert.equal((await anna("/api/menu", "PUT", { seed: 2, off: [1], offT: [0, 2], evil: 1 })).data.evil, undefined);
+});
+
+test("coach sees intake, check-ins, privacy consent and list summary", async () => {
+  const c = (await coach(`/api/coach/clients/${annaId}`)).data;
+  assert.equal(c.intake.doel, "5 kg vet kwijt");
+  assert.equal(c.checkins[0].opmerking, "Zware week");
+  assert.ok(c.privacyAkkoord > 0);
+  assert.equal(c.metingen.length, 2);
+  const row = (await coach("/api/coach/clients")).data.find((x) => x.id === annaId);
+  assert.equal(row.checkin.datum, "2026-09-28");
+  assert.equal(row.laatste.gewicht, 70.9);
+  assert.equal(row.eerste.gewicht, 72.4);
+  assert.equal((await coach(`/api/coach/clients/${annaId}/metingen`, "POST", { datum: "2026-09-20", gewicht: 71.6, p1: 6, p2: 14, p3: 11, p4: 13 })).data.metingen.length, 3);
+});
+
+test("isolation: roles and clients cannot reach each other's data", async () => {
+  assert.equal((await anna("/api/coach/clients")).status, 401, "client cookie is not a coach session");
+  assert.equal((await coach("/api/me")).status, 401, "coach cookie is not a client session");
+  await bram("/api/invite", "POST", { token: tokenOf(bramLink), password: "bram-pass-1", privacy: true });
+  const annaMeting = (await anna("/api/me")).data.metingen[0].id;
+  await bram(`/api/metingen/${annaMeting}`, "DELETE");
+  assert.equal((await anna("/api/me")).data.metingen.length, 3, "bram cannot delete anna's measurement");
+  assert.equal((await anon("/api/me")).status, 401);
+});
+
+test("security: cross-origin writes, non-JSON bodies, lockout, deactivation", async () => {
+  assert.equal((await anna("/api/profiel", "PUT", { naam: "x" }, { origin: "https://evil.example" })).status, 403);
+  assert.equal((await fetch(`${BASE}/api/login`, { method: "POST", body: "email=a" })).status, 415);
+  const x = client();
+  const codes = [];
+  for (let i = 0; i < 9; i++) codes.push((await x("/api/login", "POST", { email: "nobody@t.nl", password: "wrong" })).status);
+  assert.ok(codes.includes(429), `lockout expected, got ${codes}`);
+  assert.equal((await coach(`/api/coach/clients/${annaId}`, "PUT", { actief: false })).status, 200);
+  assert.equal((await anna("/api/me")).status, 401, "deactivation ends the session");
+  await coach(`/api/coach/clients/${annaId}`, "PUT", { actief: true });
+});
+
+test("backups: coach export and weekly snapshot", async () => {
+  const exp = await coach("/api/coach/export");
+  assert.equal(exp.status, 200);
+  assert.match(exp.headers.get("content-disposition"), /attachment/);
+  const raw = JSON.stringify(exp.data);
+  assert.ok(!raw.includes("pw_hash") && !raw.includes("pbkdf2$"), "no password hashes in exports");
+  assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").checkins.length, 1);
+  // opening the client list triggers the weekly snapshot in the background
+  await coach("/api/coach/clients");
+  await new Promise((r) => setTimeout(r, 1500));
+  const keys = JSON.parse(wrangler(["kv", "key", "list", "--binding", "BACKUPS", "--local", "--persist-to", persist]));
+  assert.ok(keys.some((k) => k.name.startsWith("backup/")), "dashboard visit wrote a snapshot");
+  assert.ok(keys.some((k) => k.name === "meta:laatste"));
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200, "cron entry point still works");
+});
+
+test("deleting a client removes all their data", async () => {
+  assert.equal((await coach(`/api/coach/clients/${annaId}`, "DELETE")).status, 200);
+  assert.equal((await coach(`/api/coach/clients/${annaId}`)).status, 404);
+  assert.equal((await anna("/api/me")).status, 401);
+});

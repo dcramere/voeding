@@ -5,56 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DCRAMERE Coach</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#0A0A0A">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="icon" href="/img/icon-48.png" type="image/png">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+<link rel="preload" href="/fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="wrap wide">
-  <header class="top">
-    <a class="brand" href="#/">DCRAMERE<small>Coach</small></a>
-    <div class="top-actions" id="topActions" hidden>
+  <header class="top" id="topbar" hidden>
+    <a class="brand" href="#/"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coach</small></span></a>
+    <div class="top-actions">
       <span id="coachNaam"></span>
       <button class="linkbtn" type="button" id="logout">Uitloggen</button>
     </div>
   </header>
 
-  <section class="view on" id="v-laden"><p class="empty">Laden…</p></section>
+  <section class="view on" id="v-laden"><p class="empty" style="text-align:center;padding-top:30vh">Laden…</p></section>
 
   <!-- SETUP (eenmalig) -->
   <section class="view" id="v-setup" aria-labelledby="t-setup">
-    <h1 id="t-setup">Coach-account aanmaken</h1>
-    <p class="sub">Eenmalige stap. Vul de setupcode in die bij de installatie is gemaakt, en kies uw inloggegevens.</p>
-    <form id="fSetup" class="narrow" novalidate>
-      <label>Setupcode<input name="code" autocomplete="off" required></label>
-      <label>Naam<input name="naam" autocomplete="name" value="Dino E. Cramer" required></label>
-      <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
-      <label>Wachtwoord <small>minimaal 10 tekens</small><input type="password" name="password" autocomplete="new-password" required></label>
-      <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
-      <div><button class="btn" type="submit">Account aanmaken</button></div>
-      <div class="flash" data-msg role="status"></div>
-    </form>
+    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720" style="width:200px"></div>
+    <div class="auth-card">
+      <h1 id="t-setup">Coach-account aanmaken</h1>
+      <p class="sub">Eenmalige stap. Vul de setupcode in die bij de installatie is gemaakt, en kies uw inloggegevens.</p>
+      <form id="fSetup" novalidate>
+        <label>Setupcode<input name="code" autocomplete="off" required></label>
+        <label>Naam<input name="naam" autocomplete="name" value="Dino E. Cramer" required></label>
+        <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+        <label>Wachtwoord <small>minimaal 10 tekens</small><input type="password" name="password" autocomplete="new-password" required></label>
+        <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
+        <button class="btn block" type="submit">Account aanmaken</button>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </div>
   </section>
 
   <!-- LOGIN -->
   <section class="view" id="v-login" aria-labelledby="t-login">
-    <h1 id="t-login">Coach inloggen</h1>
-    <form id="fLogin" class="narrow" novalidate>
-      <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
-      <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
-      <div><button class="btn" type="submit">Inloggen</button></div>
-      <div class="flash" data-msg role="status"></div>
-    </form>
+    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720" style="width:200px"></div>
+    <div class="auth-card">
+      <h1 id="t-login">Coach</h1>
+      <form id="fLogin" novalidate>
+        <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+        <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
+        <button class="btn block" type="submit">Inloggen</button>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </div>
   </section>
 
   <!-- CLIËNTEN -->
   <section class="view" id="v-lijst" aria-labelledby="t-lijst">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 id="t-lijst">Cliënten</h1>
-      <button class="btn" type="button" id="toggleNew">Nieuwe cliënt</button>
+      <div class="actions" style="margin:0">
+        <a class="btn ghost small" href="/api/coach/export" download>Back-up downloaden</a>
+        <button class="btn small" type="button" id="toggleNew">Nieuwe cliënt</button>
+      </div>
     </div>
     <div class="stats" id="stats"></div>
     <form id="fNew" class="narrow" novalidate hidden>
@@ -86,10 +95,12 @@
     <nav class="seg" aria-label="Onderdelen">
       <button type="button" data-pane="plan">Plan</button>
       <button type="button" data-pane="metingen">Metingen</button>
+      <button type="button" data-pane="checkins">Check-ins</button>
+      <button type="button" data-pane="intake">Intake</button>
       <button type="button" data-pane="profiel">Profiel</button>
       <button type="button" data-pane="notities">Notities</button>
     </nav>
-    <div class="pane" data-pane-body="plan" id="pPlan"></div>
+    <div class="pane" data-pane-body="plan"><div id="pPlan"></div><div id="pShop"></div></div>
     <div class="pane" data-pane-body="metingen">
       <div class="split">
         <div id="pHist"></div>
@@ -103,6 +114,8 @@
         </div>
       </div>
     </div>
+    <div class="pane" data-pane-body="checkins" id="pCheckins"></div>
+    <div class="pane" data-pane-body="intake" id="pIntake"></div>
     <div class="pane" data-pane-body="profiel">
       <form id="fProfiel" novalidate>
         <div class="row">
@@ -123,6 +136,8 @@
     </div>
   </section>
 </div>
+
+<div id="print" aria-hidden="true"></div>
 
 <script src="/core.js"></script>
 <script src="/coach.js"></script>

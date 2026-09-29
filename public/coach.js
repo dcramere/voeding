@@ -2,7 +2,7 @@
 (function(){
 "use strict";
 const DC=window.DC, esc=DC.esc, $=id=>document.getElementById(id);
-const STALE_DAYS=14;
+const STALE_DAYS=14, CHECKIN_LATE=10;
 let coach=null, clients=[], cur=null, pane="plan", viewDag=null;
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML({open:true});
@@ -10,7 +10,7 @@ $("fProfiel").querySelector("[data-fields]").innerHTML=DC.profielFieldsHTML();
 
 function show(v){
   document.querySelectorAll("section.view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
-  $("topActions").hidden=!coach;
+  $("topbar").hidden=!coach;
   window.scrollTo(0,0);
 }
 async function call(path,method,body){
@@ -25,11 +25,20 @@ function status(c){
   return ["Actief","ok"];
 }
 const pill=c=>{const [l,k]=status(c);return `<span class="pill ${k}">${l}</span>`};
-function needsAttention(c){
-  if(!c.actief) return false;
-  if(!c.geactiveerd) return status(c)[0]==="Link verlopen";
-  return !c.laatste||DC.daysSince(c.laatste.datum)>STALE_DAYS;
+const checkinLate=c=>c.laatste&&(!c.checkin||DC.daysSince(c.checkin.datum)>CHECKIN_LATE);
+function attentionReasons(c){
+  if(!c.actief) return [];
+  if(!c.geactiveerd) return status(c)[0]==="Link verlopen"?["uitnodiging verlopen"]:[];
+  const r=[];
+  if(!c.intake) r.push("intake leeg");
+  if(!c.laatste) r.push("nog geen meting");
+  else if(DC.daysSince(c.laatste.datum)>STALE_DAYS) r.push("lang niet gewogen");
+  if(checkinLate(c)) r.push("check-in achter");
+  const flags=DC.checkinFlags(c.checkin);
+  if(flags.length) r.push(flags.join(", "));
+  return r;
 }
+const needsAttention=c=>attentionReasons(c).length>0;
 function ago(days){return days<=0?"vandaag":days===1?"gisteren":days+" dagen geleden"}
 function inviteHTML(naam,link){
   const first=naam.split(" ")[0];
@@ -46,38 +55,40 @@ async function loadList(){
 }
 function renderList(){
   const act=clients.filter(c=>c.actief);
-  const week=act.filter(c=>c.laatste&&DC.daysSince(c.laatste.datum)<=7).length;
+  const week=act.filter(c=>c.checkin&&DC.daysSince(c.checkin.datum)<=7).length;
   const attn=clients.filter(needsAttention).length;
   const deltas=act.filter(c=>c.aantal>1).map(c=>c.laatste.gewicht-c.eerste.gewicht);
   const avg=deltas.length?deltas.reduce((a,b)=>a+b,0)/deltas.length:null;
   $("stats").innerHTML=
     `<div><small>Actieve cliënten</small><b>${act.length}</b></div>`+
-    `<div><small>Gemeten, laatste 7 dagen</small><b>${week}</b></div>`+
+    `<div><small>Check-ins, laatste 7 dagen</small><b>${week}</b></div>`+
     `<div><small>Aandacht nodig</small><b class="${attn?"stale":""}">${attn}</b></div>`+
-    `<div><small>Gem. verandering sinds start</small><b>${avg==null?"–":DC.signed(avg)+" kg"}</b></div>`;
+    `<div><small>Gem. verandering sinds start</small><b>${avg==null?"–":DC.signed(avg)+'<span class="unit">kg</span>'}</b></div>`;
 
   const q=$("zoek").value.trim().toLowerCase(), f=$("filter").value;
   const rows=clients.filter(c=>(!q||c.naam.toLowerCase().includes(q)||c.email.includes(q))&&
     (!f||(f==="aandacht"&&needsAttention(c))||(f==="uitgenodigd"&&c.actief&&!c.geactiveerd)||(f==="inactief"&&!c.actief)));
   if(!clients.length){$("lijst").innerHTML='<p class="empty">Nog geen cliënten. Klik op "Nieuwe cliënt" om de eerste uit te nodigen.</p>';return}
   if(!rows.length){$("lijst").innerHTML='<p class="empty">Geen cliënten gevonden.</p>';return}
-  $("lijst").innerHTML=`<table class="clients"><thead><tr><th>Cliënt</th><th>Status</th><th>Laatste meting</th><th class="n">Gewicht</th><th class="n hide-sm">Sinds start</th><th class="n hide-sm">Dagdoel</th><th class="hide-sm">Doel</th></tr></thead><tbody>`+
+  $("lijst").innerHTML=`<table class="clients"><thead><tr><th>Cliënt</th><th>Status</th><th>Laatste meting</th><th class="hide-sm">Check-in</th><th class="n">Gewicht</th><th class="n hide-sm">Sinds start</th><th class="n hide-sm">Dagdoel</th></tr></thead><tbody>`+
     rows.map(c=>{
       const l=c.laatste, d=l?DC.daysSince(l.datum):null;
       let kcal="–";
       if(c.profiel&&l){
         const A=DC.analyse(c.profiel,l), D=DC.dagTargets(c.profiel,A);
-        kcal=DC.fmt(A.kcal)+" kcal"+(D?`<br><small style="color:var(--muted)">T ${DC.fmt(D.train.kcal)} · R ${DC.fmt(D.rust.kcal)}</small>`:"");
+        kcal=DC.fmt(A.kcal)+" kcal"+(D?`<br><small style="color:var(--muted)">T ${DC.fmt(D.train.kcal)}<span class="sep">·</span>R ${DC.fmt(D.rust.kcal)}</small>`:"");
       }
       const delta=c.aantal>1?DC.signed(l.gewicht-c.eerste.gewicht)+" kg":"–";
+      const why=attentionReasons(c);
+      const k=c.checkin, kd=k?DC.daysSince(k.datum):null, flags=DC.checkinFlags(k);
       return `<tr data-id="${c.id}" tabindex="0">
-        <td class="who"><b>${esc(c.naam)}</b><small>${esc(c.email)}</small></td>
-        <td>${pill(c)}${c.geactiveerd&&!c.profiel?'<br><small style="color:var(--muted)">profiel leeg</small>':""}</td>
+        <td class="who"><b>${esc(c.naam)}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</td>
+        <td>${pill(c)}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
         <td>${l?`${DC.dateNL(l.datum,{day:"numeric",month:"short",year:"numeric"})}<br><small class="${d>STALE_DAYS&&c.actief?"stale":""}" style="${d>STALE_DAYS&&c.actief?"":"color:var(--muted)"}">${ago(d)}</small>`:'<span style="color:var(--muted)">nog geen</span>'}</td>
+        <td class="hide-sm">${k?`${ago(kd)}<br><small class="${flags.length?"stale":""}" style="${flags.length?"":"color:var(--muted)"}">${flags.length?flags.join(", "):"geen bijzonderheden"}</small>`:'<span style="color:var(--muted)">–</span>'}</td>
         <td class="n">${l?DC.fmt(l.gewicht,1)+" kg":"–"}</td>
         <td class="n hide-sm">${delta}</td>
-        <td class="n hide-sm">${kcal}</td>
-        <td class="hide-sm">${c.profiel?DC.DOEL_LABEL[String(c.profiel.doel)]||"":"–"}</td></tr>`;
+        <td class="n hide-sm">${kcal}</td></tr>`;
     }).join("")+`</tbody></table>`;
 }
 $("zoek").addEventListener("input",renderList);
@@ -102,7 +113,7 @@ async function loadClient(id){
 function renderClient(){
   const c=cur, [st]=status(c);
   $("clientHead").innerHTML=`<h1 style="margin-top:14px">${esc(c.naam)}</h1>
-    <p class="sub">${esc(c.email)} · ${pill(c)} · cliënt sinds ${new Date(c.aangemaakt*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}${c.laatstGezien?` · laatst actief ${ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))}`:""}</p>
+    <p class="sub">${esc(c.email)}<span class="sep">·</span>${pill(c)}<span class="sep">·</span>cliënt sinds ${new Date(c.aangemaakt*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}${c.laatstGezien?`<span class="sep">·</span>laatst actief ${ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))}`:""}${c.privacyAkkoord?`<span class="sep">·</span>privacy akkoord ${new Date(c.privacyAkkoord*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"})}`:""}</p>
     <div class="actions" style="margin-top:0">
       ${c.actief?`<button class="btn small ghost" type="button" data-act="invite">${c.geactiveerd?"Nieuwe inloglink (wachtwoord vergeten)":st==="Link verlopen"?"Nieuwe uitnodigingslink":"Uitnodigingslink opnieuw maken"}</button>`:""}
       <button class="btn small ghost" type="button" data-act="toggle">${c.actief?"Deactiveren":"Activeren"}</button>
@@ -112,8 +123,11 @@ function renderClient(){
   $("pPlan").innerHTML=!c.profiel?'<p class="empty">Het profiel is nog niet ingevuld. Vul het in onder Profiel, of wacht tot de cliënt dit zelf doet.</p>'
     :!m?'<p class="empty">Nog geen meting. Voeg er een toe onder Metingen.</p>'
     :DC.planHTML(c.profiel,m,c.menu,{coach:true,dag:viewDag});
+  $("pShop").innerHTML="";
   $("pHist").innerHTML=c.metingen.length&&c.profiel?DC.historyHTML(c.profiel,c.metingen,{coach:true})
     :c.metingen.length?'<p class="empty">Vul eerst het profiel in om de analyse te zien.</p>':'<p class="empty">Nog geen metingen.</p>';
+  $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins);
+  $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
   const fp=$("fProfiel");
   fp.reset(); fp.elements.naam.value=c.naam; fp.elements.email.value=c.email; DC.fillProfiel(fp,c.profiel);
   $("fNotities").elements.notities.value=c.notities||"";
@@ -135,6 +149,12 @@ document.addEventListener("click",async e=>{
   }
   const dag=e.target.closest("[data-dag]");
   if(dag&&cur){viewDag=dag.dataset.dag;renderClient();return}
+  const m=cur&&cur.profiel&&DC.latest(cur.metingen);
+  if(e.target.closest("[data-boodschappen]")&&m){
+    $("pShop").innerHTML=`<h2>Boodschappenlijst</h2>${DC.shoppingHTML(cur.profiel,m,cur.menu)}`;
+    $("pShop").scrollIntoView({behavior:"smooth",block:"start"}); return;
+  }
+  if(e.target.closest("[data-print]")&&m){DC.printPlan(cur.profiel,m,cur.menu,{naam:cur.naam,coach:coach.naam});return}
   const del=e.target.closest("[data-del]");
   if(del&&cur){
     if(!confirm("Deze meting verwijderen?")) return;

@@ -11,19 +11,48 @@ const ACTIVITEIT = [1.35, 1.45, 1.55, 1.7, 1.85];
 const DOEL = [-0.2, -0.1, 0, 0.1];
 const MOMENT = ["ochtend", "middag", "avond"];
 
+const BACKUP_TTL = 60 * DAY; // weekly snapshots, ~8 kept
+const BACKUP_EVERY = 7 * DAY;
+
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
-      return await route(req, env, url);
+      return await route(req, env, url, ctx);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
       console.error(e);
       return json({ error: "Er ging iets mis op de server. Probeer het later opnieuw." }, 500);
     }
   },
+
+  // optional cron entry point (the free plan's 5 cron slots are taken, so backups are normally
+  // triggered by backupIfDue when the coach opens the dashboard)
+  async scheduled(event, env) {
+    await writeBackup(env);
+  },
 };
+
+// full snapshot of all data into KV, independent of D1's own 30-day Time Travel
+async function writeBackup(env) {
+  const { results: coaches } = await env.DB.prepare("SELECT id, naam, email, created_at FROM coaches").all();
+  const snapshot = { gemaakt: new Date().toISOString(), coaches: [] };
+  for (const c of coaches) snapshot.coaches.push({ ...c, ...(await exportData(env, c.id)) });
+  const key = `backup/${snapshot.gemaakt.slice(0, 10)}.json`;
+  await env.BACKUPS.put(key, JSON.stringify(snapshot), { expirationTtl: BACKUP_TTL });
+  await env.BACKUPS.put("meta:laatste", String(Math.floor(Date.now() / 1000)));
+  console.log(`backup written: ${key}`);
+}
+
+async function backupIfDue(env, now) {
+  try {
+    const last = Number(await env.BACKUPS.get("meta:laatste")) || 0;
+    if (now - last >= BACKUP_EVERY) await writeBackup(env);
+  } catch (e) {
+    console.error("backup failed", e);
+  }
+}
 
 // ---------- http helpers ----------
 class HttpError extends Error {
@@ -160,6 +189,47 @@ function cleanMeting(b) {
   return m;
 }
 
+const INTAKE_KEUZES = {
+  werk: ["zittend", "staand", "fysiek", "ploegen"],
+  ervaring: ["geen", "beginner", "gevorderd", "ervaren"],
+  alcohol: ["nooit", "soms", "wekelijks", "dagelijks"],
+};
+function cleanIntake(b) {
+  if (!b || typeof b !== "object") fail(400, "Intake ontbreekt.");
+  const keuze = (k) => (INTAKE_KEUZES[k].includes(b[k]) ? b[k] : "");
+  const intake = {
+    doel: str(b.doel, 1000, "Doel"),
+    streefgewicht: num(b.streefgewicht, 30, 300, "Streefgewicht"),
+    medisch: str(b.medisch, 1000, "Medische informatie"),
+    blessures: str(b.blessures, 1000, "Blessures"),
+    allergieen: str(b.allergieen, 500, "Allergieën"),
+    werk: keuze("werk"),
+    slaap: num(b.slaap, 3, 12, "Slaap"),
+    ervaring: keuze("ervaring"),
+    sport: str(b.sport, 500, "Sport"),
+    lastig: str(b.lastig, 1000, "Lastigste punt"),
+    alcohol: keuze("alcohol"),
+  };
+  if (!intake.doel) fail(400, "Beschrijf kort wat u wilt bereiken.");
+  return intake;
+}
+
+function cleanCheckin(b) {
+  if (!isDate(b.datum)) fail(400, "Vul een geldige datum in.");
+  const score = (k, label) => {
+    const v = Number(b[k]);
+    if (!Number.isInteger(v) || v < 1 || v > 5) fail(400, `Kies een score voor ${label}.`);
+    return v;
+  };
+  const training = b.training === null || b.training === undefined || b.training === "" ? null : Number(b.training);
+  if (training !== null && (!Number.isInteger(training) || training < 0 || training > 14)) fail(400, "Aantal trainingen klopt niet.");
+  return {
+    datum: b.datum, energie: score("energie", "energie"), honger: score("honger", "honger"), slaap: score("slaap", "slaap"),
+    stress: score("stress", "stress"), naleving: score("naleving", "het volgen van het plan"), training,
+    opmerking: str(b.opmerking, 2000, "Opmerking"),
+  };
+}
+
 function cleanMenu(b) {
   const seed = Number.isInteger(b.seed) ? Math.max(0, Math.min(b.seed, 1e6)) : 0;
   const offs = (a) => (Array.isArray(a) ? a.slice(0, 6).map((x) => (Number.isInteger(x) ? Math.max(0, Math.min(x, 1e6)) : 0)) : []);
@@ -227,6 +297,9 @@ const ROUTES = [
   ["PUT", "/menu", withClient(clientPutMenu)],
   ["POST", "/metingen", withClient(clientAddMeting)],
   ["DELETE", /^\/metingen\/(\d+)$/, withClient(clientDelMeting)],
+  ["PUT", "/intake", withClient(clientPutIntake)],
+  ["POST", "/privacy", withClient(clientAcceptPrivacy)],
+  ["POST", "/checkins", withClient(clientAddCheckin)],
   ["POST", "/wachtwoord", withClient(clientChangePassword)],
   // coach
   ["GET", "/coach/status", coachStatus],
@@ -235,6 +308,7 @@ const ROUTES = [
   ["POST", "/coach/logout", logout("coach")],
   ["GET", "/coach/me", withCoach(async (c) => json(c.coach))],
   ["GET", "/coach/clients", withCoach(listClients)],
+  ["GET", "/coach/export", withCoach(coachExport)],
   ["POST", "/coach/clients", withCoach(createClient)],
   ["GET", /^\/coach\/clients\/(\d+)$/, withCoach(getClient)],
   ["PUT", /^\/coach\/clients\/(\d+)$/, withCoach(updateClient)],
@@ -244,7 +318,7 @@ const ROUTES = [
   ["DELETE", /^\/coach\/clients\/(\d+)\/metingen\/(\d+)$/, withCoach(coachDelMeting)],
 ];
 
-async function route(req, env, url) {
+async function route(req, env, url, ctx) {
   const method = req.method;
   if (method !== "GET" && method !== "HEAD") {
     const origin = req.headers.get("origin");
@@ -257,7 +331,7 @@ async function route(req, env, url) {
     if (typeof pattern === "string") { if (pattern !== path) continue; }
     else { const hit = path.match(pattern); if (!hit) continue; params = hit.slice(1).map(Number); }
     const body = method === "POST" || method === "PUT" ? await readJson(req) : {};
-    return handler({ req, env, url, body, params, now: Math.floor(Date.now() / 1000) });
+    return handler({ req, env, url, ctx, body, params, now: Math.floor(Date.now() / 1000) });
   }
   fail(404, "Niet gevonden.");
 }
@@ -276,6 +350,28 @@ async function metingenOf(env, clientId) {
     "SELECT id, datum, gewicht, taille, heup, p1, p2, p3, p4, door FROM metingen WHERE client_id = ? ORDER BY datum",
   ).bind(clientId).all();
   return results;
+}
+
+async function checkinsOf(env, clientId, limit = 52) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, datum, energie, honger, slaap, stress, naleving, training, opmerking
+     FROM checkins WHERE client_id = ? ORDER BY datum DESC LIMIT ?`,
+  ).bind(clientId, limit).all();
+  return results;
+}
+
+async function exportData(env, coachId) {
+  const { results: clients } = await env.DB.prepare(
+    `SELECT id, naam, email, actief, profiel, intake, notities, privacy_akkoord, created_at, last_seen
+     FROM clients WHERE coach_id = ? ORDER BY id`,
+  ).bind(coachId).all();
+  for (const cl of clients) {
+    cl.profiel = cl.profiel ? JSON.parse(cl.profiel) : null;
+    cl.intake = cl.intake ? JSON.parse(cl.intake) : null;
+    cl.metingen = await metingenOf(env, cl.id);
+    cl.checkins = await checkinsOf(env, cl.id, 10000);
+  }
+  return { clients };
 }
 
 async function upsertMeting(c, clientId, door) {
@@ -326,9 +422,12 @@ async function inviteInfo(c) {
 
 async function inviteAccept(c) {
   const row = await inviteRow(c, c.body.token);
+  if (c.body.privacy !== true) fail(400, "Ga akkoord met de privacyverklaring om verder te gaan.");
   const pw = await hashPassword(newPassword(c.body.password));
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE clients SET pw_hash = ?, invite_hash = NULL, invite_expires = NULL WHERE id = ?").bind(pw, row.id),
+    c.env.DB.prepare(
+      "UPDATE clients SET pw_hash = ?, invite_hash = NULL, invite_expires = NULL, privacy_akkoord = COALESCE(privacy_akkoord, ?) WHERE id = ?",
+    ).bind(pw, c.now, row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
   ]);
   return json({ ok: true }, 200, { "set-cookie": await startSession(c, "client", row.id) });
@@ -336,14 +435,16 @@ async function inviteAccept(c) {
 
 async function clientMe(c) {
   const { client: cl, env } = c;
-  const [coach, metingen] = await Promise.all([
+  const [coach, metingen, checkins] = await Promise.all([
     env.DB.prepare("SELECT naam FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
     metingenOf(env, cl.id),
+    checkinsOf(env, cl.id, 12),
     env.DB.prepare("UPDATE clients SET last_seen = ? WHERE id = ?").bind(c.now, cl.id).run(),
   ]);
   return json({
     naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "",
-    profiel: cl.profiel ? JSON.parse(cl.profiel) : null, menu: JSON.parse(cl.menu), metingen,
+    profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
+    privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins,
   });
 }
 
@@ -363,6 +464,31 @@ async function clientPutMenu(c) {
 }
 
 function clientAddMeting(c) { return upsertMeting(c, c.client.id, "client"); }
+
+// for clients activated before consent was part of activation
+async function clientAcceptPrivacy(c) {
+  if (c.body.akkoord !== true) fail(400, "Ga akkoord met de privacyverklaring om verder te gaan.");
+  await c.env.DB.prepare("UPDATE clients SET privacy_akkoord = COALESCE(privacy_akkoord, ?) WHERE id = ?").bind(c.now, c.client.id).run();
+  return json({ privacyAkkoord: c.client.privacy_akkoord || c.now });
+}
+
+async function clientPutIntake(c) {
+  const intake = cleanIntake(c.body);
+  await c.env.DB.prepare("UPDATE clients SET intake = ? WHERE id = ?").bind(JSON.stringify(intake), c.client.id).run();
+  return json(intake);
+}
+
+async function clientAddCheckin(c) {
+  const k = cleanCheckin(c.body);
+  await c.env.DB.prepare(
+    `INSERT INTO checkins (client_id, datum, energie, honger, slaap, stress, naleving, training, opmerking, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (client_id, datum) DO UPDATE SET
+       energie = excluded.energie, honger = excluded.honger, slaap = excluded.slaap, stress = excluded.stress,
+       naleving = excluded.naleving, training = excluded.training, opmerking = excluded.opmerking`,
+  ).bind(c.client.id, k.datum, k.energie, k.honger, k.slaap, k.stress, k.naleving, k.training, k.opmerking, c.now).run();
+  return json({ checkins: await checkinsOf(c.env, c.client.id, 12) });
+}
 
 async function clientDelMeting(c) {
   await c.env.DB.prepare("DELETE FROM metingen WHERE id = ? AND client_id = ?").bind(c.params[0], c.client.id).run();
@@ -422,13 +548,16 @@ async function ownClient(c, id) {
 function publicClient(r) {
   return {
     id: r.id, naam: r.naam, email: r.email, actief: !!r.actief, geactiveerd: !!r.pw_hash,
-    uitnodigingVerloopt: r.invite_expires, notities: r.notities,
-    profiel: r.profiel ? JSON.parse(r.profiel) : null, menu: JSON.parse(r.menu),
+    uitnodigingVerloopt: r.invite_expires, notities: r.notities, privacyAkkoord: r.privacy_akkoord,
+    profiel: r.profiel ? JSON.parse(r.profiel) : null, intake: r.intake ? JSON.parse(r.intake) : null,
+    menu: JSON.parse(r.menu),
     aangemaakt: r.created_at, laatstGezien: r.last_seen,
   };
 }
 
 async function listClients(c) {
+  // opening the dashboard doubles as the weekly backup trigger (runs after the response)
+  c.ctx?.waitUntil(backupIfDue(c.env, c.now));
   const { results } = await c.env.DB.prepare(
     `SELECT c.*,
        (SELECT COUNT(*) FROM metingen m WHERE m.client_id = c.id) AS aantal,
@@ -436,11 +565,14 @@ async function listClients(c) {
           FROM metingen m WHERE m.client_id = c.id ORDER BY datum ASC LIMIT 1) AS eerste,
        (SELECT json_object('datum', datum, 'gewicht', gewicht, 'taille', taille, 'heup', heup,
                            'p1', p1, 'p2', p2, 'p3', p3, 'p4', p4)
-          FROM metingen m WHERE m.client_id = c.id ORDER BY datum DESC LIMIT 1) AS laatste
+          FROM metingen m WHERE m.client_id = c.id ORDER BY datum DESC LIMIT 1) AS laatste,
+       (SELECT json_object('datum', datum, 'energie', energie, 'honger', honger, 'slaap', slaap,
+                           'stress', stress, 'naleving', naleving)
+          FROM checkins k WHERE k.client_id = c.id ORDER BY datum DESC LIMIT 1) AS checkin
      FROM clients c WHERE c.coach_id = ? ORDER BY c.naam COLLATE NOCASE`,
   ).bind(c.coach.id).all();
   return json(results.map((r) => ({
-    ...publicClient(r), aantal: r.aantal,
+    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null,
     eerste: r.eerste ? JSON.parse(r.eerste) : null, laatste: r.laatste ? JSON.parse(r.laatste) : null,
   })));
 }
@@ -466,7 +598,18 @@ async function createClient(c) {
 
 async function getClient(c) {
   const row = await ownClient(c, c.params[0]);
-  return json({ ...publicClient(row), metingen: await metingenOf(c.env, row.id) });
+  const [metingen, checkins] = await Promise.all([metingenOf(c.env, row.id), checkinsOf(c.env, row.id)]);
+  return json({ ...publicClient(row), metingen, checkins });
+}
+
+async function coachExport(c) {
+  const data = { gemaakt: new Date().toISOString(), coach: c.coach, ...(await exportData(c.env, c.coach.id)) };
+  return new Response(JSON.stringify(data, null, 2), {
+    headers: {
+      "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
+      "content-disposition": `attachment; filename="dcramere-voeding-backup-${data.gemaakt.slice(0, 10)}.json"`,
+    },
+  });
 }
 
 async function updateClient(c) {
@@ -502,6 +645,7 @@ async function deleteClient(c) {
   const row = await ownClient(c, c.params[0]);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM metingen WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(row.id),
   ]);

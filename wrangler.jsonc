@@ -16,5 +16,8 @@
       "migrations_dir": "migrations"
     }
   ],
+  "kv_namespaces": [
+    { "binding": "BACKUPS", "id": "ce3ea2e2d0a64a7382210a86e3bb1138" }
+  ],
   "observability": { "enabled": true }
 }

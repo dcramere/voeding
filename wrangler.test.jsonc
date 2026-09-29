@@ -24,5 +24,7 @@
   "r2_buckets": [
     { "binding": "FOTOS", "bucket_name": "dcramere-voeding-fotos" }
   ],
+  // prices shown on the landing page until Stripe is connected (then the Stripe prices are used)
+  "vars": { "PRIJS_CLIENT": "49", "PRIJS_COACH": "49", "VALUTA": "USD" },
   "observability": { "enabled": true }
 }

@@ -359,7 +359,7 @@ async function afterPayment(sid){
 async function signupInfo(){
   const p=await DC.api("/api/prijzen").catch(()=>null);
   if(p&&p.beschikbaar) $("aanmPrijs").textContent=`${fmtPrice(p.coach)} per maand, maandelijks opzegbaar. Maak uw account aan; daarna rondt u de betaling af bij onze betaalpartner Stripe.`;
-  else if(p&&!p.beschikbaar){$("aanmPrijs").textContent="Aanmelden als coach is binnenkort mogelijk.";$("fSignup").querySelector("[type=submit]").disabled=true}
+  else if(p&&!p.beschikbaar){$("aanmPrijs").textContent=(p.coach?`${fmtPrice(p.coach)} per maand. `:"")+"Online aanmelden als coach opent binnenkort. Neem contact op via WhatsApp (+597 851 4920) om nu al te starten.";$("fSignup").querySelector("[type=submit]").disabled=true}
 }
 const fmtPrice=p=>new Intl.NumberFormat("nl-NL",{style:"currency",currency:p.valuta}).format(p.bedrag);
 DC.handleForm($("fSignup"),async f=>{

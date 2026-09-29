@@ -8,15 +8,15 @@ let prices=null;
 DC.api("/api/prijzen").then(p=>{
   prices=p;
   document.querySelectorAll("[data-price]").forEach(el=>{
-    const x=p.beschikbaar&&p[el.dataset.price];
+    const x=p[el.dataset.price];
     el.querySelector("b").textContent=x?money(x):"Binnenkort";
     el.querySelector("span").textContent=x?(x.interval==="year"?"per jaar":"per maand"):"";
   });
-  if(!p.beschikbaar){$("prijsNoot").textContent="Aanmelden is binnenkort mogelijk. Neem contact op via WhatsApp als u nu al wilt starten.";document.querySelectorAll("[data-start]").forEach(b=>{b.setAttribute("aria-disabled","true")})}
+  if(!p.beschikbaar) $("prijsNoot").textContent="Online aanmelden opent binnenkort. Wilt u nu al starten? Neem contact op via WhatsApp; de knoppen hieronder openen een bericht.";
 }).catch(()=>{});
 
 function openStart(){
-  if(prices&&!prices.beschikbaar){location.href="https://wa.me/5978514920";return}
+  if(prices&&!prices.beschikbaar){location.href="https://wa.me/5978514920?text="+encodeURIComponent("Hallo Dino, ik wil graag starten met DCRAMERE Coaching.");return}
   if(prices&&prices.client) $("startPrijs").textContent=`${money(prices.client)} per maand, maandelijks opzegbaar. U rondt de betaling af bij onze betaalpartner Stripe; daarna kiest u meteen uw wachtwoord.`;
   $("startSheet").hidden=false; document.body.classList.add("sheet-open");
   setTimeout(()=>$("fStart").elements.naam.focus(),50);

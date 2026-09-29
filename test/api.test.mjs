@@ -388,11 +388,11 @@ test("platform: coach signup → payment → isolated dashboard; owner overview"
   assert.match((await k("/api/coach/billing/portal", "POST", {})).data.url, /billing/);
 });
 
-test("root: old invite links and logged-in clients go to /app/", async () => {
+test("root: old invite links go to /app/, landing page always reachable", async () => {
   const r1 = await fetch(`${BASE}/?invite=abc123`, { redirect: "manual" });
   assert.equal(r1.status, 302); assert.equal(new URL(r1.headers.get("location")).pathname + new URL(r1.headers.get("location")).search, "/app/?invite=abc123");
   const r2 = await fetch(`${BASE}/`, { redirect: "manual", headers: { cookie: "vc=something" } });
-  assert.equal(r2.status, 302);
+  assert.equal(r2.status, 200, "logged-in clients can still see the landing page");
   const r3 = await fetch(`${BASE}/`, { redirect: "manual" });
   assert.equal(r3.status, 200); assert.match(await r3.text(), /Start uw coaching/);
 });

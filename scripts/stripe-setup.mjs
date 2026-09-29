@@ -63,9 +63,9 @@ try {
   const live = KEY.includes("_live_");
   const acct = await stripe("GET", "/account");
   console.log(`\nAccount: ${acct.settings?.dashboard?.display_name || acct.id} (${live ? "LIVE" : "test"}), land ${acct.country}, standaardvaluta ${acct.default_currency}\n`);
-  const currency = (await ask("Valuta (bijv. usd, eur)", acct.default_currency || "usd")).toLowerCase();
-  const client = Math.round(parseFloat((await ask("Prijs per maand voor cliënten (coaching), bijv. 79", "79")).replace(",", ".")) * 100);
-  const coach = Math.round(parseFloat((await ask("Prijs per maand voor coaches (platform), bijv. 49", "49")).replace(",", ".")) * 100);
+  const currency = (await ask("Valuta (bijv. usd, eur)", "usd")).toLowerCase();
+  const client = Math.round(parseFloat((await ask("Prijs per maand voor cliënten (coaching)", "49")).replace(",", ".")) * 100);
+  const coach = Math.round(parseFloat((await ask("Prijs per maand voor coaches (platform)", "49")).replace(",", ".")) * 100);
   if (!(client > 0 && coach > 0)) throw new Error("Ongeldige prijs.");
 
   console.log("\nPrijzen…");

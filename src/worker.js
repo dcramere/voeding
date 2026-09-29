@@ -22,9 +22,8 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (url.pathname === "/") {
-      // the app moved to /app/: keep old invite links working and send logged-in clients straight to it
+      // the app moved to /app/: keep old invite links working (the landing page stays reachable for everyone)
       if (url.searchParams.has("invite")) return Response.redirect(`${url.origin}/app/?invite=${encodeURIComponent(url.searchParams.get("invite"))}`, 302);
-      if (getCookie(req, COOKIE.client)) return Response.redirect(`${url.origin}/app/`, 302);
     }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
@@ -1129,7 +1128,11 @@ const ownerCoach = (env) => env.DB.prepare("SELECT id FROM coaches WHERE is_owne
 const subFields = (sub) => ({ id: sub.id, status: sub.status, einde: sub.current_period_end || null, customer: typeof sub.customer === "string" ? sub.customer : sub.customer && sub.customer.id });
 
 async function prijzen(c) {
-  if (!billingReady(c.env)) return json({ beschikbaar: false });
+  if (!billingReady(c.env)) {
+    // not connected to Stripe yet: show the configured prices, sign-up stays closed
+    const f = (v) => (Number(v) > 0 ? { bedrag: Number(v), valuta: c.env.VALUTA || "USD", interval: "month" } : null);
+    return json({ beschikbaar: false, client: f(c.env.PRIJS_CLIENT), coach: f(c.env.PRIJS_COACH) });
+  }
   const key = new Request(`${c.url.origin}/__prijzen/${c.env.STRIPE_PRICE_CLIENT}/${c.env.STRIPE_PRICE_COACH}`);
   const hit = await caches.default.match(key);
   if (hit) return hit;

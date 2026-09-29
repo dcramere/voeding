@@ -12,6 +12,7 @@
     "deploy": "npm test && wrangler deploy"
   },
   "devDependencies": {
+    "@zxing/library": "^0.21.3",
     "wrangler": "^4.143.0"
   },
   "engines": {

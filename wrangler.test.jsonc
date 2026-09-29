@@ -1,4 +1,5 @@
 {
+  "//": "Test copy of wrangler.jsonc without the AI binding (npm test / CI). Keep in sync.",
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dcramere-voeding",
   "main": "src/worker.js",
@@ -23,7 +24,5 @@
   "r2_buckets": [
     { "binding": "FOTOS", "bucket_name": "dcramere-voeding-fotos" }
   ],
-  // Workers AI: reads nutrition labels from photos (free daily allowance)
-  "ai": { "binding": "AI" },
   "observability": { "enabled": true }
 }

@@ -3,7 +3,7 @@
 "use strict";
 const DC=window.DC, esc=DC.esc, $=id=>document.getElementById(id);
 const STALE_DAYS=14, CHECKIN_LATE=10;
-let coach=null, clients=[], cur=null, pane="plan", viewDag=null, cmpA=null, cmpB=null, trWeek=null, trSel=null;
+let coach=null, clients=[], cur=null, pane="plan", viewDag=null, cmpA=null, cmpB=null, trWeek=null, trSel=null, diary=null;
 const fotoSrc=id=>"/api/coach/fotos/"+id;
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML({open:true});
@@ -116,6 +116,7 @@ async function loadClient(id){
 }
 function renderClient(){
   const c=cur, [st]=status(c);
+  DC.setCustomFoods(c.producten); // the client's own products can appear in their menu
   $("clientHead").innerHTML=`<h1 style="margin-top:14px">${esc(c.naam)}</h1>
     <p class="sub">${esc(c.email)}<span class="sep">·</span>${pill(c)}<span class="sep">·</span>cliënt sinds ${new Date(c.aangemaakt*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}${c.laatstGezien?`<span class="sep">·</span>laatst actief ${ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))}`:""}${c.privacyAkkoord?`<span class="sep">·</span>privacy akkoord ${new Date(c.privacyAkkoord*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"})}`:""}</p>
     <div class="actions" style="margin-top:0">
@@ -134,6 +135,7 @@ function renderClient(){
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
   renderFotos();
   renderTraining();
+  $("pProducts").innerHTML=VD.productsTableHTML(c.producten);
   const fp=$("fProfiel");
   fp.reset(); fp.elements.naam.value=c.naam; fp.elements.email.value=c.email; DC.fillProfiel(fp,c.profiel);
   $("fNotities").elements.notities.value=c.notities||"";
@@ -185,10 +187,26 @@ function renderTraining(){
     try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{programma:{id:P.id,start:e.target.value}});trWeek=null;renderClient()}catch(err){alert(err.message)}
   };
 }
+const isoDaysAgo=n=>{const d=new Date();d.setDate(d.getDate()-n);return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+async function loadDiary(){
+  const id=cur.id, van=isoDaysAgo(13), tot=DC.today();
+  if(diary&&diary.id===id&&diary.tot===tot) return renderDiary();
+  try{const r=await call(`/api/coach/clients/${id}/dagboek?van=${van}&tot=${tot}`);diary={id,van,tot,items:r.items,dag:null};renderDiary()}
+  catch(err){$("pDiary").innerHTML=`<p class="err">${esc(err.message)}</p>`}
+}
+function renderDiary(){
+  if(!cur||!diary||diary.id!==cur.id) return;
+  $("pDiary").innerHTML=cur.profiel&&cur.metingen.length?VD.coachDiaryHTML(diary.items,cur.profiel,cur.metingen,diary.van,diary.tot)
+    :'<p class="empty">Het dagboek toont de doelen zodra het profiel en een meting zijn ingevuld.</p>'+VD.coachDiaryHTML(diary.items,null,[],diary.van,diary.tot);
+  const d=diary.dag;
+  $("pDiaryDay").innerHTML=d?`<div class="tr-detail"><h2 style="margin-top:12px">${DC.dateNL(d,{weekday:"long",day:"numeric",month:"long"})}</h2>
+    ${VD.barsHTML(VD.sum(diary.items.filter(i=>i.datum===d)),DC.targetFor(cur.profiel,cur.metingen,d))}${VD.entriesHTML(diary.items.filter(i=>i.datum===d))}</div>`:"";
+}
 function setPane(p){
   pane=p;
   document.querySelectorAll("[data-pane]").forEach(b=>{if(b.dataset.pane===p)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current")});
   document.querySelectorAll("[data-pane-body]").forEach(d=>d.hidden=d.dataset.paneBody!==p);
+  if(p==="dagboek"&&cur) loadDiary();
 }
 document.querySelector(".seg").addEventListener("click",e=>{const b=e.target.closest("[data-pane]");if(b) setPane(b.dataset.pane)});
 
@@ -199,6 +217,8 @@ document.addEventListener("click",async e=>{
     try{await navigator.clipboard.writeText(input.value)}catch(err){input.select();document.execCommand("copy")}
     copy.textContent="Gekopieerd"; setTimeout(()=>copy.textContent="Kopiëren",1500); return;
   }
+  const dd=e.target.closest("[data-diary-day]");
+  if(dd&&diary){diary.dag=diary.dag===dd.dataset.diaryDay?null:dd.dataset.diaryDay;renderDiary();if(diary.dag)$("pDiaryDay").scrollIntoView({behavior:"smooth",block:"start"});return}
   const trb=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-cell],[data-tr-remove]");
   if(trb&&cur){
     if(trb.dataset.trWeek){trWeek=+trb.dataset.trWeek;trSel=null}
@@ -288,7 +308,7 @@ async function route(){
   const m=location.hash.match(/^#\/client\/(\d+)/);
   try{
     if(m){
-      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
+      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;diary=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
       show("client"); await loadClient(+m[1]);
     }else{
       cur=null; show("lijst"); await loadList();

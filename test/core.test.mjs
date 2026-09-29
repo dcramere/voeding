@@ -155,6 +155,38 @@ test("print document escapes the client name and contains both day types", () =>
   assert.ok(html.includes("Trainingsdag") && html.includes("Rustdag") && html.includes("Boodschappenlijst"));
 });
 
+test("own products: in-menu products are used, removable, and menus still hit targets", () => {
+  const shake = { id: 7, naam: "Shake", merk: "", kcal: 380, eiwit: 75, koolh: 8, vet: 5, vezels: 1, portie_naam: "schep", portie_g: 30, in_menu: true, rol: "eiwit", maaltijden: ["snack", "ontbijt"] };
+  const noodles = { id: 8, naam: "Noedels", merk: "", kcal: 360, eiwit: 11, koolh: 72, vet: 2, vezels: 3, in_menu: false, rol: null, maaltijden: [] };
+  DC.setCustomFoods([shake, noodles]);
+  assert.ok(DC.FOODS.p7 && DC.FOODS.p8);
+  assert.ok(DC.TEMPL.snack.prot.includes("p7") && DC.TEMPL.ontbijt.prot.includes("p7") && DC.TEMPL.training.prot.includes("p7"));
+  assert.ok(!DC.TEMPL.hoofd.prot.includes("p7") && !Object.values(DC.TEMPL).some((t) => t.carb.includes("p8")), "not-in-menu stays out");
+  const P = { ...BASE, maaltijden: 5 }, W = DC.analyse(P, M);
+  let used = 0;
+  for (let seed = 0; seed < 12; seed++) {
+    const menu = DC.menuFor(P, { seed }, { ...W }, null);
+    if (menu.some((ml) => ml.items.some((i) => i.key === "p7"))) used++;
+    const S = totals(menu);
+    assert.ok(Math.abs(S.k / W.kcal - 1) < 0.06, `kcal off with custom food (seed ${seed})`);
+    menu.forEach((ml) => ml.items.filter((i) => i.key === "p7").forEach((i) => assert.equal(i.g % 30, 0, "whole scoops")));
+  }
+  assert.ok(used > 0, "custom product appears in some menus");
+  assert.equal(DC.nutr("p7", 30).kcal.toFixed(0), "114");
+  DC.setCustomFoods([]);
+  assert.ok(!DC.FOODS.p7 && !Object.values(DC.TEMPL).some((t) => ["prot", "carb", "fat", "fruit"].some((r) => (t[r] || []).includes("p7"))));
+});
+
+test("targetFor picks the measurement and day type for a date", () => {
+  const P = { ...BASE, trainingsdagen: [1] }; // Mondays
+  const ms = [{ datum: "2026-09-01", gewicht: 90 }, { datum: "2026-09-20", gewicht: 85 }];
+  const mon = DC.targetFor(P, ms, "2026-09-28"), sun = DC.targetFor(P, ms, "2026-09-27"), early = DC.targetFor(P, ms, "2026-09-10");
+  assert.equal(mon.dag, "train"); assert.equal(sun.dag, "rust");
+  assert.ok(mon.kcal > sun.kcal);
+  assert.ok(early.kcal > DC.targetFor({ ...P, trainingsdagen: [] }, ms, "2026-09-25").kcal - 400, "uses 90 kg measurement before 20 sep");
+  assert.equal(DC.targetFor(P, [], "2026-09-28"), null);
+});
+
 test("dates never shift a day in UTC-negative timezones", () => {
   assert.match(DC.dateNL("2026-09-28"), /28 september 2026/);
 });

@@ -306,6 +306,15 @@ const ROUTES = [
   ["POST", "/privacy", withClient(clientAcceptPrivacy)],
   ["POST", "/fotos", withClient((c) => storeFoto(c, c.client.id, "client")), RAW],
   ["PUT", "/workouts", withClient(clientPutWorkout)],
+  ["POST", "/producten", withClient(clientAddProduct)],
+  ["PUT", /^\/producten\/(\d+)$/, withClient(clientPutProduct)],
+  ["DELETE", /^\/producten\/(\d+)$/, withClient(clientDelProduct)],
+  ["GET", /^\/barcode\/(\d{8,14})$/, withClient(barcodeLookup)],
+  ["POST", "/etiket", withClient(labelScan), RAW],
+  ["GET", "/dagboek", withClient(clientGetDagboek)],
+  ["POST", "/dagboek", withClient(clientAddDagboek)],
+  ["PUT", /^\/dagboek\/(\d+)$/, withClient(clientPutDagboek)],
+  ["DELETE", /^\/dagboek\/(\d+)$/, withClient(clientDelDagboek)],
   ["GET", /^\/fotos\/(\d+)$/, withClient(clientGetFoto)],
   ["DELETE", /^\/fotos\/(\d+)$/, withClient(clientDelFoto)],
   ["POST", "/checkins", withClient(clientAddCheckin)],
@@ -328,6 +337,7 @@ const ROUTES = [
   ["POST", /^\/coach\/clients\/(\d+)\/fotos$/, withCoach(coachAddFoto), RAW],
   ["GET", /^\/coach\/fotos\/(\d+)$/, withCoach(coachGetFoto)],
   ["DELETE", /^\/coach\/clients\/(\d+)\/fotos\/(\d+)$/, withCoach(coachDelFoto)],
+  ["GET", /^\/coach\/clients\/(\d+)\/dagboek$/, withCoach(coachGetDagboek)],
 ];
 
 async function route(req, env, url, ctx) {
@@ -384,6 +394,8 @@ async function exportData(env, coachId) {
     cl.checkins = await checkinsOf(env, cl.id, 10000);
     const { results: wo } = await env.DB.prepare("SELECT programma, week, dag, datum, sets, notitie, afgerond FROM workouts WHERE client_id = ?").bind(cl.id).all();
     cl.workouts = wo.map((w) => ({ ...w, sets: JSON.parse(w.sets) }));
+    cl.producten = await productenOf(env, cl.id);
+    cl.dagboek = (await env.DB.prepare("SELECT datum, maaltijd, naam, bron, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? ORDER BY datum, id").bind(cl.id).all()).results;
   }
   return { clients };
 }
@@ -449,19 +461,20 @@ async function inviteAccept(c) {
 
 async function clientMe(c) {
   const { client: cl, env } = c;
-  const [coach, metingen, checkins, fotos, workouts] = await Promise.all([
+  const [coach, metingen, checkins, fotos, workouts, producten] = await Promise.all([
     env.DB.prepare("SELECT naam FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
     metingenOf(env, cl.id),
     checkinsOf(env, cl.id, 12),
     fotosOf(env, cl.id),
     workoutsOf(env, cl),
+    productenOf(env, cl.id),
     env.DB.prepare("UPDATE clients SET last_seen = ? WHERE id = ?").bind(c.now, cl.id).run(),
   ]);
   return json({
     naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "",
     profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
-    programma: cl.programma ? JSON.parse(cl.programma) : null, workouts,
+    programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
   });
 }
 
@@ -617,9 +630,9 @@ async function createClient(c) {
 
 async function getClient(c) {
   const row = await ownClient(c, c.params[0]);
-  const [metingen, checkins, fotos, workouts] = await Promise.all([
-    metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id), workoutsOf(c.env, row)]);
-  return json({ ...publicClient(row), metingen, checkins, fotos, workouts });
+  const [metingen, checkins, fotos, workouts, producten] = await Promise.all([
+    metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id), workoutsOf(c.env, row), productenOf(c.env, row.id)]);
+  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten });
 }
 
 async function coachExport(c) {
@@ -668,6 +681,8 @@ async function deleteClient(c) {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM workouts WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM producten WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM dagboek WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM metingen WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
@@ -835,4 +850,224 @@ async function clientPutWorkout(c) {
        updated_at = excluded.updated_at`,
   ).bind(cl.id, p.id, week, b.dag, b.datum, sets, notitie, b.afgerond ? c.now : null, c.now).run();
   return json({ workouts: await workoutsOf(c.env, cl) });
+}
+
+// ---------- own products ----------
+const ROLLEN = ["eiwit", "koolh", "vet", "fruit"];
+const MENU_MAALTIJDEN = ["ontbijt", "hoofd", "snack"];
+const MAALTIJDEN = ["ontbijt", "lunch", "avond", "snack"];
+
+async function productenOf(env, clientId) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, naam, merk, barcode, kcal, eiwit, koolh, vet, vezels, portie_naam, portie_g, in_menu, rol, maaltijden, bron
+     FROM producten WHERE client_id = ? ORDER BY naam COLLATE NOCASE`,
+  ).bind(clientId).all();
+  return results.map((p) => ({ ...p, in_menu: !!p.in_menu, maaltijden: JSON.parse(p.maaltijden) }));
+}
+
+function cleanProduct(b) {
+  const naam = str(b.naam, 80, "Naam");
+  if (!naam) fail(400, "Geef het product een naam.");
+  const barcode = b.barcode ? String(b.barcode).trim() : null;
+  if (barcode && !/^\d{8,14}$/.test(barcode)) fail(400, "Een barcode bestaat uit 8 tot 14 cijfers.");
+  const p = {
+    naam, merk: str(b.merk, 60, "Merk"), barcode,
+    kcal: num(b.kcal, 0, 900, "Calorieën per 100 g", true),
+    eiwit: num(b.eiwit, 0, 100, "Eiwit per 100 g", true),
+    koolh: num(b.koolh, 0, 100, "Koolhydraten per 100 g", true),
+    vet: num(b.vet, 0, 100, "Vet per 100 g", true),
+    vezels: num(b.vezels, 0, 100, "Vezels per 100 g") || 0,
+    portie_naam: str(b.portie_naam, 20, "Portienaam") || null,
+    portie_g: num(b.portie_g, 1, 2000, "Portiegewicht"),
+  };
+  if (p.eiwit + p.koolh + p.vet + p.vezels > 101) fail(400, "Eiwit, koolhydraten, vet en vezels samen kunnen niet meer dan 100 g per 100 g zijn.");
+  if (p.portie_g && !p.portie_naam) p.portie_naam = "portie";
+  if (!p.portie_g) p.portie_naam = null;
+  p.in_menu = !!b.in_menu;
+  p.rol = p.in_menu ? (ROLLEN.includes(b.rol) ? b.rol : fail(400, "Kies de rol van het product in uw menu.")) : null;
+  p.maaltijden = p.in_menu ? [...new Set((Array.isArray(b.maaltijden) ? b.maaltijden : []).filter((m) => MENU_MAALTIJDEN.includes(m)))] : [];
+  if (p.in_menu && !p.maaltijden.length) fail(400, "Kies bij welke maaltijden het product mag voorkomen.");
+  p.bron = ["handmatig", "barcode", "foto"].includes(b.bron) ? b.bron : "handmatig";
+  return p;
+}
+
+async function clientAddProduct(c) {
+  const p = cleanProduct(c.body);
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM producten WHERE client_id = ?").bind(c.client.id).first();
+  if (n.n >= 500) fail(400, "U heeft het maximum van 500 producten bereikt.");
+  if (p.barcode && await c.env.DB.prepare("SELECT 1 FROM producten WHERE client_id = ? AND barcode = ?").bind(c.client.id, p.barcode).first())
+    fail(409, "U heeft al een product met deze barcode.");
+  const { meta } = await c.env.DB.prepare(
+    `INSERT INTO producten (client_id, naam, merk, barcode, kcal, eiwit, koolh, vet, vezels, portie_naam, portie_g, in_menu, rol, maaltijden, bron, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(c.client.id, p.naam, p.merk, p.barcode, p.kcal, p.eiwit, p.koolh, p.vet, p.vezels, p.portie_naam, p.portie_g,
+    p.in_menu ? 1 : 0, p.rol, JSON.stringify(p.maaltijden), p.bron, c.now, c.now).run();
+  return json({ id: meta.last_row_id, producten: await productenOf(c.env, c.client.id) }, 201);
+}
+
+async function clientPutProduct(c) {
+  const p = cleanProduct(c.body);
+  if (p.barcode && await c.env.DB.prepare("SELECT 1 FROM producten WHERE client_id = ? AND barcode = ? AND id != ?").bind(c.client.id, p.barcode, c.params[0]).first())
+    fail(409, "U heeft al een product met deze barcode.");
+  const r = await c.env.DB.prepare(
+    `UPDATE producten SET naam = ?, merk = ?, barcode = ?, kcal = ?, eiwit = ?, koolh = ?, vet = ?, vezels = ?, portie_naam = ?, portie_g = ?,
+       in_menu = ?, rol = ?, maaltijden = ?, updated_at = ? WHERE id = ? AND client_id = ?`,
+  ).bind(p.naam, p.merk, p.barcode, p.kcal, p.eiwit, p.koolh, p.vet, p.vezels, p.portie_naam, p.portie_g,
+    p.in_menu ? 1 : 0, p.rol, JSON.stringify(p.maaltijden), c.now, c.params[0], c.client.id).run();
+  if (!r.meta.changes) fail(404, "Product niet gevonden.");
+  return json({ producten: await productenOf(c.env, c.client.id) });
+}
+
+async function clientDelProduct(c) {
+  await c.env.DB.prepare("DELETE FROM producten WHERE id = ? AND client_id = ?").bind(c.params[0], c.client.id).run();
+  return json({ producten: await productenOf(c.env, c.client.id) });
+}
+
+// Open Food Facts lookup, proxied so the client only talks to us (and OFF only sees our server)
+async function barcodeLookup(c) {
+  const code = String(c.params[0]);
+  const own = await c.env.DB.prepare("SELECT id FROM producten WHERE client_id = ? AND barcode = ?").bind(c.client.id, code).first();
+  if (own) return json({ bron: "eigen", id: own.id });
+  let data;
+  try {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_nl,brands,nutriments,serving_size,serving_quantity`, {
+      headers: { "user-agent": "DCRAMERE-Coaching/1.0 (+https://dcramere-voeding.dcramere.workers.dev)" },
+      cf: { cacheTtl: 86400, cacheEverything: true },
+    });
+    if (r.status === 404) return json({ bron: null });
+    if (!r.ok) fail(502, "De productdatabase is nu niet bereikbaar. Vul de waarden handmatig in.");
+    data = await r.json();
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
+    fail(502, "De productdatabase is nu niet bereikbaar. Vul de waarden handmatig in.");
+  }
+  if (!data || data.status !== 1 || !data.product) return json({ bron: null });
+  const p = data.product, n = p.nutriments || {};
+  const v = (k) => (Number.isFinite(+n[k]) ? Math.round(+n[k] * 10) / 10 : null);
+  let kcal = v("energy-kcal_100g");
+  if (kcal == null && v("energy_100g") != null) kcal = Math.round(v("energy_100g") / 4.184);
+  return json({
+    bron: "openfoodfacts",
+    product: {
+      naam: (p.product_name_nl || p.product_name || "").trim().slice(0, 80), merk: (p.brands || "").split(",")[0].trim().slice(0, 60),
+      barcode: code, kcal, eiwit: v("proteins_100g"), koolh: v("carbohydrates_100g"), vet: v("fat_100g"), vezels: v("fiber_100g"),
+      portie_g: Number.isFinite(+p.serving_quantity) && +p.serving_quantity > 0 ? Math.round(+p.serving_quantity) : null,
+    },
+  });
+}
+
+// AI label reader: the photo is only sent to Workers AI for this request and never stored
+const LABEL_PROMPT = `You read nutrition facts labels. Return ONLY a JSON object, no other text:
+{"naam": product name if visible else "", "per": "100g" or "portie", "portie_g": serving size in grams or null,
+ "kcal": energy in kcal, "kj": energy in kJ or null, "eiwit": protein g, "koolh": total carbohydrates g, "vezels": fibre g or null,
+ "vet": total fat g, "label": "EU" if carbohydrates exclude fibre (European style table) or "US" if it is a US "Nutrition Facts" table}
+Use the per-100 g column when the label has one; otherwise use the per-serving values and set "per":"portie".
+Use numbers with a dot as decimal separator. If the image is not a nutrition label return {"fout": "geen etiket"}.`;
+
+async function labelScan(c) {
+  if (!c.env.AI) fail(503, "Etiket scannen is hier niet beschikbaar. Vul de waarden handmatig in.");
+  const key = `ai:${c.client.id}`;
+  const used = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE k = ? AND ts > ?").bind(key, c.now - DAY).first();
+  if (used.n >= 25) fail(429, "U heeft vandaag al 25 etiketten gescand. Probeer het morgen opnieuw of vul de waarden handmatig in.");
+  const buf = new Uint8Array(await c.req.arrayBuffer());
+  if (buf.length > MAX_FOTO) fail(413, "De foto is te groot (max. 5 MB).");
+  const type = buf.length > 12 ? imageType(buf) : null;
+  if (!type) fail(415, "Upload een JPEG- of WebP-foto.");
+  await c.env.DB.prepare("INSERT INTO login_attempts (k, ts) VALUES (?, ?)").bind(key, c.now).run();
+  let b64 = ""; for (let i = 0; i < buf.length; i += 0x8000) b64 += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  let out;
+  try {
+    const res = await c.env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", {
+      messages: [{ role: "user", content: [
+        { type: "text", text: LABEL_PROMPT },
+        { type: "image_url", image_url: { url: `data:${type};base64,${btoa(b64)}` } },
+      ] }],
+      max_tokens: 300, temperature: 0,
+    });
+    const text = typeof res.response === "string" ? res.response : JSON.stringify(res.response);
+    out = JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
+  } catch (e) {
+    console.error("label scan failed", e);
+    fail(502, "Het etiket kon niet worden gelezen. Probeer een scherpere foto of vul de waarden handmatig in.");
+  }
+  if (out.fout) fail(422, "Op deze foto is geen voedingswaardetabel te herkennen.");
+  const f = (x) => (x === null || x === undefined || x === "" || !Number.isFinite(+x) ? null : +x);
+  let kcal = f(out.kcal), eiwit = f(out.eiwit), koolh = f(out.koolh), vet = f(out.vet), vezels = f(out.vezels);
+  if (kcal == null && f(out.kj) != null) kcal = f(out.kj) / 4.184;
+  if (out.label === "US" && koolh != null && vezels != null) koolh = Math.max(0, koolh - vezels); // our carbs exclude fibre
+  const portie = f(out.portie_g);
+  if (out.per === "portie") {
+    if (!portie) fail(422, "Het etiket geeft alleen waarden per portie zonder gewicht. Vul de waarden per 100 g handmatig in.");
+    const k = 100 / portie; [kcal, eiwit, koolh, vet, vezels] = [kcal, eiwit, koolh, vet, vezels].map((x) => (x == null ? null : x * k));
+  }
+  const r1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
+  return json({ product: { naam: String(out.naam || "").slice(0, 80), kcal: kcal == null ? null : Math.round(kcal), eiwit: r1(eiwit), koolh: r1(koolh), vet: r1(vet), vezels: r1(vezels), portie_g: portie ? Math.round(portie) : null } });
+}
+
+// ---------- food diary ----------
+async function dagboekOf(env, clientId, van, tot) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, datum, maaltijd, naam, bron, ref, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? AND datum BETWEEN ? AND ? ORDER BY datum, id",
+  ).bind(clientId, van, tot).all();
+  return results;
+}
+async function recentOf(env, clientId) {
+  const { results } = await env.DB.prepare(
+    `SELECT naam, bron, ref, gram FROM dagboek WHERE id IN (SELECT MAX(id) FROM dagboek WHERE client_id = ? AND bron != 'menu' GROUP BY naam)
+     ORDER BY id DESC LIMIT 20`,
+  ).bind(clientId).all();
+  return results;
+}
+function cleanEntry(b) {
+  const naam = str(b.naam, 120, "Naam");
+  if (!naam) fail(400, "Onbekend product.");
+  return {
+    naam, bron: ["basis", "eigen", "menu"].includes(b.bron) ? b.bron : fail(400, "Ongeldige bron."),
+    ref: str(b.ref, 80, "Referentie"),
+    gram: num(b.gram, 0.1, 5000, "Hoeveelheid", true),
+    kcal: num(b.kcal, 0, 10000, "Calorieën", true), eiwit: num(b.eiwit, 0, 1000, "Eiwit", true),
+    koolh: num(b.koolh, 0, 1000, "Koolhydraten", true), vet: num(b.vet, 0, 1000, "Vet", true),
+  };
+}
+async function clientGetDagboek(c) {
+  const datum = c.url.searchParams.get("datum") || new Date().toISOString().slice(0, 10);
+  if (!isDate(datum)) fail(400, "Ongeldige datum.");
+  const [items, recent] = await Promise.all([dagboekOf(c.env, c.client.id, datum, datum), recentOf(c.env, c.client.id)]);
+  return json({ datum, items, recent });
+}
+async function clientAddDagboek(c) {
+  const b = c.body;
+  if (!isDate(b.datum)) fail(400, "Ongeldige datum.");
+  if (!MAALTIJDEN.includes(b.maaltijd)) fail(400, "Kies een maaltijd.");
+  const items = Array.isArray(b.items) ? b.items : [];
+  if (!items.length || items.length > 20) fail(400, "Voeg 1 tot 20 producten tegelijk toe.");
+  const clean = items.map(cleanEntry);
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM dagboek WHERE client_id = ? AND datum = ?").bind(c.client.id, b.datum).first();
+  if (n.n + clean.length > 150) fail(400, "Maximaal 150 regels per dag.");
+  await c.env.DB.batch(clean.map((e) => c.env.DB.prepare(
+    "INSERT INTO dagboek (client_id, datum, maaltijd, naam, bron, ref, gram, kcal, eiwit, koolh, vet, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(c.client.id, b.datum, b.maaltijd, e.naam, e.bron, e.ref, e.gram, e.kcal, e.eiwit, e.koolh, e.vet, c.now)));
+  return json({ datum: b.datum, items: await dagboekOf(c.env, c.client.id, b.datum, b.datum), recent: await recentOf(c.env, c.client.id) }, 201);
+}
+async function clientPutDagboek(c) {
+  const row = await c.env.DB.prepare("SELECT datum FROM dagboek WHERE id = ? AND client_id = ?").bind(c.params[0], c.client.id).first();
+  if (!row) fail(404, "Regel niet gevonden.");
+  const e = cleanEntry(c.body);
+  const maaltijd = MAALTIJDEN.includes(c.body.maaltijd) ? c.body.maaltijd : null;
+  await c.env.DB.prepare(
+    "UPDATE dagboek SET gram = ?, kcal = ?, eiwit = ?, koolh = ?, vet = ?, maaltijd = COALESCE(?, maaltijd) WHERE id = ? AND client_id = ?",
+  ).bind(e.gram, e.kcal, e.eiwit, e.koolh, e.vet, maaltijd, c.params[0], c.client.id).run();
+  return json({ datum: row.datum, items: await dagboekOf(c.env, c.client.id, row.datum, row.datum) });
+}
+async function clientDelDagboek(c) {
+  const row = await c.env.DB.prepare("SELECT datum FROM dagboek WHERE id = ? AND client_id = ?").bind(c.params[0], c.client.id).first();
+  if (!row) fail(404, "Regel niet gevonden.");
+  await c.env.DB.prepare("DELETE FROM dagboek WHERE id = ? AND client_id = ?").bind(c.params[0], c.client.id).run();
+  return json({ datum: row.datum, items: await dagboekOf(c.env, c.client.id, row.datum, row.datum) });
+}
+async function coachGetDagboek(c) {
+  const row = await ownClient(c, c.params[0]);
+  const tot = c.url.searchParams.get("tot"), van = c.url.searchParams.get("van");
+  if (!isDate(tot) || !isDate(van) || van > tot || (Date.parse(tot) - Date.parse(van)) / 864e5 > 62) fail(400, "Ongeldige periode (max. 62 dagen).");
+  return json({ items: await dagboekOf(c.env, row.id, van, tot) });
 }

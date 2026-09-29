@@ -262,6 +262,39 @@ function preparation(type,items){
   return steps;
 }
 
+// ---------- client-owned products ----------
+// Products from the client's "Mijn producten" become foods with key "p<id>". Those marked "in menu"
+// are added to the meal templates for the chosen meals and role, so the optimizer can use them.
+const ROLE_SLOT={eiwit:"prot",koolh:"carb",vet:"fat",fruit:"fruit"}, ROLE_CAT={eiwit:"eiwit",koolh:"koolh",vet:"vet",fruit:"fruit"};
+let customKeys=[];
+function productFood(p){
+  const naam=p.naam+(p.merk?` (${p.merk})`:"");
+  return {n:naam,s:p.naam.toLowerCase(),k:+p.kcal,p:+p.eiwit,c:+p.koolh,f:+p.vet,v:+p.vezels||0,cat:ROLE_CAT[p.rol]||"overig",
+    unit:p.portie_g?[p.portie_naam||"portie",p.portie_naam||"porties",+p.portie_g]:undefined,custom:true,id:p.id};
+}
+function setCustomFoods(list){
+  customKeys.forEach(k=>{delete FOODS[k];Object.values(TEMPL).forEach(t=>["prot","carb","fruit","fat"].forEach(r=>{if(t[r]){const i=t[r].indexOf(k);if(i>=0)t[r].splice(i,1)}}))});
+  customKeys=[];
+  (list||[]).forEach(p=>{
+    const k="p"+p.id; FOODS[k]=productFood(p); customKeys.push(k);
+    if(p.in_menu&&ROLE_SLOT[p.rol]) (p.maaltijden||[]).forEach(m=>{
+      [m,...(m==="snack"?["training"]:[])].forEach(t=>{const slot=TEMPL[t]&&TEMPL[t][ROLE_SLOT[p.rol]];if(slot&&!slot.includes(k))slot.push(k)});
+    });
+  });
+}
+// nutrients for g grams of a food key (base or custom)
+function nutr(key,g){const x=macroOf(key,g);return {kcal:x.k,eiwit:x.p,koolh:x.c,vet:x.f}}
+// the day's targets for a date: latest measurement on/before that date, training vs rest day by weekday
+function targetFor(P,metingen,datum){
+  const ms=sorted(metingen); if(!P||!ms.length) return null;
+  const m=[...ms].reverse().find(x=>x.datum<=datum)||ms[0];
+  const W=analyse(P,m), D=dagTargets(P,W);
+  const dag=D?(isTrainingDay(P,new Date(datum+"T12:00:00"))?"train":"rust"):null;
+  return {...(D?{...W,...D[dag]}:W),dag};
+}
+// which diary meal a generated meal belongs to
+const diaryMeal=ml=>ml.type==="ontbijt"?"ontbijt":ml.type==="hoofd"?(ml.name==="Lunch"?"lunch":"avond"):"snack";
+
 // ---------- plan data (shared by screen, print and shopping list) ----------
 function planData(P,m,menu,dag){
   const W=analyse(P,m), D=dagTargets(P,W);
@@ -276,9 +309,10 @@ function planData(P,m,menu,dag){
 function mealHTML(ml,o){
   const rows=ml.items.map(i=>`<tr><td class="q">${qty(i)}</td><td>${FOODS[i.key].n}</td><td class="m">${Math.round(macroOf(i.key,i.g).k)} kcal</td></tr>`).join("");
   const swap=o.interactive?` <button class="swap" type="button" data-swap="${ml.i}" data-off="${offKey(o.dag)}" aria-label="Andere invulling voor ${ml.name}">Wissel</button>`:"";
+  const eaten=o.interactive&&o.eaten?(o.eaten.has(ml.i)?`<span class="eaten done">✓ In dagboek</span>`:`<button class="eaten" type="button" data-eaten="${ml.i}">Gegeten</button>`):"";
   const prep=ml.bereiding.length?(o.print?`<ol class="prep">${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol>`
     :`<details class="prep"><summary>Bereiding</summary><ol>${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol></details>`):"";
-  return `<div class="meal"><div class="meal-h"><h3><span class="eyebrow">${ml.name}${ml.hint?`<span class="sep">·</span>${ml.hint}`:""}</span>${ml.titel}</h3><span class="k">${fmt(Math.round(ml.kcal))} kcal${swap}</span></div><table>${rows}</table>${prep}</div>`;
+  return `<div class="meal"><div class="meal-h"><h3><span class="eyebrow">${ml.name}${ml.hint?`<span class="sep">·</span>${ml.hint}`:""}</span>${ml.titel}</h3><span class="k">${fmt(Math.round(ml.kcal))} kcal${swap}</span></div><table>${rows}</table>${prep}${eaten?`<div class="meal-foot">${eaten}</div>`:""}</div>`;
 }
 function totalsHTML(S,A){
   const pct=(a,b)=>b?Math.round(a/b*100)+"%":"";
@@ -320,7 +354,7 @@ function planHTML(P,m,menu,o){
     ${targetHTML(A,W,D,dag)}
     ${W.notes.map(n=>`<div class="note">${n}</div>`).join("")}
     <h2>${D?(dag==="train"?"Maaltijden op een trainingsdag":"Maaltijden op een rustdag"):you?"Uw maaltijden vandaag":"Maaltijden"}</h2>
-    ${meals.map(ml=>mealHTML(ml,{interactive:o.interactive,dag})).join("")}
+    ${meals.map(ml=>mealHTML(ml,{interactive:o.interactive,dag,eaten:o.eaten})).join("")}
     ${totalsHTML(S,A)}
     <div class="actions">
       ${o.interactive?`<button class="btn" type="button" data-new-menu>Nieuw menu maken</button>`:""}
@@ -668,7 +702,7 @@ function printPlan(P,m,menu,o){
   if(img&&!img.complete){img.onload=go;img.onerror=go}else go();
 }
 
-window.DC={FOODS,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
+window.DC={FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
   shoppingList,shoppingHTML,printHTML,printPlan,POSES,FOTO_EVERY,FOTO_TIPS,fotoSets,lastFotoDate,fotosDue,prepareFoto,uploadFoto,fotoUploadHTML,fotoCompareHTML,checkinFieldsHTML,readCheckin,checkinsHTML,checkinFlags,intakeFieldsHTML,fillIntake,readIntake,intakeSummaryHTML,
   profielFieldsHTML,fillProfiel,readProfiel,metingFieldsHTML,readMeting,api,handleForm};
 })();

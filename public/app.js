@@ -4,7 +4,7 @@
 const DC=window.DC, $=id=>document.getElementById(id);
 const COACH_WHATSAPP="5978514920";
 const AUTH_VIEWS=["login","vergeten","uitnodiging","laden","toestemming"];
-const TAB_VIEWS=["plan","training","workout","checkin","voortgang","profiel"];
+const TAB_VIEWS=["plan","dagboek","producten","training","workout","checkin","voortgang","profiel"];
 const CHECKIN_EVERY=7; // days
 let me=null, menuTimer=null, inviteToken=null, viewDag=null; // viewDag null = today's day type
 let cmpA=null, cmpB=null; // photo comparison dates (null = first / latest)
@@ -22,7 +22,9 @@ function show(v){
   document.querySelectorAll("section.view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
   $("tabs").hidden=!TAB_VIEWS.includes(v)||onboarding();
   $("topbar").hidden=AUTH_VIEWS.includes(v);
-  const tab=v==="workout"?"training":v;
+  const tab=v==="workout"?"training":v==="dagboek"||v==="producten"?"plan":v;
+  if(v==="dagboek") vd.load(vd.datum).then(vd.render).catch(e=>alert(e.message));
+  if(v==="producten") vd.renderProducts();
   document.querySelectorAll("#tabs button").forEach(b=>{if(b.dataset.v===tab)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
   if(v!=="workout") stopRest();
   if(v==="boodschappen") renderShop();
@@ -43,7 +45,10 @@ function renderPlan(){
     :ck?"<b>Tijd voor uw wekelijkse check-in.</b> Weeg uzelf en laat uw coach weten hoe uw week ging."
     :ft?`<b>Tijd voor nieuwe progressiefoto's.</b> ${me.fotos.length?"Het is 4 weken geleden sinds uw laatste set.":"Maak een eerste set als startpunt."}`:"";
   const banner=msg?`<div class="banner"><span>${msg}</span><button class="btn small" type="button" data-v="checkin"${!ck&&ft?" data-goto-fotos":""}>${!ck&&ft?"Foto's maken":"Check-in"}</button></div>`:"";
-  el.innerHTML=DC.planHTML(P,m,me.menu,{interactive:true,dag:viewDag,banner});
+  // "Gegeten" buttons only on today's day type (they log today's menu)
+  const todayDag=(DC.targetFor(P,me.metingen,DC.today())||{}).dag;
+  const eaten=!viewDag||viewDag===todayDag?vd.eatenToday():null;
+  el.innerHTML=VD.subnavHTML("plan")+DC.planHTML(P,m,me.menu,{interactive:true,dag:viewDag,banner,eaten});
 }
 function renderShop(){
   const m=DC.latest(me.metingen);
@@ -72,6 +77,13 @@ function renderFotos(){
     :`Foto's van vandaag. Uw volgende set is over ${DC.FOTO_EVERY-DC.daysSince(last)} dagen (laatste set: ${DC.dateNL(last,{day:"numeric",month:"long"})}).`;
   $("fotoUpload").innerHTML=DC.fotoUploadHTML(me.fotos,DC.today(),fotoSrc,{del:true});
 }
+// ---------- diary & own products (public/voeding.js) ----------
+const vd=VD.initClient({
+  me:()=>me,
+  todayMeals:()=>{const m=DC.latest(me.metingen);return me.profiel&&m?DC.planData(me.profiel,m,me.menu).meals:null},
+  changed:()=>{renderPlan();if($("v-boodschappen").classList.contains("on"))renderShop()}
+});
+
 // ---------- training ----------
 const draftKey=()=>wo&&me&&me.programma?`dc-wo:${me.email}:${me.programma.id}:${wo.week}:${wo.dag}`:null;
 function renderTraining(){
@@ -198,7 +210,9 @@ document.addEventListener("click",async e=>{
     }
     return;
   }
-  const t=e.target.closest("[data-v],[data-dag],[data-swap],[data-new-menu],[data-print],[data-boodschappen],[data-del],[data-foto-del]"); if(!t) return;
+  const eat=e.target.closest("[data-eaten]");
+  if(eat){eat.disabled=true;try{await vd.logMenuMeals([+eat.dataset.eaten]);renderPlan()}catch(err){alert(err.message);eat.disabled=false}return}
+  const t=e.target.closest("[data-v],[data-dag],[data-swap],[data-new-menu],[data-print],[data-boodschappen],[data-del],[data-foto-del]"); if(!t||t.closest("#sheet")) return;
   if(t.dataset.v){show(t.dataset.v);if(t.hasAttribute("data-goto-fotos"))$("fotoTitle").scrollIntoView({behavior:"smooth"})}
   else if(t.dataset.fotoDel){
     if(!confirm("Deze foto verwijderen?")) return;
@@ -305,9 +319,11 @@ async function boot(){
   try{
     me=await DC.api("/api/me");
     me.menu=me.menu||{seed:0,off:[]}; me.menu.off=me.menu.off||[]; me.menu.offT=me.menu.offT||[];
-    me.checkins=me.checkins||[]; me.fotos=me.fotos||[]; me.workouts=me.workouts||[];
+    me.checkins=me.checkins||[]; me.fotos=me.fotos||[]; me.workouts=me.workouts||[]; me.producten=me.producten||[];
+    DC.setCustomFoods(me.producten);
     renderAll();
     show(nextStep());
+    vd.load(DC.today()).then(renderPlan).catch(()=>{}); // marks meals already logged today
   }catch(err){
     if(err.status===401) show("login"); else loginError(err.message);
   }

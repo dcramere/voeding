@@ -94,6 +94,7 @@
     <div id="clientInvite"></div>
     <nav class="seg" aria-label="Onderdelen">
       <button type="button" data-pane="plan">Plan</button>
+      <button type="button" data-pane="dagboek">Dagboek</button>
       <button type="button" data-pane="training">Training</button>
       <button type="button" data-pane="metingen">Metingen</button>
       <button type="button" data-pane="checkins">Check-ins</button>
@@ -115,6 +116,12 @@
           </form>
         </div>
       </div>
+    </div>
+    <div class="pane" data-pane-body="dagboek">
+      <div id="pDiary"><p class="empty">Laden…</p></div>
+      <div id="pDiaryDay"></div>
+      <h2>Eigen producten</h2>
+      <div id="pProducts"></div>
     </div>
     <div class="pane" data-pane-body="training">
       <div id="pTrAssign"></div>
@@ -158,6 +165,7 @@
 
 <script src="/core.js"></script>
 <script src="/training.js"></script>
+<script src="/voeding.js"></script>
 <script src="/coach.js"></script>
 </body>
 </html>

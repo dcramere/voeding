@@ -2,7 +2,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,11 +12,11 @@ const wrangler = (args, opts = {}) => execFileSync("npx", ["wrangler", ...args],
 let dev;
 
 before(async () => {
-  wrangler(["d1", "migrations", "apply", "dcramere-voeding", "--local", "--persist-to", persist]);
-  dev = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
+  wrangler(["d1", "migrations", "apply", "dcramere-voeding", "--local", "--persist-to", persist, "--config", "wrangler.test.jsonc"]);
+  dev = spawn("npx", ["wrangler", "dev", "--config", "wrangler.test.jsonc", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
     "--var", `SETUP_CODE:${SETUP}`, "--test-scheduled", "--show-interactive-dev-session=false"],
-    // output is discarded: an unread pipe fills up and blocks wrangler (hung CI runs)
-    { stdio: "ignore", detached: true });
+    // output goes to a file (TEST_SERVER_LOG=path) or is discarded: an unread pipe fills up and blocks wrangler
+    { stdio: process.env.TEST_SERVER_LOG ? ["ignore", openSync(process.env.TEST_SERVER_LOG, "w"), openSync(process.env.TEST_SERVER_LOG, "a")] : "ignore", detached: true });
   for (let i = 0; i < 120; i++) {
     try { if ((await fetch(`${BASE}/api/coach/status`)).ok) return; } catch {}
     await new Promise((r) => setTimeout(r, 500));
@@ -191,6 +191,56 @@ test("training: assignment, logging, validation, coach view", async () => {
   assert.equal((await anna("/api/me")).data.workouts.length, 1);
 });
 
+test("own products: validation, CRUD, barcode, label scan without AI", async () => {
+  const shake = { naam: "Proteïne shake", merk: "Test", barcode: "8712345678906", kcal: 380, eiwit: 75, koolh: 8, vet: 5, vezels: 1,
+    portie_naam: "schep", portie_g: 30, in_menu: true, rol: "eiwit", maaltijden: ["snack", "ontbijt", "diner"] };
+  assert.equal((await anna("/api/producten", "POST", { ...shake, naam: "" })).status, 400);
+  assert.equal((await anna("/api/producten", "POST", { ...shake, eiwit: 90, koolh: 20 })).status, 400, "macros > 100 g per 100 g");
+  assert.equal((await anna("/api/producten", "POST", { ...shake, barcode: "12ab" })).status, 400);
+  assert.equal((await anna("/api/producten", "POST", { ...shake, rol: "snoep" })).status, 400);
+  const r = await anna("/api/producten", "POST", shake);
+  assert.equal(r.status, 201);
+  const p = r.data.producten.find((x) => x.id === r.data.id);
+  assert.deepEqual(p.maaltijden, ["snack", "ontbijt"], "unknown meal types dropped");
+  assert.equal(p.in_menu, true);
+  assert.equal((await anna("/api/producten", "POST", shake)).status, 409, "duplicate barcode");
+  // own barcode resolves to the product without calling Open Food Facts
+  assert.deepEqual((await anna(`/api/barcode/${shake.barcode}`)).data, { bron: "eigen", id: r.data.id });
+  assert.equal((await anna("/api/barcode/abc")).status, 404);
+  // label scan: test config has no AI binding → clear 503, and still validates input first when AI exists
+  assert.equal((await anna("/api/etiket", "POST", new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(50).fill(1)]), { "content-type": "image/jpeg" })).status, 503);
+  const upd = await anna(`/api/producten/${r.data.id}`, "PUT", { ...shake, kcal: 390, in_menu: false });
+  assert.equal(upd.data.producten[0].kcal, 390);
+  assert.deepEqual(upd.data.producten[0].maaltijden, []);
+  assert.equal((await bram(`/api/producten/${r.data.id}`, "PUT", shake)).status, 404, "other client cannot edit");
+  await bram(`/api/producten/${r.data.id}`, "DELETE");
+  assert.equal((await anna("/api/me")).data.producten.length, 1, "other client cannot delete");
+  assert.equal((await coach(`/api/coach/clients/${annaId}`)).data.producten.length, 1);
+});
+
+test("food diary: add, edit, delete, recent, isolation, coach range", async () => {
+  const item = { naam: "Magere kwark", bron: "basis", ref: "kwark", gram: 250, kcal: 142.5, eiwit: 25, koolh: 10, vet: 0.5 };
+  assert.equal((await anna("/api/dagboek", "POST", { datum: "2026-09-29", maaltijd: "brunch", items: [item] })).status, 400);
+  assert.equal((await anna("/api/dagboek", "POST", { datum: "2026-09-29", maaltijd: "ontbijt", items: [{ ...item, gram: -1 }] })).status, 400);
+  assert.equal((await anna("/api/dagboek", "POST", { datum: "2026-09-29", maaltijd: "ontbijt", items: [] })).status, 400);
+  const a = await anna("/api/dagboek", "POST", { datum: "2026-09-29", maaltijd: "ontbijt", items: [item, { ...item, naam: "Banaan", ref: "banaan", gram: 120 }] });
+  assert.equal(a.status, 201); assert.equal(a.data.items.length, 2);
+  assert.ok(a.data.recent.some((x) => x.naam === "Magere kwark"));
+  await anna("/api/dagboek", "POST", { datum: "2026-09-29", maaltijd: "lunch", items: [{ ...item, bron: "menu", ref: "menu:1:kip", naam: "Kipfilet" }] });
+  const day = await anna("/api/dagboek?datum=2026-09-29");
+  assert.equal(day.data.items.length, 3);
+  assert.ok(!day.data.recent.some((x) => x.bron === "menu"), "menu entries are not 'recent'");
+  const id = day.data.items[0].id;
+  const put = await anna(`/api/dagboek/${id}`, "PUT", { ...item, gram: 125, kcal: 71.3, eiwit: 12.5, koolh: 5, vet: 0.3, maaltijd: "snack" });
+  assert.equal(put.data.items.find((x) => x.id === id).maaltijd, "snack");
+  assert.equal((await bram(`/api/dagboek/${id}`, "DELETE")).status, 404, "other client");
+  assert.equal((await bram("/api/dagboek?datum=2026-09-29")).data.items.length, 0);
+  assert.equal((await anna(`/api/dagboek/${id}`, "DELETE")).data.items.length, 2);
+  const cd = await coach(`/api/coach/clients/${annaId}/dagboek?van=2026-09-20&tot=2026-09-30`);
+  assert.equal(cd.data.items.length, 2);
+  assert.equal((await coach(`/api/coach/clients/${annaId}/dagboek?van=2026-01-01&tot=2026-09-30`)).status, 400, "max 62 days");
+});
+
 test("security: cross-origin writes, non-JSON bodies, lockout, deactivation", async () => {
   assert.equal((await anna("/api/profiel", "PUT", { naam: "x" }, { origin: "https://evil.example" })).status, 403);
   assert.equal((await fetch(`${BASE}/api/login`, { method: "POST", body: "email=a" })).status, 415);
@@ -211,10 +261,12 @@ test("backups: coach export and weekly snapshot", async () => {
   assert.ok(!raw.includes("pw_hash") && !raw.includes("pbkdf2$"), "no password hashes in exports");
   assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").checkins.length, 1);
   assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").workouts.length, 1);
+  assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").producten.length, 1);
+  assert.equal(exp.data.clients.find((c) => c.email === "anna@t.nl").dagboek.length, 2);
   // opening the client list triggers the weekly snapshot in the background
   await coach("/api/coach/clients");
   await new Promise((r) => setTimeout(r, 1500));
-  const keys = JSON.parse(wrangler(["kv", "key", "list", "--binding", "BACKUPS", "--local", "--persist-to", persist]));
+  const keys = JSON.parse(wrangler(["kv", "key", "list", "--binding", "BACKUPS", "--local", "--persist-to", persist, "--config", "wrangler.test.jsonc"]));
   assert.ok(keys.some((k) => k.name.startsWith("backup/")), "dashboard visit wrote a snapshot");
   assert.ok(keys.some((k) => k.name === "meta:laatste"));
   assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200, "cron entry point still works");

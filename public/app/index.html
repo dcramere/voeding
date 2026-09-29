@@ -155,6 +155,13 @@
     </div>
   </section>
 
+  <!-- COACH (chat) -->
+  <section class="view" id="v-coach" aria-labelledby="t-chat">
+    <div class="chat-head"><h1 id="t-chat">Uw coach</h1><p class="sub" id="chatSub"></p></div>
+    <div class="chat" id="chat" aria-live="polite"></div>
+    <div class="chat-compose" id="chatCompose"></div>
+  </section>
+
   <!-- VOORTGANG -->
   <section class="view" id="v-voortgang" aria-labelledby="t-voort">
     <h1 id="t-voort">Voortgang</h1>
@@ -183,6 +190,11 @@
       <div class="err" id="aboMsg2" role="status"></div>
     </div>
 
+    <h2>Meldingen</h2>
+    <p class="sub" id="pushText">Ontvang een melding als uw coach reageert en als het tijd is voor uw check-in.</p>
+    <div class="actions" style="margin-top:0"><button class="btn ghost" type="button" id="pushBtn">Meldingen aanzetten</button></div>
+    <div class="err" id="pushMsg" role="status"></div>
+
     <h2>Account</h2>
     <p class="sub">Ingelogd als <b id="accEmail" style="color:var(--ink)"></b>.</p>
     <details>
@@ -208,6 +220,7 @@
   <button type="button" data-v="plan">Voeding</button>
   <button type="button" data-v="training">Training</button>
   <button type="button" data-v="checkin">Check-in</button>
+  <button type="button" data-v="coach">Coach<span class="badge" id="chatBadge" hidden></span></button>
   <button type="button" data-v="voortgang">Voortgang</button>
   <button type="button" data-v="profiel">Profiel</button>
 </nav>
@@ -223,6 +236,7 @@
 <script src="/core.js"></script>
 <script src="/training.js"></script>
 <script src="/voeding.js"></script>
+<script src="/chat.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -18,9 +18,14 @@ const MOMENT = ["ochtend", "middag", "avond"];
 const BACKUP_TTL = 60 * DAY; // weekly snapshots, ~8 kept
 const BACKUP_EVERY = 7 * DAY;
 
+let schedulerChecked = false;
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    if (!schedulerChecked && env.SCHEDULER) {
+      schedulerChecked = true;
+      ctx.waitUntil(env.SCHEDULER.get(env.SCHEDULER.idFromName("main")).fetch("https://scheduler/ensure").catch((e) => console.error("scheduler", e)));
+    }
     if (url.pathname === "/") {
       // the app moved to /app/: keep old invite links working (the landing page stays reachable for everyone)
       if (url.searchParams.has("invite")) return Response.redirect(`${url.origin}/app/?invite=${encodeURIComponent(url.searchParams.get("invite"))}`, 302);
@@ -38,9 +43,31 @@ export default {
   // optional cron entry point (the free plan's 5 cron slots are taken, so backups are normally
   // triggered by backupIfDue when the coach opens the dashboard)
   async scheduled(event, env) {
-    await writeBackup(env);
+    await runHourly(env, Math.floor(Date.now() / 1000), true);
   },
 };
+
+// Hourly alarm without a cron slot (the account's free cron triggers are all in use): a single Durable Object
+// re-arms its own alarm every hour and runs the reminders (at 12:00 UTC = 09:00 Suriname) and the backup check.
+export class Scheduler {
+  constructor(state, env) { this.state = state; this.env = env; }
+  async fetch() {
+    if (!(await this.state.storage.getAlarm())) await this.state.storage.setAlarm(Date.now() + 60_000);
+    return new Response("ok");
+  }
+  async alarm() {
+    try { await runHourly(this.env, Math.floor(Date.now() / 1000), false); }
+    catch (e) { console.error("hourly run failed", e); }
+    const next = new Date(); next.setUTCMinutes(0, 0, 0); next.setUTCHours(next.getUTCHours() + 1);
+    await this.state.storage.setAlarm(next.getTime());
+  }
+}
+
+async function runHourly(env, now, force) {
+  await backupIfDue(env, now);
+  const hour = new Date(now * 1000).getUTCHours();
+  if (force || env.HERINNERING_UUR === "altijd" || hour === Number(env.HERINNERING_UUR || 12)) await sendReminders(env, now);
+}
 
 // full snapshot of all data into KV, independent of D1's own 30-day Time Travel
 async function writeBackup(env) {
@@ -317,6 +344,15 @@ const ROUTES = [
   ["POST", "/privacy", withClient(clientAcceptPrivacy)],
   ["POST", "/fotos", withClient((c) => storeFoto(c, c.client.id, "client")), RAW],
   ["PUT", "/workouts", withClient(clientPutWorkout)],
+  ["GET", "/berichten", withClient(clientGetBerichten)],
+  ["GET", "/berichten/ongelezen", withClient(async (c) => json({ n: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL").bind(c.client.id).first()).n }))],
+  ["POST", "/berichten", withClient(clientPostBericht)],
+  ["POST", "/berichten/foto", withClient((c) => postBerichtFoto(c, c.client, "client")), RAW],
+  ["GET", /^\/berichten\/foto\/(\d+)$/, withClient((c) => serveBerichtFoto(c, c.client.id))],
+  ["GET", "/push/key", (c) => json({ key: c.env.VAPID_PUBLIC || null })],
+  ["POST", "/push/subscribe", pushSubscribe],
+  ["POST", "/push/unsubscribe", pushUnsubscribe],
+  ["GET", "/push/pending", pushPending],
   ["POST", "/producten", withClient(clientAddProduct)],
   ["PUT", /^\/producten\/(\d+)$/, withClient(clientPutProduct)],
   ["DELETE", /^\/producten\/(\d+)$/, withClient(clientDelProduct)],
@@ -360,6 +396,10 @@ const ROUTES = [
   ["GET", /^\/coach\/fotos\/(\d+)$/, withCoach(coachGetFoto)],
   ["DELETE", /^\/coach\/clients\/(\d+)\/fotos\/(\d+)$/, withCoach(coachDelFoto)],
   ["GET", /^\/coach\/clients\/(\d+)\/dagboek$/, withCoach(coachGetDagboek)],
+  ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
+  ["POST", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachPostBericht)],
+  ["POST", /^\/coach\/clients\/(\d+)\/berichten\/foto$/, withCoach(async (c) => postBerichtFoto(c, await ownClient(c, c.params[0]), "coach")), RAW],
+  ["GET", /^\/coach\/berichten\/foto\/(\d+)$/, withCoach(coachBerichtFoto)],
 ];
 
 async function route(req, env, url, ctx) {
@@ -498,6 +538,9 @@ async function clientMe(c) {
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
     abonnement: cl.abo_status ? { status: cl.abo_status, einde: cl.abo_einde } : null,
+    ongelezen: (await env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL").bind(cl.id).first()).n,
+    // coach feedback on check-ins, for the progress screen (reading it here does not mark it read)
+    feedback: (await env.DB.prepare(`SELECT ${BERICHT_COLS} FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id DESC LIMIT 5`).bind(cl.id).all()).results.reverse().map((b) => ({ ...b, foto: !!b.foto })),
   });
 }
 
@@ -540,6 +583,8 @@ async function clientAddCheckin(c) {
        energie = excluded.energie, honger = excluded.honger, slaap = excluded.slaap, stress = excluded.stress,
        naleving = excluded.naleving, training = excluded.training, opmerking = excluded.opmerking`,
   ).bind(c.client.id, k.datum, k.energie, k.honger, k.slaap, k.stress, k.naleving, k.training, k.opmerking, c.now).run();
+  c.ctx?.waitUntil(notify(c.env, "coach", c.client.coach_id, { titel: `Check-in van ${c.client.naam}`,
+    tekst: k.opmerking ? k.opmerking.slice(0, 120) : "Er staat een nieuwe weekcheck-in klaar.", url: `/coach/#/client/${c.client.id}/checkins` }, c.now));
   return json({ checkins: await checkinsOf(c.env, c.client.id, 12) });
 }
 
@@ -623,11 +668,12 @@ async function listClients(c) {
                            'stress', stress, 'naleving', naleving)
           FROM checkins k WHERE k.client_id = c.id ORDER BY datum DESC LIMIT 1) AS checkin,
        (SELECT MAX(datum) FROM fotos f WHERE f.client_id = c.id) AS laatste_foto,
-       (SELECT MAX(datum) FROM workouts w WHERE w.client_id = c.id AND w.afgerond IS NOT NULL) AS laatste_training
+       (SELECT MAX(datum) FROM workouts w WHERE w.client_id = c.id AND w.afgerond IS NOT NULL) AS laatste_training,
+       (SELECT COUNT(*) FROM berichten b WHERE b.client_id = c.id AND b.van = 'client' AND b.gelezen IS NULL) AS ongelezen
      FROM clients c WHERE c.coach_id = ? ORDER BY c.naam COLLATE NOCASE`,
   ).bind(c.coach.id).all();
   return json(results.map((r) => ({
-    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto, laatsteTraining: r.laatste_training,
+    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto, laatsteTraining: r.laatste_training, ongelezen: r.ongelezen,
     eerste: r.eerste ? JSON.parse(r.eerste) : null, laatste: r.laatste ? JSON.parse(r.laatste) : null,
   })));
 }
@@ -658,7 +704,9 @@ async function getClient(c) {
   const row = await ownClient(c, c.params[0]);
   const [metingen, checkins, fotos, workouts, producten] = await Promise.all([
     metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id), workoutsOf(c.env, row), productenOf(c.env, row.id)]);
-  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten });
+  const ongelezen = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'client' AND gelezen IS NULL").bind(row.id).first()).n;
+  const feedback = (await c.env.DB.prepare("SELECT id, tekst, checkin_id, created_at FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id").bind(row.id).all()).results;
+  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback });
 }
 
 async function coachExport(c) {
@@ -709,6 +757,9 @@ async function deleteClient(c) {
     c.env.DB.prepare("DELETE FROM workouts WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM producten WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM dagboek WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM berichten WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM push_subs WHERE role = 'client' AND subject_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM notificaties WHERE role = 'client' AND subject_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM metingen WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
@@ -793,9 +844,12 @@ async function removeFoto(c, clientId, fotoId) {
 }
 
 async function deleteAllFotos(env, clientId) {
+  for (const prefix of [`c/${clientId}/`, `m/${clientId}/`]) await deletePrefix(env, prefix);
+}
+async function deletePrefix(env, prefix) {
   let cursor;
   do {
-    const list = await env.FOTOS.list({ prefix: `c/${clientId}/`, cursor });
+    const list = await env.FOTOS.list({ prefix, cursor });
     if (list.objects.length) await env.FOTOS.delete(list.objects.map((o) => o.key));
     cursor = list.truncated ? list.cursor : undefined;
   } while (cursor);
@@ -1325,4 +1379,171 @@ async function stripeWebhook(c) {
     throw e;
   }
   return json({ ok: true });
+}
+
+// ---------- messages (coach ↔ client) ----------
+const BERICHT_COLS = "id, van, tekst, foto_key IS NOT NULL AS foto, checkin_id, gelezen, created_at";
+async function berichtenOf(env, clientId, na) {
+  const { results } = await env.DB.prepare(
+    `SELECT ${BERICHT_COLS} FROM berichten WHERE client_id = ? AND id > ? ORDER BY id DESC LIMIT 200`,
+  ).bind(clientId, na || 0).all();
+  return results.reverse().map((b) => ({ ...b, foto: !!b.foto }));
+}
+function cleanTekst(t) {
+  const tekst = str(t, 4000, "Bericht");
+  if (!tekst) fail(400, "Typ een bericht.");
+  return tekst;
+}
+async function addBericht(c, clientId, van, tekst, extra = {}) {
+  const { meta } = await c.env.DB.prepare(
+    "INSERT INTO berichten (client_id, van, tekst, foto_key, foto_type, checkin_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(clientId, van, tekst, extra.foto_key || null, extra.foto_type || null, extra.checkin_id || null, c.now).run();
+  const cl = await c.env.DB.prepare("SELECT id, naam, coach_id FROM clients WHERE id = ?").bind(clientId).first();
+  const preview = tekst ? tekst.slice(0, 120) : "📷 Foto";
+  const n = van === "coach"
+    ? ["client", cl.id, { titel: extra.checkin_id ? "Uw coach reageerde op uw check-in" : "Nieuw bericht van uw coach", tekst: preview, url: "/app/?v=coach" }]
+    : ["coach", cl.coach_id, { titel: `Bericht van ${cl.naam}`, tekst: preview, url: `/coach/#/client/${cl.id}/berichten` }];
+  c.ctx?.waitUntil(notify(c.env, n[0], n[1], n[2], c.now));
+  return meta.last_row_id;
+}
+async function clientGetBerichten(c) {
+  await c.env.DB.prepare("UPDATE berichten SET gelezen = ? WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL").bind(c.now, c.client.id).run();
+  return json({ berichten: await berichtenOf(c.env, c.client.id, Number(c.url.searchParams.get("na")) || 0) });
+}
+async function clientPostBericht(c) {
+  await addBericht(c, c.client.id, "client", cleanTekst(c.body.tekst));
+  return json({ berichten: await berichtenOf(c.env, c.client.id) }, 201);
+}
+async function coachGetBerichten(c) {
+  const row = await ownClient(c, c.params[0]);
+  await c.env.DB.prepare("UPDATE berichten SET gelezen = ? WHERE client_id = ? AND van = 'client' AND gelezen IS NULL").bind(c.now, row.id).run();
+  return json({ berichten: await berichtenOf(c.env, row.id, Number(c.url.searchParams.get("na")) || 0) });
+}
+async function coachPostBericht(c) {
+  const row = await ownClient(c, c.params[0]);
+  let checkin = null;
+  if (c.body.checkin_id != null) {
+    checkin = await c.env.DB.prepare("SELECT id FROM checkins WHERE id = ? AND client_id = ?").bind(Number(c.body.checkin_id), row.id).first();
+    if (!checkin) fail(404, "Check-in niet gevonden.");
+  }
+  await addBericht(c, row.id, "coach", cleanTekst(c.body.tekst), { checkin_id: checkin && checkin.id });
+  return json({ berichten: await berichtenOf(c.env, row.id) }, 201);
+}
+async function postBerichtFoto(c, client, van) {
+  if (Number(c.req.headers.get("content-length")) > MAX_FOTO) fail(413, "De foto is te groot (max. 5 MB).");
+  const buf = new Uint8Array(await c.req.arrayBuffer());
+  if (buf.length > MAX_FOTO) fail(413, "De foto is te groot (max. 5 MB).");
+  const type = buf.length > 12 ? imageType(buf) : null;
+  if (!type) fail(415, "Upload een JPEG- of WebP-foto.");
+  const tekst = str(c.url.searchParams.get("tekst") || "", 4000, "Bericht");
+  const key = `m/${client.id}/${randomToken(12)}`;
+  await c.env.FOTOS.put(key, buf, { httpMetadata: { contentType: type } });
+  await addBericht(c, client.id, van, tekst, { foto_key: key, foto_type: type });
+  return json({ berichten: await berichtenOf(c.env, client.id) }, 201);
+}
+async function serveBerichtFoto(c, clientId) {
+  const b = await c.env.DB.prepare("SELECT foto_key, foto_type FROM berichten WHERE id = ? AND client_id = ? AND foto_key IS NOT NULL").bind(c.params[0], clientId).first();
+  const obj = b && await c.env.FOTOS.get(b.foto_key);
+  if (!obj) fail(404, "Foto niet gevonden.");
+  return new Response(obj.body, { headers: { "content-type": b.foto_type, "cache-control": "private, max-age=86400" } });
+}
+async function coachBerichtFoto(c) {
+  const b = await c.env.DB.prepare(
+    "SELECT b.client_id FROM berichten b JOIN clients cl ON cl.id = b.client_id WHERE b.id = ? AND cl.coach_id = ?",
+  ).bind(c.params[0], c.coach.id).first();
+  if (!b) fail(404, "Foto niet gevonden.");
+  return serveBerichtFoto(c, b.client_id);
+}
+
+// ---------- web push (VAPID, payload-less) ----------
+// The push itself is empty; the service worker then calls /api/push/pending with the user's cookie to get
+// the text. That avoids the RFC 8291 payload encryption while keeping message content off third-party servers.
+let vapidKey = null;
+async function vapidJwt(env, endpoint, now) {
+  if (!vapidKey) vapidKey = await crypto.subtle.importKey("jwk", JSON.parse(env.VAPID_PRIVATE_JWK), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const b64 = (o) => b64url(enc.encode(JSON.stringify(o)));
+  const unsigned = `${b64({ typ: "JWT", alg: "ES256" })}.${b64({ aud: new URL(endpoint).origin, exp: now + 12 * 3600, sub: env.VAPID_SUBJECT || "https://dcramere-voeding.dcramere.workers.dev" })}`;
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, vapidKey, enc.encode(unsigned));
+  return `${unsigned}.${b64url(sig)}`;
+}
+async function sendPush(env, endpoint, now) {
+  const r = await fetch(endpoint, {
+    method: "POST",
+    headers: { authorization: `vapid t=${await vapidJwt(env, endpoint, now)}, k=${env.VAPID_PUBLIC}`, ttl: "86400", urgency: "normal", "content-length": "0" },
+  });
+  if (r.status === 404 || r.status === 410) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?").bind(endpoint).run();
+  else if (!r.ok) console.error("push failed", r.status, await r.text().catch(() => ""));
+}
+async function notify(env, role, subjectId, n, now) {
+  try {
+    await env.DB.prepare("INSERT INTO notificaties (role, subject_id, titel, tekst, url, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(role, subjectId, n.titel, n.tekst, n.url, now).run();
+    if (!env.VAPID_PRIVATE_JWK || !env.VAPID_PUBLIC) return;
+    const { results } = await env.DB.prepare("SELECT endpoint FROM push_subs WHERE role = ? AND subject_id = ?").bind(role, subjectId).all();
+    await Promise.all(results.map((s) => sendPush(env, s.endpoint, now).catch((e) => console.error("push", e))));
+  } catch (e) { console.error("notify failed", e); }
+}
+async function sessionRoles(c) {
+  const out = [];
+  for (const role of ["client", "coach"]) { const id = await sessionSubject(c, role); if (id) out.push([role, id]); }
+  return out;
+}
+async function pushSubscribe(c) {
+  const roles = await sessionRoles(c);
+  const role = roles.find((r) => r[0] === c.body.role) || (roles.length === 1 && roles[0]);
+  if (!role) fail(401, "Log opnieuw in.");
+  const ep = String(c.body.endpoint || "");
+  if (!/^https:\/\/[^\s]{10,1000}$/.test(ep) && !(c.env.PUSH_TEST_ORIGIN && ep.startsWith(c.env.PUSH_TEST_ORIGIN))) fail(400, "Ongeldig push-adres.");
+  await c.env.DB.prepare("INSERT INTO push_subs (role, subject_id, endpoint, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (endpoint) DO UPDATE SET role = excluded.role, subject_id = excluded.subject_id")
+    .bind(role[0], role[1], ep, c.now).run();
+  return json({ ok: true });
+}
+async function pushUnsubscribe(c) {
+  const roles = await sessionRoles(c);
+  if (!roles.length) fail(401, "Log opnieuw in.");
+  await c.env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?").bind(String(c.body.endpoint || "")).run();
+  return json({ ok: true });
+}
+async function pushPending(c) {
+  const out = [];
+  for (const [role, id] of await sessionRoles(c)) {
+    const { results } = await c.env.DB.prepare(
+      "SELECT id, titel, tekst, url FROM notificaties WHERE role = ? AND subject_id = ? AND bezorgd IS NULL AND created_at > ? ORDER BY id LIMIT 5",
+    ).bind(role, id, c.now - 3 * DAY).all();
+    if (results.length) await c.env.DB.prepare(`UPDATE notificaties SET bezorgd = ? WHERE id IN (${results.map(() => "?").join(",")})`).bind(c.now, ...results.map((r) => r.id)).run();
+    out.push(...results);
+  }
+  return json({ notificaties: out });
+}
+
+// ---------- reminders ----------
+const CHECKIN_ELKE = 7 * DAY, FOTO_ELKE = 28 * DAY;
+async function remindOnce(env, clientId, soort, every, now, n) {
+  const r = await env.DB.prepare("SELECT laatst FROM herinneringen WHERE client_id = ? AND soort = ?").bind(clientId, soort).first();
+  if (r && now - r.laatst < every) return false;
+  await env.DB.prepare("INSERT INTO herinneringen (client_id, soort, laatst) VALUES (?, ?, ?) ON CONFLICT (client_id, soort) DO UPDATE SET laatst = excluded.laatst").bind(clientId, soort, now).run();
+  await notify(env, "client", clientId, n, now);
+  return true;
+}
+async function sendReminders(env, now) {
+  // only clients who enabled push, have started (a measurement) and have access
+  const { results } = await env.DB.prepare(
+    `SELECT c.id,
+       (SELECT MAX(datum) FROM checkins k WHERE k.client_id = c.id) AS checkin,
+       (SELECT MAX(datum) FROM fotos f WHERE f.client_id = c.id) AS foto,
+       (SELECT MIN(datum) FROM metingen m WHERE m.client_id = c.id) AS start
+     FROM clients c
+     WHERE c.actief = 1 AND (c.abo_status IS NULL OR c.abo_status IN ('active','trialing','past_due'))
+       AND EXISTS (SELECT 1 FROM push_subs p WHERE p.role = 'client' AND p.subject_id = c.id)
+       AND EXISTS (SELECT 1 FROM metingen m WHERE m.client_id = c.id)`,
+  ).all();
+  const age = (d) => (d ? now - Date.parse(d + "T12:00:00Z") / 1000 : Infinity);
+  let sent = 0;
+  for (const c of results) {
+    if (age(c.checkin) >= CHECKIN_ELKE - DAY / 2 && age(c.start) >= CHECKIN_ELKE - DAY / 2)
+      sent += await remindOnce(env, c.id, "checkin", 3 * DAY, now, { titel: "Tijd voor uw wekelijkse check-in", tekst: "Weeg uzelf en laat uw coach weten hoe uw week ging.", url: "/app/?v=checkin" });
+    else if (age(c.foto) >= FOTO_ELKE)
+      sent += await remindOnce(env, c.id, "foto", 7 * DAY, now, { titel: "Tijd voor nieuwe progressiefoto's", tekst: "Maak een nieuwe set: voorkant, achterkant en zijkant.", url: "/app/?v=checkin" });
+  }
+  if (sent) console.log(`reminders sent: ${sent}`);
 }

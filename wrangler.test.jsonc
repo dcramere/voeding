@@ -1,5 +1,5 @@
+// Test copy of wrangler.jsonc without the AI binding (npm test / CI). Keep in sync.
 {
-  "//": "Test copy of wrangler.jsonc without the AI binding (npm test / CI). Keep in sync.",
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dcramere-voeding",
   "main": "src/worker.js",
@@ -25,6 +25,9 @@
     { "binding": "FOTOS", "bucket_name": "dcramere-voeding-fotos" }
   ],
   // prices shown on the landing page until Stripe is connected (then the Stripe prices are used)
-  "vars": { "PRIJS_CLIENT": "49", "PRIJS_COACH": "49", "VALUTA": "USD" },
+  "vars": { "PRIJS_CLIENT": "49", "PRIJS_COACH": "49", "VALUTA": "USD", "VAPID_PUBLIC": "BAczSVYlFxVgpyhiUl4kLJsno3hxEH9kg-8KkSCNJAwMTs_HzEt1b_1LSGKCdLtOXSUxDSeM25_DqyBxoWdMz3A" },
+  // hourly reminders + backup check without a cron slot
+  "durable_objects": { "bindings": [{ "name": "SCHEDULER", "class_name": "Scheduler" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Scheduler"] }],
   "observability": { "enabled": true }
 }

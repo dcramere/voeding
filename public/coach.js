@@ -92,6 +92,7 @@ function renderList(){
   const avg=deltas.length?deltas.reduce((a,b)=>a+b,0)/deltas.length:null;
   $("stats").innerHTML=
     `<div><small>Actieve cliënten</small><b>${act.length}</b></div>`+
+    `<div><small>Ongelezen berichten</small><b class="${clients.some(c=>c.ongelezen)?"gold-t":""}">${clients.reduce((t,c)=>t+(c.ongelezen||0),0)}</b></div>`+
     `<div><small>Check-ins, laatste 7 dagen</small><b>${week}</b></div>`+
     `<div><small>Aandacht nodig</small><b class="${attn?"stale":""}">${attn}</b></div>`+
     `<div><small>Gem. verandering sinds start</small><b>${avg==null?"–":DC.signed(avg)+'<span class="unit">kg</span>'}</b></div>`;
@@ -113,7 +114,7 @@ function renderList(){
       const why=attentionReasons(c);
       const k=c.checkin, kd=k?DC.daysSince(k.datum):null, flags=DC.checkinFlags(k);
       return `<tr data-id="${c.id}" tabindex="0">
-        <td class="who"><b>${esc(c.naam)}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</td>
+        <td class="who"><b>${esc(c.naam)}${c.ongelezen?` <span class="badge inline" title="Ongelezen berichten">${c.ongelezen}</span>`:""}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</td>
         <td>${pill(c)}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
         <td>${l?`${DC.dateNL(l.datum,{day:"numeric",month:"short",year:"numeric"})}<br><small class="${d>STALE_DAYS&&c.actief?"stale":""}" style="${d>STALE_DAYS&&c.actief?"":"color:var(--muted)"}">${ago(d)}</small>`:'<span style="color:var(--muted)">nog geen</span>'}</td>
         <td class="hide-sm">${k?`${ago(kd)}<br><small class="${flags.length?"stale":""}" style="${flags.length?"":"color:var(--muted)"}">${flags.length?flags.join(", "):"geen bijzonderheden"}</small>`:'<span style="color:var(--muted)">–</span>'}</td>
@@ -158,7 +159,8 @@ function renderClient(){
   $("pShop").innerHTML="";
   $("pHist").innerHTML=c.metingen.length&&c.profiel?DC.historyHTML(c.profiel,c.metingen,{coach:true})
     :c.metingen.length?'<p class="empty">Vul eerst het profiel in om de analyse te zien.</p>':'<p class="empty">Nog geen metingen.</p>';
-  $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins);
+  $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins)+checkinReplyHTML(c);
+  $("paneBadge").hidden=!c.ongelezen; $("paneBadge").textContent=c.ongelezen>9?"9+":c.ongelezen;
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
   renderFotos();
   renderTraining();
@@ -229,11 +231,75 @@ function renderDiary(){
   $("pDiaryDay").innerHTML=d?`<div class="tr-detail"><h2 style="margin-top:12px">${DC.dateNL(d,{weekday:"long",day:"numeric",month:"long"})}</h2>
     ${VD.barsHTML(VD.sum(diary.items.filter(i=>i.datum===d)),DC.targetFor(cur.profiel,cur.metingen,d))}${VD.entriesHTML(diary.items.filter(i=>i.datum===d))}</div>`:"";
 }
+// ---------- messages & check-in feedback ----------
+let cchat=[], cchatPoll=null;
+const cFoto=id=>"/api/coach/berichten/foto/"+id;
+function checkinReplyHTML(c){
+  const recent=(c.checkins||[]).slice(0,4);
+  if(!recent.length) return "";
+  return `<h2>Reageren op check-ins</h2><div class="kreply">${recent.map(k=>{
+    const flags=DC.checkinFlags(k), fb=(c.feedback||[]).filter(b=>b.checkin_id===k.id);
+    return `<article><p class="kicker">Week van ${DC.dateNL(k.datum,{day:"numeric",month:"long"})}</p>
+      <p class="sub" style="margin:0 0 6px">${flags.length?`<span class="stale">Aandacht: ${flags.join(", ")}</span>`:"Geen bijzonderheden"}${k.opmerking?` · “${esc(k.opmerking)}”`:""}</p>
+      ${fb.map(b=>`<div class="msg mine fb"><div class="msg-t">${esc(b.tekst)}</div></div>`).join("")}
+      <form data-kreply="${k.id}" novalidate><textarea name="tekst" rows="2" placeholder="${fb.length?"Nog een reactie":"Uw reactie op deze week"}"></textarea><button class="btn small" type="submit">Verstuur</button></form></article>`;
+  }).join("")}</div>`;
+}
+async function loadCChat(scroll){
+  if(!cur) return;
+  const id=cur.id, r=await call(`/api/coach/clients/${id}/berichten`);
+  if(!cur||cur.id!==id) return;
+  cchat=r.berichten; cur.ongelezen=0; $("paneBadge").hidden=true;
+  const el=$("cChat"), atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80;
+  el.innerHTML=CHAT.messagesHTML(cchat,"coach",cFoto,cur.checkins);
+  if(scroll||atBottom) el.scrollTop=el.scrollHeight;
+}
+function initCCompose(){
+  if($("cCompose").firstChild) return;
+  $("cCompose").innerHTML=CHAT.composerHTML();
+  const f=$("cCompose").querySelector("form"), ta=f.elements.tekst, err=$("cCompose").querySelector("[data-chat-err]");
+  ta.addEventListener("input",()=>CHAT.autoGrow(ta));
+  ta.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();f.requestSubmit()}});
+  f.addEventListener("submit",async e=>{
+    e.preventDefault(); const t=ta.value.trim(); if(!t||!cur) return; err.textContent="";
+    try{cchat=(await call(`/api/coach/clients/${cur.id}/berichten`,"POST",{tekst:t})).berichten;ta.value="";CHAT.autoGrow(ta);await loadCChat(true)}catch(x){err.textContent=x.message}
+  });
+  f.querySelector("[data-chat-foto]").addEventListener("change",async e=>{
+    const file=e.target.files[0]; if(!file||!cur) return; err.textContent="Foto wordt verstuurd…";
+    try{const blob=await DC.prepareFoto(file);await DC.uploadFoto(`/api/coach/clients/${cur.id}/berichten/foto?tekst=${encodeURIComponent(ta.value.trim())}`,blob);ta.value="";err.textContent="";await loadCChat(true)}
+    catch(x){err.textContent=x.message} e.target.value="";
+  });
+}
+document.addEventListener("submit",async e=>{
+  const f=e.target.closest("[data-kreply]"); if(!f||!cur) return;
+  e.preventDefault(); const t=f.elements.tekst.value.trim(); if(!t) return;
+  f.querySelector("[type=submit]").disabled=true;
+  try{await call(`/api/coach/clients/${cur.id}/berichten`,"POST",{tekst:t,checkin_id:+f.dataset.kreply});cur.feedback=(await call("/api/coach/clients/"+cur.id)).feedback;$("pCheckins").innerHTML=DC.checkinsHTML(cur.checkins)+checkinReplyHTML(cur)}
+  catch(x){alert(x.message);f.querySelector("[type=submit]").disabled=false}
+});
+async function renderNavPush(){
+  const st=await CHAT.pushState().catch(()=>"unsupported");
+  $("navPush").hidden=st==="unsupported";
+  $("navPush").textContent=st==="on"?"Meldingen aan":"Meldingen";
+  $("navPush").dataset.state=st;
+}
+$("navPush").addEventListener("click",async()=>{
+  const st=$("navPush").dataset.state;
+  try{
+    if(st==="on"){if(confirm("Meldingen op dit apparaat uitzetten?"))await CHAT.disablePush()}
+    else if(st==="denied") alert(CHAT.PUSH_TEXT.denied);
+    else{await CHAT.enablePush("coach");alert("Meldingen staan aan. U krijgt een melding bij nieuwe berichten en check-ins.")}
+  }catch(x){alert(x.message)}
+  renderNavPush();
+});
+
 function setPane(p){
   pane=p;
   document.querySelectorAll("[data-pane]").forEach(b=>{if(b.dataset.pane===p)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current")});
   document.querySelectorAll("[data-pane-body]").forEach(d=>d.hidden=d.dataset.paneBody!==p);
   if(p==="dagboek"&&cur) loadDiary();
+  if(cchatPoll){clearInterval(cchatPoll);cchatPoll=null}
+  if(p==="berichten"&&cur){initCCompose();loadCChat(true).catch(()=>{});cchatPoll=setInterval(()=>{if(!document.hidden)loadCChat().catch(()=>{})},15000)}
 }
 document.querySelector(".seg").addEventListener("click",e=>{const b=e.target.closest("[data-pane]");if(b) setPane(b.dataset.pane)});
 
@@ -332,11 +398,12 @@ $("logout").addEventListener("click",async()=>{
 // ---------- routing ----------
 async function route(){
   if(!coach) return;
-  const m=location.hash.match(/^#\/client\/(\d+)/);
+  const m=location.hash.match(/^#\/client\/(\d+)(?:\/(\w+))?/);
   try{
     if(location.hash==="#/coaches"&&coach.isOwner){cur=null;show("coaches");await loadCoaches();return}
     if(m){
-      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;diary=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
+      if(!cur||cur.id!==+m[1]){pane=m[2]||"plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;diary=null;cchat=[];$("cChat").innerHTML="";$("fotoDatum").value="";$("clientInvite").innerHTML="";}
+      else if(m[2]) pane=m[2];
       show("client"); await loadClient(+m[1]);
     }else{
       cur=null; show("lijst"); await loadList();
@@ -374,6 +441,7 @@ async function boot(){
     coach=await DC.api("/api/coach/me");
     $("coachNaam").textContent=coach.naam;
     $("navCoaches").hidden=!coach.isOwner;
+    renderNavPush();
     $("navBilling").hidden=coach.isOwner||!coach.portaal;
     if(q.get("betaald")){show("laden");await afterPayment(q.get("betaald"));history.replaceState(null,"","/coach/");coach=await DC.api("/api/coach/me");$("navBilling").hidden=coach.isOwner||!coach.portaal}
     if(coach.status!=="actief"){showBilling();return}

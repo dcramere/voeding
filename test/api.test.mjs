@@ -4,12 +4,22 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, openSync } from "node:fs";
 import { createServer } from "node:http";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync, createVerify, createPublicKey } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const PORT = 8799, BASE = `http://127.0.0.1:${PORT}`, SETUP = "test-setup-code-123";
-const STRIPE_PORT = 8798, WHSEC = "whsec_test_secret";
+const STRIPE_PORT = 8798, WHSEC = "whsec_test_secret", PUSH_PORT = 8797;
+// VAPID key pair for this test run + a fake push service that records deliveries
+const vapid = generateKeyPairSync("ec", { namedCurve: "P-256" });
+const VAPID_JWK = JSON.stringify(vapid.privateKey.export({ format: "jwk" }));
+const VAPID_PUB = Buffer.from(vapid.publicKey.export({ format: "jwk" }).x, "base64url").length &&
+  Buffer.concat([Buffer.from([4]), Buffer.from(vapid.publicKey.export({ format: "jwk" }).x, "base64url"), Buffer.from(vapid.publicKey.export({ format: "jwk" }).y, "base64url")]).toString("base64url");
+const pushes = [];
+const pushMock = createServer((req, res) => { let b = ""; req.on("data", (d) => (b += d)); req.on("end", () => {
+  pushes.push({ path: req.url, auth: req.headers.authorization, ttl: req.headers.ttl, body: b });
+  res.writeHead(req.url.includes("gone") ? 410 : 201); res.end();
+}); });
 
 // ---- minimal Stripe API mock (only what the worker uses) ----
 const sessions = new Map(); let seq = 0;
@@ -52,10 +62,12 @@ let dev;
 
 before(async () => {
   await new Promise((r) => stripeMock.listen(STRIPE_PORT, "127.0.0.1", r));
+  await new Promise((r) => pushMock.listen(PUSH_PORT, "127.0.0.1", r));
   wrangler(["d1", "migrations", "apply", "dcramere-voeding", "--local", "--persist-to", persist, "--config", "wrangler.test.jsonc"]);
   dev = spawn("npx", ["wrangler", "dev", "--config", "wrangler.test.jsonc", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
     "--var", `SETUP_CODE:${SETUP}`, "--var", "STRIPE_SECRET_KEY:sk_test_mock", "--var", `STRIPE_API_BASE:http://127.0.0.1:${STRIPE_PORT}`,
     "--var", "STRIPE_PRICE_CLIENT:price_client", "--var", "STRIPE_PRICE_COACH:price_coach", "--var", `STRIPE_WEBHOOK_SECRET:${WHSEC}`,
+    "--var", `VAPID_PUBLIC:${VAPID_PUB}`, "--var", `VAPID_PRIVATE_JWK:${VAPID_JWK}`, "--var", `PUSH_TEST_ORIGIN:http://127.0.0.1:${PUSH_PORT}`,
     "--test-scheduled", "--show-interactive-dev-session=false"],
     // output goes to a file (TEST_SERVER_LOG=path) or is discarded: an unread pipe fills up and blocks wrangler
     { stdio: process.env.TEST_SERVER_LOG ? ["ignore", openSync(process.env.TEST_SERVER_LOG, "w"), openSync(process.env.TEST_SERVER_LOG, "a")] : "ignore", detached: true });
@@ -68,7 +80,7 @@ before(async () => {
 });
 // kill the whole process group (npx → wrangler → workerd), not just npx
 function stop() { try { process.kill(-dev.pid, "SIGTERM"); } catch {} }
-after(() => { stop(); stripeMock.close(); rmSync(persist, { recursive: true, force: true }); });
+after(() => { stop(); stripeMock.close(); pushMock.close(); rmSync(persist, { recursive: true, force: true }); });
 
 // minimal cookie-jar client (one per browser/user)
 function client() {
@@ -283,6 +295,77 @@ test("food diary: add, edit, delete, recent, isolation, coach range", async () =
   assert.equal((await coach(`/api/coach/clients/${annaId}/dagboek?van=2026-01-01&tot=2026-09-30`)).status, 400, "max 62 days");
 });
 
+test("messages: client ↔ coach, read status, check-in feedback, photos, isolation", async () => {
+  assert.equal((await anna("/api/berichten", "POST", { tekst: "" })).status, 400);
+  const a = await anna("/api/berichten", "POST", { tekst: "Mag ik rijst vervangen door cassave?" });
+  assert.equal(a.status, 201); assert.equal(a.data.berichten.at(-1).van, "client");
+  const row = (await coach("/api/coach/clients")).data.find((x) => x.id === annaId);
+  assert.equal(row.ongelezen, 1, "coach sees 1 unread");
+  const cm = await coach(`/api/coach/clients/${annaId}/berichten`);
+  assert.equal(cm.data.berichten[0].gelezen === null, false, "opening the chat marks client messages read");
+  assert.equal((await coach("/api/coach/clients")).data.find((x) => x.id === annaId).ongelezen, 0);
+  // feedback on a check-in
+  const k = (await coach(`/api/coach/clients/${annaId}`)).data.checkins[0];
+  assert.equal((await coach(`/api/coach/clients/${annaId}/berichten`, "POST", { tekst: "x", checkin_id: 999999 })).status, 404);
+  await coach(`/api/coach/clients/${annaId}/berichten`, "POST", { tekst: "Sterke week! Iets meer eiwit bij het ontbijt.", checkin_id: k.id });
+  const me = (await anna("/api/me")).data;
+  assert.equal(me.ongelezen, 1); assert.equal(me.feedback.at(-1).checkin_id, k.id);
+  assert.equal((await anna("/api/berichten/ongelezen")).data.n, 1);
+  await anna("/api/berichten");
+  assert.equal((await anna("/api/berichten/ongelezen")).data.n, 0, "client read it");
+  // photo message
+  const jpeg = new Uint8Array(800).fill(3); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+  const ph = await anna("/api/berichten/foto?tekst=Mijn%20lunch", "POST", jpeg, { "content-type": "image/jpeg" });
+  const pid = ph.data.berichten.at(-1).id;
+  assert.equal(ph.data.berichten.at(-1).foto, true);
+  assert.equal((await coach(`/api/coach/berichten/foto/${pid}`)).status, 200);
+  assert.equal((await bram(`/api/berichten/foto/${pid}`)).status, 404, "other client");
+  assert.deepEqual((await bram("/api/berichten")).data.berichten, [], "bram sees none of anna's messages");
+});
+
+test("push: subscribe, VAPID-signed delivery, pending text, gone endpoints, reminders", async () => {
+  assert.equal((await anon("/api/push/subscribe", "POST", { endpoint: `http://127.0.0.1:${PUSH_PORT}/sub/x` })).status, 401);
+  assert.equal((await anna("/api/push/subscribe", "POST", { endpoint: "http://evil.example/x" })).status, 400);
+  assert.equal((await anna("/api/push/subscribe", "POST", { endpoint: `http://127.0.0.1:${PUSH_PORT}/sub/anna` })).status, 200);
+  assert.equal((await coach("/api/push/subscribe", "POST", { endpoint: `http://127.0.0.1:${PUSH_PORT}/sub/coach-gone`, role: "coach" })).status, 200);
+  await anna("/api/push/pending"); // clear anything queued earlier
+  pushes.length = 0;
+  await coach(`/api/coach/clients/${annaId}/berichten`, "POST", { tekst: "Hoe gaat het met de training?" });
+  for (let i = 0; i < 20 && !pushes.some((p) => p.path === "/sub/anna"); i++) await new Promise((r) => setTimeout(r, 100));
+  const p = pushes.find((x) => x.path === "/sub/anna");
+  assert.ok(p, "push delivered to the client's endpoint");
+  assert.equal(p.body, "", "no payload: content stays on our server");
+  // verify the VAPID JWT with the public key
+  const [, jwt] = p.auth.match(/^vapid t=([^,]+), k=/);
+  const [h, c, sig] = jwt.split(".");
+  const claims = JSON.parse(Buffer.from(c, "base64url"));
+  assert.equal(claims.aud, `http://127.0.0.1:${PUSH_PORT}`);
+  assert.ok(claims.exp > Date.now() / 1000);
+  const v = createVerify("SHA256"); v.update(`${h}.${c}`);
+  assert.ok(v.verify({ key: vapid.publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(sig, "base64url")), "valid ES256 signature");
+  // the service worker then fetches the text with the client's cookie, exactly once
+  const pend = (await anna("/api/push/pending")).data.notificaties;
+  assert.equal(pend.at(-1).titel, "Nieuw bericht van uw coach"); assert.equal(pend.at(-1).url, "/app/?v=coach");
+  assert.deepEqual((await anna("/api/push/pending")).data.notificaties, []);
+  // client message → coach push; the coach endpoint answers 410 Gone and gets removed
+  pushes.length = 0;
+  await anna("/api/berichten", "POST", { tekst: "Goed!" });
+  for (let i = 0; i < 20 && !pushes.some((x) => x.path === "/sub/coach-gone"); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.ok(pushes.some((x) => x.path === "/sub/coach-gone"));
+  await new Promise((r) => setTimeout(r, 200));
+  pushes.length = 0;
+  await anna("/api/berichten", "POST", { tekst: "Nog een" });
+  await new Promise((r) => setTimeout(r, 500));
+  assert.ok(!pushes.some((x) => x.path === "/sub/coach-gone"), "410 endpoint was deleted");
+  // reminders: anna's last check-in is older than a week (2026-09-28 in test data is recent enough?) → run the scheduler
+  pushes.length = 0;
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  const rem = (await anna("/api/push/pending")).data.notificaties.map((n) => n.titel);
+  assert.ok(rem.every((t) => /check-in|progressiefoto/.test(t)));
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  assert.deepEqual((await anna("/api/push/pending")).data.notificaties, [], "no duplicate reminder the same day");
+});
+
 test("security: cross-origin writes, non-JSON bodies, lockout, deactivation", async () => {
   assert.equal((await anna("/api/profiel", "PUT", { naam: "x" }, { origin: "https://evil.example" })).status, 403);
   assert.equal((await fetch(`${BASE}/api/login`, { method: "POST", body: "email=a" })).status, 415);
@@ -308,7 +391,8 @@ test("backups: coach export and weekly snapshot", async () => {
   // opening the client list triggers the weekly snapshot in the background
   await coach("/api/coach/clients");
   await new Promise((r) => setTimeout(r, 1500));
-  const keys = JSON.parse(wrangler(["kv", "key", "list", "--binding", "BACKUPS", "--local", "--persist-to", persist, "--config", "wrangler.test.jsonc"]));
+  const out = wrangler(["kv", "key", "list", "--binding", "BACKUPS", "--local", "--persist-to", persist, "--config", "wrangler.test.jsonc"]);
+  const keys = JSON.parse(out.slice(out.indexOf("[")));
   assert.ok(keys.some((k) => k.name.startsWith("backup/")), "dashboard visit wrote a snapshot");
   assert.ok(keys.some((k) => k.name === "meta:laatste"));
   assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200, "cron entry point still works");

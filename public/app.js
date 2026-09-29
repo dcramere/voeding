@@ -4,7 +4,7 @@
 const DC=window.DC, $=id=>document.getElementById(id);
 const COACH_WHATSAPP="5978514920";
 const AUTH_VIEWS=["login","vergeten","uitnodiging","laden","toestemming","abonnement"];
-const TAB_VIEWS=["plan","dagboek","producten","training","workout","checkin","voortgang","profiel"];
+const TAB_VIEWS=["plan","dagboek","producten","training","workout","checkin","coach","voortgang","profiel"];
 const CHECKIN_EVERY=7; // days
 let me=null, menuTimer=null, inviteToken=null, viewDag=null; // viewDag null = today's day type
 let cmpA=null, cmpB=null; // photo comparison dates (null = first / latest)
@@ -25,6 +25,8 @@ function show(v){
   const tab=v==="workout"?"training":v==="dagboek"||v==="producten"?"plan":v;
   if(v==="dagboek") vd.load(vd.datum).then(vd.render).catch(e=>alert(e.message));
   if(v==="producten") vd.renderProducts();
+  document.body.classList.toggle("chat-open",v==="coach");
+  if(v==="coach") openChat(); else stopChatPoll();
   document.querySelectorAll("#tabs button").forEach(b=>{if(b.dataset.v===tab)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
   if(v!=="workout") stopRest();
   if(v==="boodschappen") renderShop();
@@ -58,7 +60,11 @@ function renderProgress(){
   let h=me.profiel&&me.metingen.length?DC.historyHTML(me.profiel,me.metingen)
     :'<p class="empty">Uw voortgang verschijnt hier zodra u een meting heeft opgeslagen.</p>';
   if(me.fotos.length) h+=`<h2>Progressiefoto's</h2>${DC.fotoCompareHTML(me.fotos,fotoSrc,cmpA,cmpB)}`;
-  if(me.checkins&&me.checkins.length) h+=`<h2>Uw check-ins</h2>${DC.checkinsHTML(me.checkins)}`;
+  if(me.checkins&&me.checkins.length){
+    h+=`<h2>Uw check-ins</h2>${DC.checkinsHTML(me.checkins)}`;
+    const fb=me.feedback||[];
+    if(fb.length) h+=`<h2>Reacties van uw coach</h2><div class="chat">${CHAT.messagesHTML(fb.slice(-5),"client",chatFoto,me.checkins)}</div>`;
+  }
   $("prog").innerHTML=h;
 }
 function renderCheckin(){
@@ -82,6 +88,55 @@ const vd=VD.initClient({
   me:()=>me,
   todayMeals:()=>{const m=DC.latest(me.metingen);return me.profiel&&m?DC.planData(me.profiel,m,me.menu).meals:null},
   changed:()=>{renderPlan();if($("v-boodschappen").classList.contains("on"))renderShop()}
+});
+
+// ---------- coach chat & notifications (public/chat.js) ----------
+let chat=[], chatPoll=null;
+const chatFoto=id=>"/api/berichten/foto/"+id;
+function renderChat(scroll){
+  const el=$("chat"), atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80;
+  el.innerHTML=CHAT.messagesHTML(chat,"client",chatFoto,me.checkins);
+  if(scroll||atBottom) window.scrollTo(0,document.body.scrollHeight);
+}
+async function loadChat(){
+  const r=await DC.api("/api/berichten"); chat=r.berichten; me.ongelezen=0; setBadge(0); renderChat(true); renderProgress();
+}
+function openChat(){
+  $("chatSub").textContent=`${me.coach||"Uw coach"} leest mee en reageert meestal binnen een werkdag.`;
+  if(!$("chatCompose").firstChild){
+    $("chatCompose").innerHTML=CHAT.composerHTML();
+    const f=$("chatCompose").querySelector("form"), ta=f.elements.tekst, err=$("chatCompose").querySelector("[data-chat-err]");
+    ta.addEventListener("input",()=>CHAT.autoGrow(ta));
+    ta.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!("ontouchstart" in window)){e.preventDefault();f.requestSubmit()}});
+    f.addEventListener("submit",async e=>{
+      e.preventDefault(); const t=ta.value.trim(); if(!t) return;
+      const btn=f.querySelector("[type=submit]"); btn.disabled=true; err.textContent="";
+      try{chat=(await DC.api("/api/berichten","POST",{tekst:t})).berichten;ta.value="";CHAT.autoGrow(ta);renderChat(true)}catch(x){err.textContent=x.message}
+      btn.disabled=false;
+    });
+    f.querySelector("[data-chat-foto]").addEventListener("change",async e=>{
+      const file=e.target.files[0]; if(!file) return; err.textContent="Foto wordt verstuurd…";
+      try{const blob=await DC.prepareFoto(file);const r=await DC.uploadFoto("/api/berichten/foto?tekst="+encodeURIComponent(ta.value.trim()),blob);chat=r.berichten;ta.value="";err.textContent="";renderChat(true)}
+      catch(x){err.textContent=x.message} e.target.value="";
+    });
+  }
+  loadChat().catch(e=>{$("chat").innerHTML=`<p class="err">${DC.esc(e.message)}</p>`});
+  stopChatPoll(); chatPoll=setInterval(()=>{if(!document.hidden) loadChat().catch(()=>{})},15000);
+}
+function stopChatPoll(){if(chatPoll){clearInterval(chatPoll);chatPoll=null}}
+function setBadge(n){const b=$("chatBadge");b.hidden=!n;b.textContent=n>9?"9+":n}
+setInterval(()=>{if(me&&!document.hidden&&!$("v-coach").classList.contains("on"))DC.api("/api/berichten/ongelezen").then(r=>setBadge(r.n)).catch(()=>{})},60000);
+async function renderPush(){
+  const st=await CHAT.pushState().catch(()=>"unsupported");
+  $("pushText").textContent=st==="off"?"Ontvang een melding als uw coach reageert en als het tijd is voor uw check-in.":CHAT.PUSH_TEXT[st];
+  $("pushBtn").hidden=st==="unsupported"||st==="denied";
+  $("pushBtn").textContent=st==="on"?"Meldingen uitzetten":"Meldingen aanzetten";
+  $("pushBtn").dataset.state=st;
+}
+$("pushBtn").addEventListener("click",async()=>{
+  const b=$("pushBtn"); b.disabled=true; $("pushMsg").textContent="";
+  try{if(b.dataset.state==="on")await CHAT.disablePush();else await CHAT.enablePush("client")}catch(e){$("pushMsg").textContent=e.message}
+  b.disabled=false; renderPush();
 });
 
 // ---------- training ----------
@@ -166,6 +221,7 @@ function renderAll(){
   $("accEmail").textContent=me.email;
   $("fPw").elements.email.value=me.email;
   if(me.coach) $("coachNaam").textContent=me.coach;
+  setBadge(me.ongelezen||0); renderPush();
   const ab=me.abonnement;
   $("aboBlock").hidden=!ab;
   if(ab) $("aboInfo").textContent=(ab.status==="active"||ab.status==="trialing"?"Uw maandabonnement is actief":ab.status==="past_due"?"De laatste betaling is niet gelukt; werk uw betaalgegevens bij":"Status: "+ab.status)+(ab.einde?`. Huidige periode loopt tot ${new Date(ab.einde*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}.`:".");
@@ -360,7 +416,9 @@ async function boot(){
     me.checkins=me.checkins||[]; me.fotos=me.fotos||[]; me.workouts=me.workouts||[]; me.producten=me.producten||[];
     DC.setCustomFoods(me.producten);
     renderAll();
-    show(nextStep());
+    const want=new URLSearchParams(location.search).get("v");
+    if(want) history.replaceState(null,"","/app/");
+    show(!onboarding()&&want&&TAB_VIEWS.includes(want)?want:nextStep());
     vd.load(DC.today()).then(renderPlan).catch(()=>{}); // marks meals already logged today
   }catch(err){
     if(err.status===401) show("login"); else if(err.status===402) show("abonnement"); else loginError(err.message);

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">
+<defs>
+ <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7dc86"/><stop offset=".45" stop-color="#e2b548"/><stop offset=".75" stop-color="#c38f2c"/><stop offset="1" stop-color="#8f621a"/></linearGradient>
+ <linearGradient id="gh" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b8862a"/><stop offset=".5" stop-color="#f3d27a"/><stop offset="1" stop-color="#b8862a"/></linearGradient>
+ <radialGradient id="fadeg" gradientUnits="userSpaceOnUse" cx="627" cy="465" r="345"><stop offset=".62" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient>
+ <mask id="fade"><rect width="1254" height="1254" fill="url(#fadeg)"/></mask>
+ <clipPath id="disc"><circle cx="626" cy="545" r="398"/></clipPath>
+ <radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#f3c65a" stop-opacity=".22"/><stop offset="1" stop-color="#f3c65a" stop-opacity="0"/></radialGradient>
+ <style>@font-face{font-family:C;src:url(cinzel.woff2)}</style>
+</defs>
+<circle cx="627" cy="470" r="300" fill="url(#glow)"/>
+<g fill="url(#g)" opacity=".92" clip-path="url(#disc)" mask="url(#fade)"><polygon points="454.0,438.6 197.3,404.6 453.4,442.7"/><polygon points="459.1,415.5 179.3,336.6 458.4,418.0"/><polygon points="468.0,391.9 238.3,291.9 466.3,395.7"/><polygon points="479.3,371.2 242.6,224.8 477.9,373.4"/><polygon points="494.3,350.9 313.5,201.9 491.6,354.1"/><polygon points="510.9,334.1 336.9,142.8 508.9,335.8"/><polygon points="530.9,318.7 410.9,144.6 527.4,321.1"/><polygon points="551.5,307.1 448.0,98.1 549.1,308.3"/><polygon points="574.9,297.9 516.1,123.6 570.9,299.2"/><polygon points="597.9,292.4 561.2,91.7 595.3,292.9"/><polygon points="623.0,290.0 615.5,136.4 618.8,290.2"/><polygon points="646.6,291.1 665.8,95.5 644.0,290.8"/><polygon points="671.4,295.7 712.1,123.8 667.3,294.7"/><polygon points="693.8,303.2 777.3,93.0 691.4,302.3"/><polygon points="716.3,314.5 817.0,135.9 712.7,312.4"/><polygon points="735.8,327.9 890.3,127.9 733.7,326.3"/><polygon points="754.3,344.9 917.7,184.3 751.4,341.9"/><polygon points="769.3,363.2 990.2,201.1 767.8,361.1"/><polygon points="782.5,384.7 999.7,266.8 780.5,381.0"/><polygon points="791.9,406.4 1062.4,306.5 791.0,403.9"/><polygon points="798.6,430.7 1050.1,375.1 797.7,426.6"/><polygon points="816.6,453.3 991.1,439.5 816.4,450.2"/><polygon points="816.4,479.8 991.1,490.5 816.6,476.7"/><polygon points="437.4,476.7 262.9,490.5 437.6,479.8"/><polygon points="437.6,450.2 262.9,439.5 437.4,453.3"/></g>
+<g fill="#f3d27a" opacity=".8"><circle cx="360" cy="300" r="2.5"/><circle cx="905" cy="330" r="2"/><circle cx="330" cy="470" r="2"/><circle cx="935" cy="455" r="2.5"/><circle cx="470" cy="210" r="2"/><circle cx="790" cy="215" r="2.5"/></g>
+<!-- ornament + triangle with eye -->
+<g fill="none" stroke="url(#g)" stroke-linejoin="miter">
+ <polygon points="627,262 842,636 412,636" stroke-width="9"/>
+ <line x1="627" y1="238" x2="627" y2="420" stroke-width="4"/>
+ <polyline points="506,474 627,404 748,474" stroke-width="4"/>
+ <path d="M 505 548 Q 627 452 749 548 Q 627 644 505 548 Z" stroke-width="7"/>
+</g>
+<g fill="url(#g)">
+ <polygon points="627,205 638,226 627,247 616,226"/>
+ <circle cx="627" cy="378" r="10"/>
+ <circle cx="627" cy="548" r="46"/>
+</g>
+<circle cx="627" cy="548" r="20" fill="#0a0a0a"/>
+<circle cx="640" cy="535" r="7" fill="#fff4cf"/>
+<circle cx="627" cy="668" r="7" fill="url(#g)"/>
+<!-- dumbbell -->
+<g fill="url(#g)">
+ <rect x="428" y="728" width="398" height="16" rx="4" fill="url(#gh)"/>
+ <rect x="372" y="690" width="30" height="92" rx="7"/><rect x="404" y="676" width="24" height="120" rx="7"/>
+ <rect x="826" y="676" width="24" height="120" rx="7"/><rect x="852" y="690" width="30" height="92" rx="7"/>
+ <rect x="354" y="722" width="20" height="28" rx="5"/><rect x="880" y="722" width="20" height="28" rx="5"/>
+ <rect x="428" y="718" width="14" height="36" rx="3"/><rect x="812" y="718" width="14" height="36" rx="3"/>
+</g>
+<!-- progress line -->
+<path d="M 300 842 C 420 842 470 818 560 822 S 720 850 800 826 S 900 818 932 752" fill="none" stroke="url(#gh)" stroke-width="5" stroke-linecap="round"/>
+<g fill="url(#g)"><circle cx="300" cy="842" r="9"/><circle cx="560" cy="822" r="9"/><circle cx="800" cy="826" r="9"/>
+ <polygon points="946,716 916,748 946,760"/></g>
+<!-- tagline -->
+<text x="627" y="1096" text-anchor="middle" font-family="C" font-size="38" letter-spacing="9" fill="url(#g)">MEET. ANALYSEER. PRESTEER.</text>
+</svg>

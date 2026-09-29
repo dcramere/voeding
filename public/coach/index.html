@@ -17,6 +17,8 @@
   <header class="top" id="topbar" hidden>
     <a class="brand" href="#/"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coach</small></span></a>
     <div class="top-actions">
+      <a class="linkbtn" href="#/coaches" id="navCoaches" hidden>Coaches</a>
+      <button class="linkbtn" type="button" id="navBilling" hidden>Abonnement</button>
       <span id="coachNaam"></span>
       <button class="linkbtn" type="button" id="logout">Uitloggen</button>
     </div>
@@ -42,6 +44,46 @@
     </div>
   </section>
 
+  <!-- AANMELDEN (nieuwe coach) -->
+  <section class="view" id="v-aanmelden" aria-labelledby="t-aanm">
+    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="745" style="width:180px"></div>
+    <div class="auth-card">
+      <h1 id="t-aanm">Start als coach</h1>
+      <p class="sub" id="aanmPrijs">Maak uw account aan; daarna rondt u het abonnement af bij onze betaalpartner Stripe.</p>
+      <form id="fSignup" novalidate>
+        <label>Naam<input name="naam" autocomplete="name" required></label>
+        <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+        <label>Wachtwoord <small>minimaal 10 tekens</small><input type="password" name="password" autocomplete="new-password" required></label>
+        <label class="consent"><input type="checkbox" name="akkoord"><span>Ik ga akkoord met de <a href="/voorwaarden.html" target="_blank" rel="noopener">voorwaarden</a> en de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a>.</span></label>
+        <button class="btn block" type="submit">Verder naar betalen</button>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+      <p class="auth-foot">Al een account? <a href="/coach/">Inloggen</a></p>
+    </div>
+  </section>
+
+  <!-- ABONNEMENT (coach zonder actief abonnement) -->
+  <section class="view" id="v-abonnement" aria-labelledby="t-cabo">
+    <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
+    <div class="auth-card">
+      <h1 id="t-cabo">Abonnement afronden</h1>
+      <p class="sub" id="cAboTekst"></p>
+      <div style="display:grid;gap:10px">
+        <button class="btn block" type="button" data-cbilling="checkout">Abonnement starten</button>
+        <button class="btn ghost block" type="button" data-cbilling="portal" id="cAboPortal" hidden>Betaalgegevens en facturen</button>
+      </div>
+      <div class="err" id="cAboMsg" role="status"></div>
+    </div>
+  </section>
+
+  <!-- COACHES (alleen eigenaar) -->
+  <section class="view" id="v-coaches" aria-labelledby="t-coaches">
+    <a class="back" href="#/">← Mijn cliënten</a>
+    <h1 id="t-coaches" style="margin-top:14px">Coaches op het platform</h1>
+    <div class="stats" id="coachStats"></div>
+    <div class="table-scroll" id="coachLijst"></div>
+  </section>
+
   <!-- LOGIN -->
   <section class="view" id="v-login" aria-labelledby="t-login">
     <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720" style="width:200px"></div>
@@ -53,6 +95,7 @@
         <button class="btn block" type="submit">Inloggen</button>
         <div class="flash" data-msg role="status"></div>
       </form>
+      <p class="auth-foot">Nog geen account? <a href="/coach/?aanmelden">Start als coach</a></p>
     </div>
   </section>
 

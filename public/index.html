@@ -3,204 +3,173 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DCRAMERE Coaching</title>
-<meta name="description" content="Persoonlijk voedings- en trainingsplan op basis van uw metingen. Begeleiding door Dino E. Cramer — DCRAMERE.">
+<title>DCRAMERE Coaching — voeding, training en voortgang op maat</title>
+<meta name="description" content="Persoonlijke online coaching: een voedingsplan op maat, een trainingsprogramma van 12 weken, wekelijkse check-ins en een coach die met u meekijkt. Ook als platform voor coaches.">
 <meta name="theme-color" content="#0a0a0a">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="DCRAMERE">
-<link rel="manifest" href="/manifest.webmanifest">
+<meta property="og:title" content="DCRAMERE Coaching">
+<meta property="og:description" content="Voeding, training en voortgang in één app, met een coach die met u meekijkt.">
+<meta property="og:image" content="/img/logo-full.webp">
 <link rel="icon" href="/img/icon-48.png" type="image/png">
 <link rel="apple-touch-icon" href="/img/icon-180.png">
 <link rel="preload" href="/fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/landing.css">
 </head>
-<body>
-<div class="wrap">
-  <header class="top" id="topbar" hidden>
-    <a class="brand" href="/" aria-label="DCRAMERE Coaching"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coaching</small></span></a>
-    <div class="hello" id="hello"></div>
-  </header>
+<body class="landing">
 
-  <section class="view on" id="v-laden"><p class="empty" style="text-align:center;padding-top:30vh">Laden…</p></section>
+<header class="lnav">
+  <div class="lwrap lnav-in">
+    <a class="brand" href="/"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coaching</small></span></a>
+    <nav aria-label="Hoofdmenu">
+      <a href="#clienten">Voor cliënten</a>
+      <a href="#coaches">Voor coaches</a>
+      <a href="#prijzen">Prijzen</a>
+      <a href="/app/" class="btn small ghost">Inloggen</a>
+    </nav>
+  </div>
+</header>
 
-  <!-- LOGIN -->
-  <section class="view" id="v-login" aria-labelledby="t-login">
-    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720"><p class="tagline">MEET. ANALYSEER. PRESTEER.</p></div>
-    <div class="auth-card">
-      <h1 id="t-login">Inloggen</h1>
-      <p class="sub">Uw persoonlijke voedings- en trainingsplan, afgestemd op uw metingen.</p>
-      <form id="fLogin" novalidate>
-        <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
-        <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
-        <button class="btn block" type="submit">Inloggen</button>
-        <div class="flash" data-msg role="status"></div>
-      </form>
-      <p class="auth-foot"><button class="linkbtn" type="button" data-v="vergeten">Wachtwoord vergeten of nog geen account?</button></p>
+<main>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="lwrap hero-in">
+      <div class="hero-copy">
+        <p class="kicker">Online coaching · voeding · training</p>
+        <h1>Eén plan voor uw voeding, training en voortgang.</h1>
+        <p class="lead">Een voedingsplan dat meebeweegt met uw metingen, een trainingsprogramma van 12 weken en een coach die elke week met u meekijkt. Alles in één app op uw telefoon.</p>
+        <div class="actions">
+          <a class="btn" href="#prijzen" data-start="client">Start uw coaching</a>
+          <a class="btn ghost" href="#coaches">Ik ben coach</a>
+        </div>
+        <ul class="hero-points"><li>Maandelijks opzegbaar</li><li>Direct na betaling toegang</li><li>Werkt op iPhone en Android</li></ul>
+      </div>
+      <div class="hero-art">
+        <img src="/img/logo-full.webp" alt="DCRAMERE — meet, analyseer, presteer" width="1024" height="1024">
+      </div>
     </div>
   </section>
 
-  <!-- VERGETEN -->
-  <section class="view" id="v-vergeten" aria-labelledby="t-verg">
-    <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
-    <div class="auth-card">
-      <h1 id="t-verg">Hulp bij inloggen</h1>
-      <p class="sub">Uw account wordt aangemaakt door uw coach. Bent u uw wachtwoord vergeten, of heeft u nog geen uitnodiging ontvangen? Vraag uw coach om een persoonlijke link. Daarmee kiest u een (nieuw) wachtwoord.</p>
-      <a class="btn block" id="waHelp" target="_blank" rel="noopener" href="#">Stuur uw coach een WhatsApp-bericht</a>
-      <p class="auth-foot"><button class="linkbtn" type="button" data-v="login">Terug naar inloggen</button></p>
+  <!-- CLIËNTEN -->
+  <section class="lsec" id="clienten">
+    <div class="lwrap">
+      <p class="kicker">Voor cliënten</p>
+      <h2>Alles wat u nodig heeft om resultaat te boeken</h2>
+      <div class="split-l">
+        <div class="phone" aria-hidden="true">
+          <div class="phone-screen">
+            <div class="ph-top"><b>DCRAMERE</b><span>Voeding</span></div>
+            <div class="ph-toggle"><span class="on">Trainingsdag<small>2.720 kcal · vandaag</small></span><span>Rustdag<small>2.280 kcal</small></span></div>
+            <div class="ph-kcal">2.720<small>kcal op een trainingsdag</small></div>
+            <div class="ph-band"><i style="width:21%;background:#6FB3D2"></i><i style="width:56%;background:#f4d03f"></i><i style="width:23%;background:#E08A6E"></i></div>
+            <div class="ph-macros"><span><b>144</b>g eiwit</span><span><b>362</b>g koolh.</span><span><b>69</b>g vet</span></div>
+            <div class="ph-meal"><small>LUNCH</small><b>Kipfilet met zilvervliesrijst en groente</b>
+              <p><span>150 g</span>Kipfilet</p><p><span>95 g</span>Zilvervliesrijst</p><p><span>250 g</span>Groente</p><em>✓ Gegeten</em></div>
+          </div>
+        </div>
+        <div class="features">
+          <article><h3>Voedingsplan op maat</h3><p>Calorieën en macro's berekend op uw metingen, met een apart doel voor trainings- en rustdagen. Het menu wordt automatisch samengesteld, met recepten en een boodschappenlijst.</p></article>
+          <article><h3>Trainingsprogramma van 12 weken</h3><p>Push, pull en legs in vier fasen. U logt per set uw gewicht en herhalingen, ziet wat u vorige keer deed en krijgt een seintje wanneer u zwaarder kunt.</p></article>
+          <article><h3>Dagboek met barcode en AI</h3><p>Log wat u eet tegenover uw dagdoel. Scan een barcode of maak een foto van het etiket: de voedingswaarden worden automatisch ingevuld.</p></article>
+          <article><h3>Check-ins en progressiefoto's</h3><p>Elke week een korte check-in over energie, honger, slaap en stress, en elke vier weken foto's. Uw coach ziet het direct en stuurt bij.</p></article>
+        </div>
+      </div>
+      <ol class="steps">
+        <li><b>Abonneer</b><span>Kies het maandabonnement en betaal veilig via Stripe.</span></li>
+        <li><b>Intake</b><span>Vul uw doelen, profiel en eerste meting in.</span></li>
+        <li><b>Uw plan</b><span>Menu, macro's en trainingsprogramma staan direct klaar.</span></li>
+        <li><b>Elke week</b><span>Wegen, check-in en uw coach stuurt bij.</span></li>
+      </ol>
     </div>
   </section>
 
-  <!-- UITNODIGING -->
-  <section class="view" id="v-uitnodiging" aria-labelledby="t-inv">
-    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720"><p class="tagline">MEET. ANALYSEER. PRESTEER.</p></div>
-    <div class="auth-card">
-      <h1 id="t-inv">Welkom</h1>
-      <p class="sub" id="invSub"></p>
-      <form id="fInvite" novalidate>
-        <input type="email" name="email" autocomplete="username" hidden>
-        <label>Kies een wachtwoord <small>minimaal 8 tekens</small><input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
-        <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
-        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen, progressiefoto's en intake) te laten verwerken voor mijn begeleiding.</span></label>
-        <button class="btn block" type="submit">Account activeren</button>
-        <div class="flash" data-msg role="status"></div>
-      </form>
+  <!-- COACHES -->
+  <section class="lsec alt" id="coaches">
+    <div class="lwrap">
+      <p class="kicker">Voor coaches</p>
+      <h2>Coach meer cliënten, met minder rekenwerk</h2>
+      <div class="split-l rev">
+        <div class="dash" aria-hidden="true">
+          <div class="dash-top"><b>Cliënten</b><span class="btn small">Nieuwe cliënt</span></div>
+          <div class="dash-stats"><div><small>Actief</small><b>24</b></div><div><small>Check-ins deze week</small><b>19</b></div><div><small>Aandacht nodig</small><b class="warn">3</b></div></div>
+          <div class="dash-row"><span><b>Anna M.</b><small class="warn">energie, honger</small></span><span>70,9 kg</span><span class="ok">−1,5 kg</span></div>
+          <div class="dash-row"><span><b>Marco R.</b><small>geen bijzonderheden</small></span><span>88,2 kg</span><span class="ok">−4,1 kg</span></div>
+          <div class="dash-row"><span><b>Shanti K.</b><small class="warn">check-in achter</small></span><span>61,4 kg</span><span class="ok">−2,0 kg</span></div>
+          <div class="dash-row"><span><b>Dave L.</b><small>training achter</small></span><span>94,0 kg</span><span>+1,2 kg</span></div>
+        </div>
+        <div class="features">
+          <article><h3>Plannen die zichzelf maken</h3><p>Voer een meting in en het voedingsplan, de macro's en het menu worden automatisch herberekend, ook met huidplooimetingen.</p></article>
+          <article><h3>Eén dashboard voor al uw cliënten</h3><p>Check-ins, progressiefoto's, dagboeken en trainingslogs per cliënt, met signalen wie uw aandacht nodig heeft.</p></article>
+          <article><h3>Training toewijzen in één klik</h3><p>Wijs het 12-weken programma toe met een startdatum en volg per oefening de krachtprogressie.</p></article>
+          <article><h3>Uw cliënten, uw werkwijze</h3><p>Nodig cliënten uit met een persoonlijke link. Zij gebruiken de app; u houdt de regie. Uw gegevens zijn afgeschermd van andere coaches.</p></article>
+        </div>
+      </div>
+      <div class="actions center"><a class="btn" href="/coach/?aanmelden">Start als coach</a><a class="btn ghost" href="/coach/">Inloggen als coach</a></div>
     </div>
   </section>
 
-  <!-- TOESTEMMING (clients activated before consent existed) -->
-  <section class="view" id="v-toestemming" aria-labelledby="t-toest">
-    <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
-    <div class="auth-card">
-      <h1 id="t-toest">Uw privacy</h1>
-      <p class="sub">Voordat u verdergaat, vragen wij uw toestemming voor het verwerken van uw gegevens.</p>
-      <form id="fPrivacy" novalidate>
-        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen, progressiefoto's en intake) te laten verwerken voor mijn begeleiding.</span></label>
-        <button class="btn block" type="submit">Akkoord en verder</button>
-        <div class="flash" data-msg role="status"></div>
-      </form>
+  <!-- PRIJZEN -->
+  <section class="lsec" id="prijzen">
+    <div class="lwrap">
+      <p class="kicker">Prijzen</p>
+      <h2>Eenvoudig, maandelijks opzegbaar</h2>
+      <div class="plans">
+        <article class="plan featured">
+          <p class="plan-for">Voor cliënten</p>
+          <h3>Coaching</h3>
+          <p class="price" data-price="client"><b>–</b><span>per maand</span></p>
+          <ul><li>Voedingsplan op maat, trainings- en rustdagen</li><li>Trainingsprogramma van 12 weken met logboek</li><li>Dagboek met barcode- en etiketscan</li><li>Wekelijkse check-in en progressiefoto's</li><li>Persoonlijke begeleiding door Dino E. Cramer</li></ul>
+          <button class="btn block" type="button" data-start="client">Start uw coaching</button>
+        </article>
+        <article class="plan">
+          <p class="plan-for">Voor coaches</p>
+          <h3>Platform</h3>
+          <p class="price" data-price="coach"><b>–</b><span>per maand</span></p>
+          <ul><li>Onbeperkt cliënten uitnodigen</li><li>Automatische voedingsplannen en menu's</li><li>Trainingsprogramma's toewijzen en volgen</li><li>Check-ins, foto's en dagboeken in één dashboard</li><li>Uw cliënten gebruiken de app gratis</li></ul>
+          <a class="btn ghost block" href="/coach/?aanmelden">Start als coach</a>
+        </article>
+      </div>
+      <p class="fine center" id="prijsNoot">Prijzen inclusief eventuele btw. U betaalt veilig via Stripe en kunt maandelijks opzeggen.</p>
     </div>
   </section>
 
-  <!-- INTAKE -->
-  <section class="view" id="v-intake" aria-labelledby="t-intake">
-    <p class="kicker">Stap 1 van 3</p>
-    <h1 id="t-intake">Intake</h1>
-    <p class="sub">Met deze vragen stemt uw coach de begeleiding op u af. Alleen uw coach ziet uw antwoorden.</p>
-    <form id="fIntake" novalidate>
-      <div data-fields style="display:grid;gap:16px"></div>
-      <div><button class="btn" type="submit">Opslaan en verder</button></div>
-      <div class="flash" data-msg role="status"></div>
-    </form>
-  </section>
-
-  <!-- PLAN -->
-  <section class="view" id="v-plan"><div id="plan"></div></section>
-  <section class="view" id="v-dagboek"><div id="dagboek"></div></section>
-  <section class="view" id="v-producten"><div id="producten"></div></section>
-
-  <!-- TRAINING -->
-  <section class="view" id="v-training"><div id="trOverview"></div></section>
-  <section class="view" id="v-workout"><div id="trWorkout"></div></section>
-
-  <!-- BOODSCHAPPEN -->
-  <section class="view" id="v-boodschappen" aria-labelledby="t-shop">
-    <button class="linkbtn" type="button" data-v="plan">← Terug naar mijn plan</button>
-    <h1 id="t-shop" style="margin-top:14px">Boodschappenlijst</h1>
-    <div id="shop"></div>
-    <div class="actions"><button class="btn ghost" type="button" data-print>Plan en lijst als PDF</button></div>
-  </section>
-
-  <!-- CHECK-IN -->
-  <section class="view" id="v-checkin" aria-labelledby="t-meting">
-    <h1 id="t-meting">Check-in</h1>
-    <p class="sub">Weeg uzelf bij voorkeur 's ochtends, na het opstaan en vóór het ontbijt. Uw calorieën, macro's en menu worden direct herberekend.</p>
-    <form id="fMeting" novalidate>
-      <div data-fields></div>
-      <div><button class="btn" type="submit">Gewicht opslaan</button></div>
-      <div class="flash" data-msg role="status"></div>
-    </form>
-
-    <h2 id="weekTitle">Hoe ging uw week?</h2>
-    <p class="sub" id="weekSub">Eén keer per week. Uw coach ziet uw antwoorden en kan uw plan zo beter bijsturen.</p>
-    <form id="fCheckin" novalidate>
-      <div data-fields style="display:grid;gap:12px"></div>
-      <div><button class="btn" type="submit">Check-in versturen</button></div>
-      <div class="flash" data-msg role="status"></div>
-    </form>
-
-    <div id="fotoSection" hidden>
-      <h2 id="fotoTitle">Progressiefoto's</h2>
-      <p class="sub" id="fotoSub"></p>
-      <div id="fotoUpload"></div>
-      <div class="flash" id="fotoMsg" role="status"></div>
-      <details><summary>Tips voor goede foto's</summary><div data-tips></div></details>
+  <!-- FAQ -->
+  <section class="lsec alt" id="faq">
+    <div class="lwrap narrow-l">
+      <p class="kicker">Veelgestelde vragen</p>
+      <h2>Goed om te weten</h2>
+      <details><summary>Hoe snel kan ik beginnen?</summary><p>Direct. Na de betaling kiest u een wachtwoord en vult u uw intake en eerste meting in. Uw voedingsplan en trainingsprogramma staan dan meteen klaar.</p></details>
+      <details><summary>Kan ik opzeggen wanneer ik wil?</summary><p>Ja. Het abonnement loopt per maand en u zegt op via "Abonnement beheren" in uw profiel. U houdt toegang tot het einde van de betaalde periode.</p></details>
+      <details><summary>Werkt het op mijn telefoon?</summary><p>Ja, op iPhone en Android. U kunt de app via "Zet op beginscherm" als app op uw telefoon zetten; u heeft geen app store nodig.</p></details>
+      <details><summary>Wie ziet mijn gegevens?</summary><p>Alleen u en uw coach. Foto's en gezondheidsgegevens worden beveiligd opgeslagen. Lees meer in de <a href="/privacy.html">privacyverklaring</a>.</p></details>
+      <details><summary>Ik ben coach. Moeten mijn cliënten ook betalen?</summary><p>Nee. U betaalt het platformabonnement; uw cliënten nodigt u uit en zij gebruiken de app zonder abonnement.</p></details>
     </div>
   </section>
+</main>
 
-  <!-- VOORTGANG -->
-  <section class="view" id="v-voortgang" aria-labelledby="t-voort">
-    <h1 id="t-voort">Voortgang</h1>
-    <div id="prog"></div>
-  </section>
+<footer class="lfoot">
+  <div class="lwrap lfoot-in">
+    <div><img src="/img/emblem.webp" alt="" width="40" height="40"><p>DCRAMERE Coaching<br><span>Meet. Analyseer. Presteer.</span></p></div>
+    <nav><a href="/privacy.html">Privacy</a><a href="/voorwaarden.html">Voorwaarden</a><a href="https://wa.me/5978514920" target="_blank" rel="noopener">WhatsApp</a><a href="/app/">Inloggen cliënt</a><a href="/coach/">Inloggen coach</a></nav>
+  </div>
+</footer>
 
-  <!-- PROFIEL -->
-  <section class="view" id="v-profiel" aria-labelledby="t-prof">
-    <p class="kicker" id="profStep" hidden>Stap 2 van 3</p>
-    <h1 id="t-prof">Uw profiel</h1>
-    <p class="sub">Deze gegevens bepalen uw energiebehoefte en uw menu.</p>
-    <form id="fProfiel" novalidate>
+<!-- aanmelden cliënt -->
+<div class="sheet-wrap" id="startSheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="t-start">
+    <div class="sheet-h"><h2 id="t-start">Start uw coaching</h2><button class="del-x" type="button" data-close aria-label="Sluiten">×</button></div>
+    <p class="sub" id="startPrijs">U rondt de betaling af bij onze betaalpartner Stripe. Daarna kiest u meteen uw wachtwoord.</p>
+    <form id="fStart" novalidate>
       <label>Naam<input name="naam" autocomplete="name" required></label>
-      <div data-fields></div>
-      <div><button class="btn" type="submit">Profiel opslaan</button></div>
+      <label>E-mailadres<input type="email" name="email" autocomplete="email" required></label>
+      <label class="consent"><input type="checkbox" name="akkoord"><span>Ik ga akkoord met de <a href="/voorwaarden.html" target="_blank" rel="noopener">voorwaarden</a> en de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a>.</span></label>
+      <button class="btn block" type="submit">Verder naar betalen</button>
       <div class="flash" data-msg role="status"></div>
     </form>
-
-    <h2>Intake</h2>
-    <p class="sub">Uw antwoorden bij de start. <button class="linkbtn" type="button" data-v="intake">Intake aanpassen</button></p>
-
-    <h2>Account</h2>
-    <p class="sub">Ingelogd als <b id="accEmail" style="color:var(--ink)"></b>.</p>
-    <details>
-      <summary>Wachtwoord wijzigen</summary>
-      <form id="fPw" class="narrow" novalidate style="margin-top:10px">
-        <input type="email" name="email" autocomplete="username" hidden>
-        <label>Huidig wachtwoord<input type="password" name="huidig" autocomplete="current-password" required></label>
-        <label>Nieuw wachtwoord <small>minimaal 8 tekens</small><input type="password" name="nieuw" autocomplete="new-password" required></label>
-        <div><button class="btn" type="submit">Wachtwoord wijzigen</button></div>
-        <div class="flash" data-msg role="status"></div>
-      </form>
-    </details>
-    <div class="actions"><button class="btn ghost" type="button" id="logout">Uitloggen</button></div>
-
-    <footer class="fine">
-      De berekeningen zijn richtlijnen op basis van erkende formules (Mifflin-St Jeor, Katch-McArdle, Durnin &amp; Womersley, Deurenberg) en vervangen geen medisch advies. Bent u zwanger, heeft u diabetes of een andere medische aandoening, overleg dan eerst met uw arts.
-      <br><br>Begeleiding: <span id="coachNaam">Dino E. Cramer</span> — DCRAMERE. Uw gegevens worden beveiligd bewaard en zijn alleen zichtbaar voor u en uw coach. <a href="/privacy.html">Privacyverklaring</a>
-    </footer>
-  </section>
+  </div>
 </div>
-
-<nav class="tabs" id="tabs" aria-label="Hoofdmenu" hidden>
-  <button type="button" data-v="plan">Voeding</button>
-  <button type="button" data-v="training">Training</button>
-  <button type="button" data-v="checkin">Check-in</button>
-  <button type="button" data-v="voortgang">Voortgang</button>
-  <button type="button" data-v="profiel">Profiel</button>
-</nav>
-
-<div class="resttimer" id="rest" hidden role="timer" aria-live="polite">
-  <span>Rust <b id="restTime">0:00</b></span>
-  <button class="btn small ghost" type="button" data-rest="30">+30 s</button>
-  <button class="btn small" type="button" data-rest="stop">Klaar</button>
-</div>
-
-<div id="print" aria-hidden="true"></div>
 
 <script src="/core.js"></script>
-<script src="/training.js"></script>
-<script src="/voeding.js"></script>
-<script src="/app.js"></script>
+<script src="/landing.js"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 "use strict";
 const DC=window.DC, $=id=>document.getElementById(id);
 const COACH_WHATSAPP="5978514920";
-const AUTH_VIEWS=["login","vergeten","uitnodiging","laden","toestemming"];
+const AUTH_VIEWS=["login","vergeten","uitnodiging","laden","toestemming","abonnement"];
 const TAB_VIEWS=["plan","dagboek","producten","training","workout","checkin","voortgang","profiel"];
 const CHECKIN_EVERY=7; // days
 let me=null, menuTimer=null, inviteToken=null, viewDag=null; // viewDag null = today's day type
@@ -166,6 +166,9 @@ function renderAll(){
   $("accEmail").textContent=me.email;
   $("fPw").elements.email.value=me.email;
   if(me.coach) $("coachNaam").textContent=me.coach;
+  const ab=me.abonnement;
+  $("aboBlock").hidden=!ab;
+  if(ab) $("aboInfo").textContent=(ab.status==="active"||ab.status==="trialing"?"Uw maandabonnement is actief":ab.status==="past_due"?"De laatste betaling is niet gelukt; werk uw betaalgegevens bij":"Status: "+ab.status)+(ab.einde?`. Huidige periode loopt tot ${new Date(ab.einde*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}.`:".");
 }
 function saveMenu(){
   clearTimeout(menuTimer);
@@ -244,6 +247,15 @@ document.addEventListener("change",async e=>{
     msg.className="flash"; msg.textContent=left?`Opgeslagen. Nog ${left} ${left===1?"foto":"foto's"} te gaan.`:"Uw set is compleet. Uw coach kan de foto's nu bekijken.";
   }catch(err){slot.classList.remove("busy");msg.className="err";msg.textContent=err.message}
 });
+// billing: Stripe customer portal or a new checkout (after a cancelled subscription)
+document.addEventListener("click",async e=>{
+  const b=e.target.closest("[data-billing]"); if(!b) return;
+  const msg=b.closest("section").querySelector(".err"); if(msg) msg.textContent="";
+  b.disabled=true;
+  try{const r=await DC.api(b.dataset.billing==="portal"?"/api/billing/portal":"/api/billing/checkout","POST",{});location.href=r.url}
+  catch(err){if(msg)msg.textContent=err.message;b.disabled=false}
+});
+$("aboLogout").addEventListener("click",async()=>{try{await DC.api("/api/logout","POST",{})}catch(e){}me=null;show("login")});
 $("logout").addEventListener("click",async()=>{
   try{await DC.api("/api/logout","POST",{})}catch(e){}
   me=null; show("login");
@@ -259,7 +271,7 @@ DC.handleForm($("fInvite"),async f=>{
   if(pw!==f.elements.password2.value) throw new Error("De wachtwoorden zijn niet gelijk.");
   if(!f.elements.privacy.checked) throw new Error("Ga akkoord met de privacyverklaring om verder te gaan.");
   await DC.api("/api/invite","POST",{token:inviteToken,password:pw,privacy:true});
-  inviteToken=null; history.replaceState(null,"","/"); f.reset(); await boot();
+  inviteToken=null; history.replaceState(null,"","/app/"); f.reset(); await boot();
 });
 DC.handleForm($("fPrivacy"),async f=>{
   if(!f.elements.privacy.checked) throw new Error("Ga akkoord met de privacyverklaring om verder te gaan.");
@@ -303,7 +315,33 @@ DC.handleForm($("fPw"),async f=>{
 
 // ---------- boot ----------
 function loginError(msg){show("login");const el=$("fLogin").querySelector("[data-msg]");el.className="err";el.textContent=msg}
+// back from Stripe Checkout: wait until the payment is confirmed, then activate the account right away
+async function afterPayment(sid){
+  show("laden");
+  for(let i=0;i<12;i++){
+    try{
+      const r=await DC.api("/api/checkout/client?session_id="+encodeURIComponent(sid));
+      if(r.status==="complete"){
+        history.replaceState(null,"","/app/");
+        if(r.invite){
+          inviteToken=r.invite;
+          $("t-inv").textContent="Welkom, "+r.naam.split(" ")[0];
+          $("invSub").textContent="Uw betaling is gelukt. Kies een wachtwoord voor "+r.email+"; daarna logt u voortaan in met dit e-mailadres.";
+          $("fInvite").elements.email.value=r.email;
+          show("uitnodiging"); return;
+        }
+        loginError("Uw abonnement is actief. Log in met uw e-mailadres en wachtwoord.");
+        $("fLogin").querySelector("[data-msg]").className="flash"; $("fLogin").elements.email.value=r.email||""; return;
+      }
+    }catch(err){if(err.status&&err.status<500){history.replaceState(null,"","/app/");loginError(err.message);return}}
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  history.replaceState(null,"","/app/");
+  loginError("Uw betaling wordt nog verwerkt. Probeer het over een minuut opnieuw via de link in uw betaalbevestiging, of neem contact op met uw coach.");
+}
 async function boot(){
+  const paid=new URLSearchParams(location.search).get("betaald");
+  if(paid) return afterPayment(paid);
   const inv=new URLSearchParams(location.search).get("invite");
   if(inv){
     try{
@@ -313,7 +351,7 @@ async function boot(){
       $("invSub").textContent="Kies een wachtwoord voor "+i.email+". Daarna logt u voortaan in met dit e-mailadres en wachtwoord.";
       $("fInvite").elements.email.value=i.email;
       show("uitnodiging");
-    }catch(err){history.replaceState(null,"","/");loginError(err.message)}
+    }catch(err){history.replaceState(null,"","/app/");loginError(err.message)}
     return;
   }
   try{
@@ -325,7 +363,7 @@ async function boot(){
     show(nextStep());
     vd.load(DC.today()).then(renderPlan).catch(()=>{}); // marks meals already logged today
   }catch(err){
-    if(err.status===401) show("login"); else loginError(err.message);
+    if(err.status===401) show("login"); else if(err.status===402) show("abonnement"); else loginError(err.message);
   }
 }
 boot();

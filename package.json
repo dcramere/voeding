@@ -9,7 +9,8 @@
     "fit": "node test/fit.mjs",
     "db:migrate:local": "wrangler d1 migrations apply dcramere-voeding --local",
     "db:migrate": "wrangler d1 migrations apply dcramere-voeding --remote",
-    "deploy": "npm test && wrangler deploy"
+    "deploy": "npm test && wrangler deploy",
+    "stripe:setup": "node scripts/stripe-setup.mjs"
   },
   "devDependencies": {
     "@zxing/library": "^0.21.3",

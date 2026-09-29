@@ -3,7 +3,7 @@
   "short_name": "DCRAMERE",
   "description": "Uw persoonlijke voedings- en trainingsplan.",
   "lang": "nl",
-  "start_url": "/",
+  "start_url": "/app/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

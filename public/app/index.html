@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DCRAMERE Coaching</title>
+<meta name="description" content="Persoonlijk voedings- en trainingsplan op basis van uw metingen. Begeleiding door Dino E. Cramer — DCRAMERE.">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DCRAMERE">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/img/icon-48.png" type="image/png">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+<link rel="preload" href="/fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top" id="topbar" hidden>
+    <a class="brand" href="/app/" aria-label="DCRAMERE Coaching"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coaching</small></span></a>
+    <div class="hello" id="hello"></div>
+  </header>
+
+  <section class="view on" id="v-laden"><p class="empty" style="text-align:center;padding-top:30vh">Laden…</p></section>
+
+  <!-- LOGIN -->
+  <section class="view" id="v-login" aria-labelledby="t-login">
+    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720"></div>
+    <div class="auth-card">
+      <h1 id="t-login">Inloggen</h1>
+      <p class="sub">Uw persoonlijke voedings- en trainingsplan, afgestemd op uw metingen.</p>
+      <form id="fLogin" novalidate>
+        <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+        <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
+        <button class="btn block" type="submit">Inloggen</button>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+      <p class="auth-foot"><button class="linkbtn" type="button" data-v="vergeten">Wachtwoord vergeten of nog geen account?</button></p>
+    </div>
+  </section>
+
+  <!-- ABONNEMENT (402) -->
+  <section class="view" id="v-abonnement" aria-labelledby="t-abo">
+    <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
+    <div class="auth-card">
+      <h1 id="t-abo">Abonnement niet actief</h1>
+      <p class="sub">Uw abonnement is gestopt of de laatste betaling is niet gelukt. Uw plan, metingen en trainingen zijn bewaard; zodra u het abonnement hervat, gaat u verder waar u was.</p>
+      <div style="display:grid;gap:10px">
+        <button class="btn block" type="button" data-billing="checkout">Abonnement hervatten</button>
+        <button class="btn ghost block" type="button" data-billing="portal">Betaalgegevens en facturen</button>
+        <button class="linkbtn" type="button" id="aboLogout" style="justify-self:center;margin-top:6px">Uitloggen</button>
+      </div>
+      <div class="err" id="aboMsg" role="status"></div>
+    </div>
+  </section>
+
+  <!-- VERGETEN -->
+  <section class="view" id="v-vergeten" aria-labelledby="t-verg">
+    <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
+    <div class="auth-card">
+      <h1 id="t-verg">Hulp bij inloggen</h1>
+      <p class="sub">Uw account wordt aangemaakt door uw coach. Bent u uw wachtwoord vergeten, of heeft u nog geen uitnodiging ontvangen? Vraag uw coach om een persoonlijke link. Daarmee kiest u een (nieuw) wachtwoord.</p>
+      <a class="btn block" id="waHelp" target="_blank" rel="noopener" href="#">Stuur uw coach een WhatsApp-bericht</a>
+      <p class="auth-foot"><button class="linkbtn" type="button" data-v="login">Terug naar inloggen</button></p>
+    </div>
+  </section>
+
+  <!-- UITNODIGING -->
+  <section class="view" id="v-uitnodiging" aria-labelledby="t-inv">
+    <div class="hero-auth"><img src="/img/logo.webp" alt="DCRAMERE" width="720" height="720"></div>
+    <div class="auth-card">
+      <h1 id="t-inv">Welkom</h1>
+      <p class="sub" id="invSub"></p>
+      <form id="fInvite" novalidate>
+        <input type="email" name="email" autocomplete="username" hidden>
+        <label>Kies een wachtwoord <small>minimaal 8 tekens</small><input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+        <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
+        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen, progressiefoto's en intake) te laten verwerken voor mijn begeleiding.</span></label>
+        <button class="btn block" type="submit">Account activeren</button>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- TOESTEMMING (clients activated before consent existed) -->
+  <section class="view" id="v-toestemming" aria-labelledby="t-toest">
+    <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
+    <div class="auth-card">
+      <h1 id="t-toest">Uw privacy</h1>
+      <p class="sub">Voordat u verdergaat, vragen wij uw toestemming voor het verwerken van uw gegevens.</p>
+      <form id="fPrivacy" novalidate>
+        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen, progressiefoto's en intake) te laten verwerken voor mijn begeleiding.</span></label>
+        <button class="btn block" type="submit">Akkoord en verder</button>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- INTAKE -->
+  <section class="view" id="v-intake" aria-labelledby="t-intake">
+    <p class="kicker">Stap 1 van 3</p>
+    <h1 id="t-intake">Intake</h1>
+    <p class="sub">Met deze vragen stemt uw coach de begeleiding op u af. Alleen uw coach ziet uw antwoorden.</p>
+    <form id="fIntake" novalidate>
+      <div data-fields style="display:grid;gap:16px"></div>
+      <div><button class="btn" type="submit">Opslaan en verder</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+  </section>
+
+  <!-- PLAN -->
+  <section class="view" id="v-plan"><div id="plan"></div></section>
+  <section class="view" id="v-dagboek"><div id="dagboek"></div></section>
+  <section class="view" id="v-producten"><div id="producten"></div></section>
+
+  <!-- TRAINING -->
+  <section class="view" id="v-training"><div id="trOverview"></div></section>
+  <section class="view" id="v-workout"><div id="trWorkout"></div></section>
+
+  <!-- BOODSCHAPPEN -->
+  <section class="view" id="v-boodschappen" aria-labelledby="t-shop">
+    <button class="linkbtn" type="button" data-v="plan">← Terug naar mijn plan</button>
+    <h1 id="t-shop" style="margin-top:14px">Boodschappenlijst</h1>
+    <div id="shop"></div>
+    <div class="actions"><button class="btn ghost" type="button" data-print>Plan en lijst als PDF</button></div>
+  </section>
+
+  <!-- CHECK-IN -->
+  <section class="view" id="v-checkin" aria-labelledby="t-meting">
+    <h1 id="t-meting">Check-in</h1>
+    <p class="sub">Weeg uzelf bij voorkeur 's ochtends, na het opstaan en vóór het ontbijt. Uw calorieën, macro's en menu worden direct herberekend.</p>
+    <form id="fMeting" novalidate>
+      <div data-fields></div>
+      <div><button class="btn" type="submit">Gewicht opslaan</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+
+    <h2 id="weekTitle">Hoe ging uw week?</h2>
+    <p class="sub" id="weekSub">Eén keer per week. Uw coach ziet uw antwoorden en kan uw plan zo beter bijsturen.</p>
+    <form id="fCheckin" novalidate>
+      <div data-fields style="display:grid;gap:12px"></div>
+      <div><button class="btn" type="submit">Check-in versturen</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+
+    <div id="fotoSection" hidden>
+      <h2 id="fotoTitle">Progressiefoto's</h2>
+      <p class="sub" id="fotoSub"></p>
+      <div id="fotoUpload"></div>
+      <div class="flash" id="fotoMsg" role="status"></div>
+      <details><summary>Tips voor goede foto's</summary><div data-tips></div></details>
+    </div>
+  </section>
+
+  <!-- VOORTGANG -->
+  <section class="view" id="v-voortgang" aria-labelledby="t-voort">
+    <h1 id="t-voort">Voortgang</h1>
+    <div id="prog"></div>
+  </section>
+
+  <!-- PROFIEL -->
+  <section class="view" id="v-profiel" aria-labelledby="t-prof">
+    <p class="kicker" id="profStep" hidden>Stap 2 van 3</p>
+    <h1 id="t-prof">Uw profiel</h1>
+    <p class="sub">Deze gegevens bepalen uw energiebehoefte en uw menu.</p>
+    <form id="fProfiel" novalidate>
+      <label>Naam<input name="naam" autocomplete="name" required></label>
+      <div data-fields></div>
+      <div><button class="btn" type="submit">Profiel opslaan</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+
+    <h2>Intake</h2>
+    <p class="sub">Uw antwoorden bij de start. <button class="linkbtn" type="button" data-v="intake">Intake aanpassen</button></p>
+
+    <div id="aboBlock" hidden>
+      <h2>Abonnement</h2>
+      <p class="sub" id="aboInfo"></p>
+      <div class="actions" style="margin-top:0"><button class="btn ghost" type="button" data-billing="portal">Abonnement beheren</button></div>
+      <div class="err" id="aboMsg2" role="status"></div>
+    </div>
+
+    <h2>Account</h2>
+    <p class="sub">Ingelogd als <b id="accEmail" style="color:var(--ink)"></b>.</p>
+    <details>
+      <summary>Wachtwoord wijzigen</summary>
+      <form id="fPw" class="narrow" novalidate style="margin-top:10px">
+        <input type="email" name="email" autocomplete="username" hidden>
+        <label>Huidig wachtwoord<input type="password" name="huidig" autocomplete="current-password" required></label>
+        <label>Nieuw wachtwoord <small>minimaal 8 tekens</small><input type="password" name="nieuw" autocomplete="new-password" required></label>
+        <div><button class="btn" type="submit">Wachtwoord wijzigen</button></div>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </details>
+    <div class="actions"><button class="btn ghost" type="button" id="logout">Uitloggen</button></div>
+
+    <footer class="fine">
+      De berekeningen zijn richtlijnen op basis van erkende formules (Mifflin-St Jeor, Katch-McArdle, Durnin &amp; Womersley, Deurenberg) en vervangen geen medisch advies. Bent u zwanger, heeft u diabetes of een andere medische aandoening, overleg dan eerst met uw arts.
+      <br><br>Begeleiding: <span id="coachNaam">Dino E. Cramer</span> — DCRAMERE. Uw gegevens worden beveiligd bewaard en zijn alleen zichtbaar voor u en uw coach. <a href="/privacy.html">Privacyverklaring</a>
+    </footer>
+  </section>
+</div>
+
+<nav class="tabs" id="tabs" aria-label="Hoofdmenu" hidden>
+  <button type="button" data-v="plan">Voeding</button>
+  <button type="button" data-v="training">Training</button>
+  <button type="button" data-v="checkin">Check-in</button>
+  <button type="button" data-v="voortgang">Voortgang</button>
+  <button type="button" data-v="profiel">Profiel</button>
+</nav>
+
+<div class="resttimer" id="rest" hidden role="timer" aria-live="polite">
+  <span>Rust <b id="restTime">0:00</b></span>
+  <button class="btn small ghost" type="button" data-rest="30">+30 s</button>
+  <button class="btn small" type="button" data-rest="stop">Klaar</button>
+</div>
+
+<div id="print" aria-hidden="true"></div>
+
+<script src="/core.js"></script>
+<script src="/training.js"></script>
+<script src="/voeding.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

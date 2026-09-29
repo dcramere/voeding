@@ -21,11 +21,16 @@ const BACKUP_EVERY = 7 * DAY;
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    if (url.pathname === "/") {
+      // the app moved to /app/: keep old invite links working and send logged-in clients straight to it
+      if (url.searchParams.has("invite")) return Response.redirect(`${url.origin}/app/?invite=${encodeURIComponent(url.searchParams.get("invite"))}`, 302);
+      if (getCookie(req, COOKIE.client)) return Response.redirect(`${url.origin}/app/`, 302);
+    }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
       return await route(req, env, url, ctx);
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (e instanceof HttpError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, e.status);
       console.error(e);
       return json({ error: "Er ging iets mis op de server. Probeer het later opnieuw." }, 500);
     }
@@ -60,9 +65,9 @@ async function backupIfDue(env, now) {
 
 // ---------- http helpers ----------
 class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, code) { super(message); this.status = status; this.code = code; }
 }
-const fail = (status, msg) => { throw new HttpError(status, msg); };
+const fail = (status, msg, code) => { throw new HttpError(status, msg, code); };
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -274,18 +279,25 @@ async function recordFailure(c, keys) {
   ]);
 }
 
-const withClient = (fn) => async (c) => {
+// Subscriptions: clients who signed up via Stripe (abo_status set) and coaches other than the owner
+// need an active subscription. opts.billing lets the billing endpoints through regardless.
+const ACTIVE_SUB = ["active", "trialing", "past_due"];
+const withClient = (fn, opts = {}) => async (c) => {
   const id = await sessionSubject(c, "client");
   if (!id) fail(401, "Log opnieuw in.");
   const client = await c.env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(id).first();
   if (!client || !client.actief) fail(401, "Uw account is niet actief. Neem contact op met uw coach.");
+  if (!opts.billing && client.abo_status && !ACTIVE_SUB.includes(client.abo_status))
+    fail(402, "Uw abonnement is niet actief. Hervat het om verder te gaan; uw gegevens zijn bewaard.", "abonnement");
   return fn({ ...c, client });
 };
-const withCoach = (fn) => async (c) => {
+const withCoach = (fn, opts = {}) => async (c) => {
   const id = await sessionSubject(c, "coach");
   if (!id) fail(401, "Log opnieuw in.");
-  const coach = await c.env.DB.prepare("SELECT id, naam, email FROM coaches WHERE id = ?").bind(id).first();
+  const coach = await c.env.DB.prepare("SELECT id, naam, email, is_owner, status, stripe_customer, abo_status, abo_einde FROM coaches WHERE id = ?").bind(id).first();
   if (!coach) fail(401, "Log opnieuw in.");
+  if (!opts.billing && !coach.is_owner && coach.status !== "actief")
+    fail(402, "Uw platformabonnement is niet actief.", "abonnement");
   return fn({ ...c, coach });
 };
 
@@ -324,7 +336,18 @@ const ROUTES = [
   ["POST", "/coach/setup", coachSetup],
   ["POST", "/coach/login", coachLogin],
   ["POST", "/coach/logout", logout("coach")],
-  ["GET", "/coach/me", withCoach(async (c) => json(c.coach))],
+  ["GET", "/coach/me", withCoach(coachMeInfo, { billing: true })],
+  ["POST", "/coach/signup", coachSignup],
+  ["POST", "/coach/checkout", withCoach(coachCheckout, { billing: true })],
+  ["GET", "/coach/checkout", withCoach(coachCheckoutStatus, { billing: true })],
+  ["POST", "/coach/billing/portal", withCoach(coachPortal, { billing: true })],
+  ["GET", "/coach/admin/coaches", withCoach(ownerCoaches)],
+  ["GET", "/prijzen", prijzen],
+  ["POST", "/checkout/client", clientCheckout],
+  ["GET", "/checkout/client", clientCheckoutStatus],
+  ["POST", "/billing/portal", withClient(clientPortal, { billing: true })],
+  ["POST", "/billing/checkout", withClient(clientResubscribe, { billing: true })],
+  ["POST", "/stripe/webhook", stripeWebhook, RAW],
   ["GET", "/coach/clients", withCoach(listClients)],
   ["GET", "/coach/export", withCoach(coachExport)],
   ["POST", "/coach/clients", withCoach(createClient)],
@@ -475,6 +498,7 @@ async function clientMe(c) {
     profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
+    abonnement: cl.abo_status ? { status: cl.abo_status, einde: cl.abo_einde } : null,
   });
 }
 
@@ -562,7 +586,7 @@ async function coachSetup(c) {
   const addr = email(c.body.email);
   const pw = c.body.password;
   if (typeof pw !== "string" || pw.length < 10) fail(400, "Kies een wachtwoord van minimaal 10 tekens.");
-  const { meta } = await c.env.DB.prepare("INSERT INTO coaches (email, naam, pw_hash, created_at) VALUES (?, ?, ?, ?)")
+  const { meta } = await c.env.DB.prepare("INSERT INTO coaches (email, naam, pw_hash, created_at, is_owner, status) VALUES (?, ?, ?, ?, 1, 'actief')")
     .bind(addr, naam, await hashPassword(pw), c.now).run();
   return json({ ok: true }, 200, { "set-cookie": await startSession(c, "coach", meta.last_row_id) });
 }
@@ -609,11 +633,14 @@ async function listClients(c) {
   })));
 }
 
-async function issueInvite(c, id) {
+async function issueInviteToken(env, id, now) {
   const token = randomToken();
-  await c.env.DB.prepare("UPDATE clients SET invite_hash = ?, invite_expires = ? WHERE id = ?")
-    .bind(await sha256(token), c.now + INVITE_TTL, id).run();
-  return `${c.url.origin}/?invite=${token}`;
+  await env.DB.prepare("UPDATE clients SET invite_hash = ?, invite_expires = ? WHERE id = ?")
+    .bind(await sha256(token), now + INVITE_TTL, id).run();
+  return token;
+}
+async function issueInvite(c, id) {
+  return `${c.url.origin}/app/?invite=${await issueInviteToken(c.env, id, c.now)}`;
 }
 
 async function createClient(c) {
@@ -1070,4 +1097,229 @@ async function coachGetDagboek(c) {
   const tot = c.url.searchParams.get("tot"), van = c.url.searchParams.get("van");
   if (!isDate(tot) || !isDate(van) || van > tot || (Date.parse(tot) - Date.parse(van)) / 864e5 > 62) fail(400, "Ongeldige periode (max. 62 dagen).");
   return json({ items: await dagboekOf(c.env, row.id, van, tot) });
+}
+
+// ---------- Stripe ----------
+// Plain REST calls (no SDK). The API version is pinned so subscription.current_period_end stays top-level.
+const STRIPE_VERSION = "2024-06-20";
+function formEncode(obj, prefix, out = []) {
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (typeof v === "object") formEncode(v, key, out);
+    else out.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+  }
+  return out.join("&");
+}
+async function stripe(env, method, path, params) {
+  if (!env.STRIPE_SECRET_KEY) fail(503, "Betalingen zijn nog niet ingesteld.");
+  const q = params ? formEncode(params) : "";
+  const r = await fetch(`${env.STRIPE_API_BASE || "https://api.stripe.com"}/v1${path}${method === "GET" && q ? "?" + q : ""}`, {
+    method,
+    headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "stripe-version": STRIPE_VERSION,
+      ...(method !== "GET" ? { "content-type": "application/x-www-form-urlencoded" } : {}) },
+    body: method !== "GET" ? q : undefined,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { console.error("stripe error", method, path, JSON.stringify(d)); fail(502, "De betaalprovider gaf een fout. Probeer het later opnieuw."); }
+  return d;
+}
+const billingReady = (env) => !!(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_CLIENT && env.STRIPE_PRICE_COACH);
+const ownerCoach = (env) => env.DB.prepare("SELECT id FROM coaches WHERE is_owner = 1 ORDER BY id LIMIT 1").first();
+const subFields = (sub) => ({ id: sub.id, status: sub.status, einde: sub.current_period_end || null, customer: typeof sub.customer === "string" ? sub.customer : sub.customer && sub.customer.id });
+
+async function prijzen(c) {
+  if (!billingReady(c.env)) return json({ beschikbaar: false });
+  const key = new Request(`${c.url.origin}/__prijzen/${c.env.STRIPE_PRICE_CLIENT}/${c.env.STRIPE_PRICE_COACH}`);
+  const hit = await caches.default.match(key);
+  if (hit) return hit;
+  const [pc, pk] = await Promise.all([
+    stripe(c.env, "GET", `/prices/${c.env.STRIPE_PRICE_CLIENT}`), stripe(c.env, "GET", `/prices/${c.env.STRIPE_PRICE_COACH}`)]);
+  const f = (p) => ({ bedrag: p.unit_amount / 100, valuta: String(p.currency).toUpperCase(), interval: (p.recurring && p.recurring.interval) || "month" });
+  const res = json({ beschikbaar: true, client: f(pc), coach: f(pk) }, 200, { "cache-control": "public, max-age=600" });
+  c.ctx?.waitUntil(caches.default.put(key, res.clone()));
+  return res;
+}
+
+// --- clients: subscribe to the owner's coaching from the landing page
+async function checkoutGuard(c) {
+  if (!billingReady(c.env)) fail(503, "Betalingen zijn nog niet ingesteld. Probeer het later opnieuw.");
+  const keys = [`co:${clientIp(c)}`];
+  await throttle(c, keys);
+  await recordFailure(c, keys); // counts attempts: max 8 checkouts per 15 min per IP
+}
+async function clientCheckout(c) {
+  await checkoutGuard(c);
+  const naam = str(c.body.naam, 100, "Naam");
+  if (!naam) fail(400, "Vul uw naam in.");
+  const addr = email(c.body.email);
+  if (c.body.akkoord !== true) fail(400, "Ga akkoord met de voorwaarden en de privacyverklaring.");
+  const existing = await c.env.DB.prepare("SELECT abo_status FROM clients WHERE email = ?").bind(addr).first();
+  if (existing && !existing.abo_status) fail(409, "Dit e-mailadres heeft al een account via een coach. Log in via de app.");
+  if (existing && ACTIVE_SUB.includes(existing.abo_status)) fail(409, "Er is al een actief abonnement voor dit e-mailadres. Log in via de app.");
+  const owner = await ownerCoach(c.env);
+  if (!owner) fail(503, "Aanmelden is nog niet mogelijk.");
+  const s = await stripe(c.env, "POST", "/checkout/sessions", {
+    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_CLIENT, quantity: 1 }],
+    customer_email: addr, locale: "nl", allow_promotion_codes: "true",
+    metadata: { type: "client", naam, email: addr, coach_id: String(owner.id) },
+    subscription_data: { metadata: { type: "client", email: addr } },
+    success_url: `${c.url.origin}/app/?betaald={CHECKOUT_SESSION_ID}`, cancel_url: `${c.url.origin}/#prijzen`,
+  });
+  return json({ url: s.url });
+}
+async function provisionClient(env, s, now) {
+  const addr = String((s.metadata && s.metadata.email) || (s.customer_details && s.customer_details.email) || s.customer_email || "").toLowerCase();
+  if (!addr) fail(400, "Onbekend e-mailadres in de betaling.");
+  const sub = subFields(typeof s.subscription === "object" && s.subscription ? s.subscription : await stripe(env, "GET", `/subscriptions/${s.subscription}`));
+  const row = await env.DB.prepare("SELECT id FROM clients WHERE email = ?").bind(addr).first();
+  if (row) {
+    await env.DB.prepare("UPDATE clients SET stripe_customer = ?, stripe_subscription = ?, abo_status = ?, abo_einde = ?, actief = 1 WHERE id = ?")
+      .bind(sub.customer, sub.id, sub.status, sub.einde, row.id).run();
+    return row.id;
+  }
+  const coachId = Number(s.metadata && s.metadata.coach_id) || (await ownerCoach(env)).id;
+  const naam = String((s.metadata && s.metadata.naam) || (s.customer_details && s.customer_details.name) || addr).slice(0, 100);
+  const { meta } = await env.DB.prepare(
+    "INSERT INTO clients (coach_id, naam, email, created_at, stripe_customer, stripe_subscription, abo_status, abo_einde) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(coachId, naam, addr, now, sub.customer, sub.id, sub.status, sub.einde).run();
+  return meta.last_row_id;
+}
+// the success page calls this right after paying; it provisions idempotently (the webhook may still be on its way)
+async function clientCheckoutStatus(c) {
+  const sid = c.url.searchParams.get("session_id") || "";
+  if (!/^cs_[A-Za-z0-9_]{8,}$/.test(sid)) fail(400, "Ongeldige betaling.");
+  const s = await stripe(c.env, "GET", `/checkout/sessions/${sid}`, { expand: ["subscription"] });
+  if (!s.metadata || s.metadata.type !== "client") fail(404, "Betaling niet gevonden.");
+  if (s.status !== "complete") return json({ status: s.status });
+  const id = await provisionClient(c.env, s, c.now);
+  const row = await c.env.DB.prepare("SELECT naam, email, pw_hash FROM clients WHERE id = ?").bind(id).first();
+  if (row.pw_hash) return json({ status: "complete", login: true, email: row.email });
+  return json({ status: "complete", invite: await issueInviteToken(c.env, id, c.now), naam: row.naam, email: row.email });
+}
+async function clientPortal(c) {
+  if (!c.client.stripe_customer) fail(400, "Uw abonnement loopt via uw coach. Neem contact op met uw coach.");
+  const p = await stripe(c.env, "POST", "/billing_portal/sessions", { customer: c.client.stripe_customer, return_url: `${c.url.origin}/app/`, locale: "nl", configuration: c.env.STRIPE_PORTAL_CONFIG || undefined });
+  return json({ url: p.url });
+}
+async function clientResubscribe(c) {
+  if (!billingReady(c.env)) fail(503, "Betalingen zijn nog niet ingesteld.");
+  if (c.client.abo_status && ACTIVE_SUB.includes(c.client.abo_status)) fail(409, "Uw abonnement is al actief.");
+  if (!c.client.abo_status) fail(400, "Uw toegang loopt via uw coach.");
+  const s = await stripe(c.env, "POST", "/checkout/sessions", {
+    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_CLIENT, quantity: 1 }], locale: "nl",
+    ...(c.client.stripe_customer ? { customer: c.client.stripe_customer } : { customer_email: c.client.email }),
+    metadata: { type: "client", naam: c.client.naam, email: c.client.email, coach_id: String(c.client.coach_id) },
+    subscription_data: { metadata: { type: "client", email: c.client.email } },
+    success_url: `${c.url.origin}/app/?betaald={CHECKOUT_SESSION_ID}`, cancel_url: `${c.url.origin}/app/`,
+  });
+  return json({ url: s.url });
+}
+
+// --- coaches: platform subscription
+async function coachMeInfo(c) {
+  const k = c.coach;
+  return json({ id: k.id, naam: k.naam, email: k.email, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
+    aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env) });
+}
+async function coachSessionFor(c, coachId, customer, mail) {
+  return stripe(c.env, "POST", "/checkout/sessions", {
+    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_COACH, quantity: 1 }], locale: "nl", allow_promotion_codes: "true",
+    ...(customer ? { customer } : { customer_email: mail }),
+    client_reference_id: String(coachId),
+    metadata: { type: "coach", coach_id: String(coachId) }, subscription_data: { metadata: { type: "coach", coach_id: String(coachId) } },
+    success_url: `${c.url.origin}/coach/?betaald={CHECKOUT_SESSION_ID}`, cancel_url: `${c.url.origin}/coach/`,
+  });
+}
+async function coachSignup(c) {
+  await checkoutGuard(c);
+  const naam = str(c.body.naam, 100, "Naam");
+  if (!naam) fail(400, "Vul uw naam in.");
+  const addr = email(c.body.email);
+  const pw = c.body.password;
+  if (typeof pw !== "string" || pw.length < 10) fail(400, "Kies een wachtwoord van minimaal 10 tekens.");
+  if (c.body.akkoord !== true) fail(400, "Ga akkoord met de voorwaarden en de privacyverklaring.");
+  if (await c.env.DB.prepare("SELECT 1 FROM coaches WHERE email = ?").bind(addr).first()) fail(409, "Er bestaat al een coach-account met dit e-mailadres. Log in.");
+  const { meta } = await c.env.DB.prepare("INSERT INTO coaches (email, naam, pw_hash, created_at, is_owner, status) VALUES (?, ?, ?, ?, 0, 'betaling')")
+    .bind(addr, naam, await hashPassword(pw), c.now).run();
+  const s = await coachSessionFor(c, meta.last_row_id, null, addr);
+  return json({ url: s.url }, 201, { "set-cookie": await startSession(c, "coach", meta.last_row_id) });
+}
+async function coachCheckout(c) {
+  if (c.coach.is_owner) fail(400, "Het eigenaarsaccount heeft geen abonnement nodig.");
+  if (!billingReady(c.env)) fail(503, "Betalingen zijn nog niet ingesteld.");
+  if (c.coach.status === "actief") fail(409, "Uw abonnement is al actief.");
+  return json({ url: (await coachSessionFor(c, c.coach.id, c.coach.stripe_customer, c.coach.email)).url });
+}
+async function provisionCoach(env, s) {
+  const coachId = Number(s.metadata && s.metadata.coach_id);
+  if (!coachId) return;
+  const sub = subFields(typeof s.subscription === "object" && s.subscription ? s.subscription : await stripe(env, "GET", `/subscriptions/${s.subscription}`));
+  await env.DB.prepare(
+    "UPDATE coaches SET stripe_customer = ?, stripe_subscription = ?, abo_status = ?, abo_einde = ?, status = ? WHERE id = ? AND is_owner = 0",
+  ).bind(sub.customer, sub.id, sub.status, sub.einde, ACTIVE_SUB.includes(sub.status) ? "actief" : "verlopen", coachId).run();
+}
+async function coachCheckoutStatus(c) {
+  const sid = c.url.searchParams.get("session_id") || "";
+  if (!/^cs_[A-Za-z0-9_]{8,}$/.test(sid)) fail(400, "Ongeldige betaling.");
+  const s = await stripe(c.env, "GET", `/checkout/sessions/${sid}`, { expand: ["subscription"] });
+  if (!s.metadata || s.metadata.type !== "coach" || Number(s.metadata.coach_id) !== c.coach.id) fail(404, "Betaling niet gevonden.");
+  if (s.status === "complete") await provisionCoach(c.env, s);
+  const k = await c.env.DB.prepare("SELECT status FROM coaches WHERE id = ?").bind(c.coach.id).first();
+  return json({ status: s.status, coachStatus: k.status });
+}
+async function coachPortal(c) {
+  if (!c.coach.stripe_customer) fail(400, "Er is nog geen abonnement om te beheren.");
+  const p = await stripe(c.env, "POST", "/billing_portal/sessions", { customer: c.coach.stripe_customer, return_url: `${c.url.origin}/coach/`, locale: "nl", configuration: c.env.STRIPE_PORTAL_CONFIG || undefined });
+  return json({ url: p.url });
+}
+async function ownerCoaches(c) {
+  if (!c.coach.is_owner) fail(403, "Alleen voor de eigenaar van het platform.");
+  const { results } = await c.env.DB.prepare(
+    `SELECT k.id, k.naam, k.email, k.is_owner, k.status, k.abo_status, k.abo_einde, k.created_at,
+       (SELECT COUNT(*) FROM clients c WHERE c.coach_id = k.id) AS clienten,
+       (SELECT COUNT(*) FROM clients c WHERE c.coach_id = k.id AND c.abo_status IN ('active','trialing','past_due')) AS betalend
+     FROM coaches k ORDER BY k.is_owner DESC, k.created_at DESC`,
+  ).all();
+  return json(results);
+}
+
+// --- webhook: signature check (HMAC-SHA256 over "t.payload"), idempotent per event id
+async function verifyStripeSignature(env, header, payload, now) {
+  if (!env.STRIPE_WEBHOOK_SECRET) fail(503, "Webhook niet ingesteld.");
+  const parts = Object.fromEntries(String(header || "").split(",").map((p) => p.split("=")).filter((p) => p.length === 2 && p[0] === "t"));
+  const sigs = String(header || "").split(",").filter((p) => p.startsWith("v1=")).map((p) => p.slice(3));
+  const t = Number(parts.t);
+  if (!t || !sigs.length || Math.abs(now - t) > 300) fail(400, "Ongeldige handtekening.");
+  const key = await crypto.subtle.importKey("raw", enc.encode(env.STRIPE_WEBHOOK_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${payload}`)));
+  const hex = [...mac].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (!sigs.some((s) => safeEqual(s, hex))) fail(400, "Ongeldige handtekening.");
+}
+async function stripeWebhook(c) {
+  const payload = await c.req.text();
+  if (payload.length > 200000) fail(413, "Te groot.");
+  await verifyStripeSignature(c.env, c.req.headers.get("stripe-signature"), payload, c.now);
+  const ev = JSON.parse(payload);
+  const ins = await c.env.DB.prepare("INSERT OR IGNORE INTO stripe_events (id, type, created_at) VALUES (?, ?, ?)").bind(ev.id, ev.type, c.now).run();
+  if (!ins.meta.changes) return json({ ok: true, dubbel: true });
+  const o = ev.data && ev.data.object;
+  try {
+    if (ev.type === "checkout.session.completed" && o.mode === "subscription") {
+      if (o.metadata && o.metadata.type === "client") await provisionClient(c.env, o, c.now);
+      else if (o.metadata && o.metadata.type === "coach") await provisionCoach(c.env, o);
+    } else if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(ev.type)) {
+      const sub = subFields(o);
+      await c.env.DB.batch([
+        c.env.DB.prepare("UPDATE clients SET abo_status = ?, abo_einde = ? WHERE stripe_subscription = ?").bind(sub.status, sub.einde, sub.id),
+        c.env.DB.prepare("UPDATE coaches SET abo_status = ?, abo_einde = ?, status = ? WHERE stripe_subscription = ? AND is_owner = 0")
+          .bind(sub.status, sub.einde, ACTIVE_SUB.includes(sub.status) ? "actief" : "verlopen", sub.id),
+      ]);
+    }
+  } catch (e) {
+    // let Stripe retry: forget the event id
+    await c.env.DB.prepare("DELETE FROM stripe_events WHERE id = ?").bind(ev.id).run();
+    throw e;
+  }
+  return json({ ok: true });
 }

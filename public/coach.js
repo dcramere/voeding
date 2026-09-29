@@ -16,7 +16,34 @@ function show(v){
 }
 async function call(path,method,body){
   try{return await DC.api(path,method,body)}
-  catch(e){if(e.status===401){coach=null;show("login")} throw e}
+  catch(e){if(e.status===401){coach=null;show("login")}else if(e.status===402){coach.status="verlopen";showBilling()} throw e}
+}
+// ---------- platform subscription ----------
+function showBilling(){
+  const betaling=coach.status==="betaling";
+  $("t-cabo").textContent=betaling?"Abonnement afronden":"Abonnement niet actief";
+  $("cAboTekst").textContent=betaling?"Uw account is aangemaakt. Start uw abonnement om cliënten te beheren."
+    :"Uw platformabonnement is gestopt of de laatste betaling is niet gelukt. Uw cliënten en gegevens zijn bewaard; hervat het abonnement om verder te gaan.";
+  $("cAboPortal").hidden=!coach.portaal;
+  show("abonnement");
+}
+document.addEventListener("click",async e=>{
+  const b=e.target.closest("[data-cbilling]"); if(!b) return;
+  $("cAboMsg").textContent=""; b.disabled=true;
+  try{const r=await DC.api(b.dataset.cbilling==="portal"?"/api/coach/billing/portal":"/api/coach/checkout","POST",{});location.href=r.url}
+  catch(err){$("cAboMsg").textContent=err.message;b.disabled=false}
+});
+$("navBilling").addEventListener("click",async()=>{
+  try{const r=await DC.api("/api/coach/billing/portal","POST",{});location.href=r.url}catch(err){alert(err.message)}
+});
+async function loadCoaches(){
+  const list=await call("/api/coach/admin/coaches");
+  const betalend=list.filter(k=>!k.is_owner&&k.status==="actief").length;
+  $("coachStats").innerHTML=`<div><small>Coaches</small><b>${list.length}</b></div><div><small>Betalende coaches</small><b>${betalend}</b></div>`+
+    `<div><small>Cliënten totaal</small><b>${list.reduce((t,k)=>t+k.clienten,0)}</b></div><div><small>Betalende cliënten</small><b>${list.reduce((t,k)=>t+k.betalend,0)}</b></div>`;
+  const st=k=>k.is_owner?'<span class="pill gold">Eigenaar</span>':k.status==="actief"?'<span class="pill ok">Actief</span>':k.status==="betaling"?'<span class="pill">Wacht op betaling</span>':'<span class="pill warn">Verlopen</span>';
+  $("coachLijst").innerHTML=`<table class="clients"><thead><tr><th>Coach</th><th>Status</th><th class="n">Cliënten</th><th class="n hide-sm">Betalend</th><th class="hide-sm">Sinds</th><th class="hide-sm">Periode tot</th></tr></thead><tbody>${list.map(k=>
+    `<tr style="cursor:default"><td class="who"><b>${esc(k.naam)}</b><small>${esc(k.email)}</small></td><td>${st(k)}</td><td class="n">${k.clienten}</td><td class="n hide-sm">${k.betalend}</td><td class="hide-sm">${new Date(k.created_at*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"})}</td><td class="hide-sm">${k.abo_einde?new Date(k.abo_einde*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"}):"–"}</td></tr>`).join("")}</tbody></table>`;
 }
 
 // ---------- helpers ----------
@@ -307,6 +334,7 @@ async function route(){
   if(!coach) return;
   const m=location.hash.match(/^#\/client\/(\d+)/);
   try{
+    if(location.hash==="#/coaches"&&coach.isOwner){cur=null;show("coaches");await loadCoaches();return}
     if(m){
       if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;diary=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
       show("client"); await loadClient(+m[1]);
@@ -320,12 +348,38 @@ async function route(){
 }
 window.addEventListener("hashchange",route);
 
+// back from Stripe Checkout: confirm the payment, then open the dashboard
+async function afterPayment(sid){
+  for(let i=0;i<12;i++){
+    try{const r=await DC.api("/api/coach/checkout?session_id="+encodeURIComponent(sid));if(r.coachStatus==="actief"){coach.status="actief";return true}}catch(e){if(e.status&&e.status<500)return false}
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  return false;
+}
+async function signupInfo(){
+  const p=await DC.api("/api/prijzen").catch(()=>null);
+  if(p&&p.beschikbaar) $("aanmPrijs").textContent=`${fmtPrice(p.coach)} per maand, maandelijks opzegbaar. Maak uw account aan; daarna rondt u de betaling af bij onze betaalpartner Stripe.`;
+  else if(p&&!p.beschikbaar){$("aanmPrijs").textContent="Aanmelden als coach is binnenkort mogelijk.";$("fSignup").querySelector("[type=submit]").disabled=true}
+}
+const fmtPrice=p=>new Intl.NumberFormat("nl-NL",{style:"currency",currency:p.valuta}).format(p.bedrag);
+DC.handleForm($("fSignup"),async f=>{
+  if(!f.elements.akkoord.checked) throw new Error("Ga akkoord met de voorwaarden en de privacyverklaring.");
+  const r=await DC.api("/api/coach/signup","POST",{naam:f.elements.naam.value,email:f.elements.email.value,password:f.elements.password.value,akkoord:true});
+  location.href=r.url;
+  return "U wordt doorgestuurd naar Stripe…";
+});
 async function boot(){
+  const q=new URLSearchParams(location.search);
   try{
     coach=await DC.api("/api/coach/me");
     $("coachNaam").textContent=coach.naam;
+    $("navCoaches").hidden=!coach.isOwner;
+    $("navBilling").hidden=coach.isOwner||!coach.portaal;
+    if(q.get("betaald")){show("laden");await afterPayment(q.get("betaald"));history.replaceState(null,"","/coach/");coach=await DC.api("/api/coach/me");$("navBilling").hidden=coach.isOwner||!coach.portaal}
+    if(coach.status!=="actief"){showBilling();return}
     await route();
   }catch(err){
+    if(err.status===401&&q.has("aanmelden")){coach=null;show("aanmelden");signupInfo();return}
     coach=null;
     if(err.status===401){
       const s=await DC.api("/api/coach/status").catch(()=>({setupNodig:false}));

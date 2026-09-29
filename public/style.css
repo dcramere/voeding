@@ -517,3 +517,5 @@ table.pe-ex td:nth-child(3){width:200px}
 .onb-check{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);color:var(--on-gold);font-weight:800;flex:none}
 .onboard li.done .onb-check{background:var(--gold);border-color:var(--gold)}
 #stats.stats{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+#sysStats.stats{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.err-code{font-size:12px;color:var(--warn);white-space:normal;word-break:break-word}

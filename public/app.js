@@ -313,6 +313,14 @@ document.addEventListener("click",async e=>{
   catch(err){if(msg)msg.textContent=err.message;b.disabled=false}
 });
 $("aboLogout").addEventListener("click",async()=>{try{await DC.api("/api/logout","POST",{})}catch(e){}me=null;show("login")});
+$("delOpen").addEventListener("click",()=>{$("fDelete").hidden=false;$("fDelete").elements.password.focus()});
+DC.handleForm($("fDelete"),async f=>{
+  await DC.api("/api/account/verwijderen","POST",{password:f.elements.password.value,bevestig:f.elements.bevestig.value.trim()});
+  me=null; f.reset(); f.hidden=true;
+  try{await CHAT.disablePush()}catch(e){}
+  loginError("Uw account en al uw gegevens zijn verwijderd. Bedankt voor het vertrouwen.");
+  $("fLogin").querySelector("[data-msg]").className="flash";
+});
 $("logout").addEventListener("click",async()=>{
   try{await DC.api("/api/logout","POST",{})}catch(e){}
   me=null; show("login");

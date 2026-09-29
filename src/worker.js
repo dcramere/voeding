@@ -41,6 +41,7 @@ export default {
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, e.status);
       console.error(e);
+      ctx.waitUntil(logFout(env, url.pathname, e));
       return json({ error: "Er ging iets mis op de server. Probeer het later opnieuw." }, 500);
     }
   },
@@ -349,6 +350,9 @@ const ROUTES = [
   ["POST", "/privacy", withClient(clientAcceptPrivacy)],
   ["POST", "/fotos", withClient((c) => storeFoto(c, c.client.id, "client")), RAW],
   ["PUT", "/workouts", withClient(clientPutWorkout)],
+  ["GET", "/account/export", withClient(clientExport, { billing: true })],
+  ["POST", "/account/verwijderen", withClient(clientDeleteAccount, { billing: true })],
+  ["GET", "/health", health],
   ["GET", "/berichten", withClient(clientGetBerichten)],
   ["GET", "/berichten/ongelezen", withClient(async (c) => json({ n: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL").bind(c.client.id).first()).n }))],
   ["POST", "/berichten", withClient(clientPostBericht)],
@@ -382,6 +386,7 @@ const ROUTES = [
   ["GET", "/coach/checkout", withCoach(coachCheckoutStatus, { billing: true })],
   ["POST", "/coach/billing/portal", withCoach(coachPortal, { billing: true })],
   ["GET", "/coach/admin/coaches", withCoach(ownerCoaches)],
+  ["GET", "/coach/admin/systeem", withCoach(ownerSysteem)],
   ["GET", "/prijzen", prijzen],
   ["POST", "/checkout/client", clientCheckout],
   ["GET", "/checkout/client", clientCheckoutStatus],
@@ -782,6 +787,12 @@ async function updateClient(c) {
 
 async function deleteClient(c) {
   const row = await ownClient(c, c.params[0]);
+  await deleteClientData(c.env, row.id);
+  return json({ ok: true });
+}
+async function deleteClientData(env, id) {
+  const c = { env };
+  const row = { id };
   await deleteAllFotos(c.env, row.id);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ?").bind(row.id),
@@ -794,9 +805,9 @@ async function deleteClient(c) {
     c.env.DB.prepare("DELETE FROM metingen WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM herinneringen WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(row.id),
   ]);
-  return json({ ok: true });
 }
 
 async function newInvite(c) {
@@ -1758,4 +1769,76 @@ async function createDemo(c) {
   q.push(c.env.DB.prepare("INSERT INTO dagboek (client_id, datum, maaltijd, naam, bron, ref, gram, kcal, eiwit, koolh, vet, created_at) VALUES (?, ?, 'ontbijt', 'Magere kwark', 'basis', 'kwark', 250, 142.5, 25, 10, 0.5, ?)").bind(id, iso(0), c.now));
   await c.env.DB.batch(q);
   return json({ id }, 201);
+}
+
+// ---------- client self-service: export and delete ----------
+async function clientExport(c) {
+  const id = c.client.id, q = (sql) => c.env.DB.prepare(sql).bind(id).all().then((r) => r.results);
+  const cl = c.client;
+  const data = {
+    gemaakt: new Date().toISOString(),
+    account: { naam: cl.naam, email: cl.email, sinds: new Date(cl.created_at * 1000).toISOString().slice(0, 10) },
+    profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
+    metingen: await q("SELECT datum, gewicht, taille, heup, p1, p2, p3, p4 FROM metingen WHERE client_id = ? ORDER BY datum"),
+    checkins: await q("SELECT datum, energie, honger, slaap, stress, naleving, training, opmerking FROM checkins WHERE client_id = ? ORDER BY datum"),
+    trainingen: (await q("SELECT programma, week, dag, datum, sets, notitie, afgerond FROM workouts WHERE client_id = ? ORDER BY datum")).map((w) => ({ ...w, sets: JSON.parse(w.sets) })),
+    dagboek: await q("SELECT datum, maaltijd, naam, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? ORDER BY datum, id"),
+    producten: await q("SELECT naam, merk, barcode, kcal, eiwit, koolh, vet, vezels, portie_naam, portie_g FROM producten WHERE client_id = ?"),
+    berichten: await q("SELECT van, tekst, foto_key IS NOT NULL AS foto, datetime(created_at, 'unixepoch') AS tijd FROM berichten WHERE client_id = ? ORDER BY id"),
+    progressiefotos: (await q("SELECT datum, pose FROM fotos WHERE client_id = ? ORDER BY datum")).map((f) => ({ ...f, opmerking: "De foto zelf kunt u bekijken en opslaan in de app (Voortgang)." })),
+  };
+  return new Response(JSON.stringify(data, null, 2), { headers: {
+    "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
+    "content-disposition": `attachment; filename="mijn-gegevens-${data.gemaakt.slice(0, 10)}.json"` } });
+}
+async function clientDeleteAccount(c) {
+  const keys = [`ip:${clientIp(c)}`, `client:${c.client.email}`];
+  await throttle(c, keys);
+  if (c.body.bevestig !== "VERWIJDEREN") fail(400, "Typ VERWIJDEREN om te bevestigen.");
+  if (!c.client.pw_hash || !(await verifyPassword(String(c.body.password || ""), c.client.pw_hash))) {
+    await recordFailure(c, keys);
+    fail(400, "Uw wachtwoord klopt niet.");
+  }
+  // stop billing first, so nobody is charged for an account that no longer exists
+  if (c.client.stripe_subscription && ACTIVE_SUB.includes(c.client.abo_status)) {
+    await stripe(c.env, "DELETE", `/subscriptions/${c.client.stripe_subscription}`);
+  }
+  const cl = c.client;
+  await deleteClientData(c.env, cl.id);
+  c.ctx?.waitUntil(notify(c.env, "coach", cl.coach_id, { titel: `${cl.naam} heeft het account verwijderd`, tekst: "Alle gegevens van deze cliënt zijn gewist.", url: "/coach/#/" }, c.now));
+  return json({ ok: true }, 200, { "set-cookie": cookie(COOKIE.client, "", 0) });
+}
+
+// ---------- monitoring ----------
+async function logFout(env, pad, e) {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const melding = String((e && (e.stack || e.message)) || e).slice(0, 1500);
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO fouten (ts, pad, melding) VALUES (?, ?, ?)").bind(now, pad.slice(0, 200), melding),
+      env.DB.prepare("DELETE FROM fouten WHERE ts < ?").bind(now - 30 * DAY),
+    ]);
+    // alert the owner, at most once per hour
+    const prev = await env.DB.prepare("SELECT COUNT(*) AS n FROM fouten WHERE ts > ? AND ts < ?").bind(now - 3600, now).first();
+    const owner = await ownerCoach(env);
+    if (owner && prev.n === 0)
+      await notify(env, "coach", owner.id, { titel: "Serverfout in DCRAMERE Coaching", tekst: `${pad}: ${String(e && e.message || e).slice(0, 100)}`, url: "/coach/#/coaches" }, now);
+  } catch (err) { console.error("logFout failed", err); }
+}
+async function health(c) {
+  const t = Date.now();
+  const db = await c.env.DB.prepare("SELECT 1 AS ok").first().then(() => true).catch(() => false);
+  return json({ ok: db, db, ms: Date.now() - t, tijd: new Date().toISOString() }, db ? 200 : 503);
+}
+async function ownerSysteem(c) {
+  if (!c.coach.is_owner) fail(403, "Alleen voor de eigenaar van het platform.");
+  const q = (sql, ...b) => c.env.DB.prepare(sql).bind(...b).first();
+  const [f24, f7, clients, actief, push, backup] = await Promise.all([
+    q("SELECT COUNT(*) AS n FROM fouten WHERE ts > ?", c.now - DAY), q("SELECT COUNT(*) AS n FROM fouten WHERE ts > ?", c.now - 7 * DAY),
+    q("SELECT COUNT(*) AS n FROM clients WHERE demo = 0"), q("SELECT COUNT(*) AS n FROM clients WHERE demo = 0 AND last_seen > ?", c.now - 7 * DAY),
+    q("SELECT COUNT(*) AS n FROM push_subs"), c.env.BACKUPS.get("meta:laatste"),
+  ]);
+  const { results } = await c.env.DB.prepare("SELECT ts, pad, melding FROM fouten ORDER BY id DESC LIMIT 30").all();
+  return json({ fouten24: f24.n, fouten7: f7.n, clienten: clients.n, actief7: actief.n, pushApparaten: push.n,
+    laatsteBackup: backup ? Number(backup) : null, betalingen: billingReady(c.env), fouten: results });
 }

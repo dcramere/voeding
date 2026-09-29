@@ -36,7 +36,18 @@ document.addEventListener("click",async e=>{
 $("navBilling").addEventListener("click",async()=>{
   try{const r=await DC.api("/api/coach/billing/portal","POST",{});location.href=r.url}catch(err){alert(err.message)}
 });
+async function loadSysteem(){
+  const s=await call("/api/coach/admin/systeem");
+  const ago=ts=>ts?Math.round((Date.now()/1000-ts)/3600)+" uur geleden":"nog niet";
+  $("sysStats").innerHTML=`<div><small>Fouten 24 uur</small><b class="${s.fouten24?"stale":""}">${s.fouten24}</b></div><div><small>Fouten 7 dagen</small><b>${s.fouten7}</b></div>`+
+    `<div><small>Cliënten actief (7 d)</small><b>${s.actief7}<span class="unit">/ ${s.clienten}</span></b></div><div><small>Apparaten met meldingen</small><b>${s.pushApparaten}</b></div>`+
+    `<div><small>Laatste back-up</small><b style="font-size:17px">${ago(s.laatsteBackup)}</b></div><div><small>Betalingen</small><b style="font-size:17px">${s.betalingen?"Stripe actief":"Niet gekoppeld"}</b></div>`;
+  $("sysFouten").innerHTML=s.fouten.length?`<div class="table-scroll"><table class="hist"><thead><tr><th>Tijd</th><th>Pad</th><th>Melding</th></tr></thead><tbody>${s.fouten.map(f=>
+    `<tr><td style="white-space:nowrap">${new Date(f.ts*1000).toLocaleString("nl-NL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</td><td>${esc(f.pad)}</td><td style="text-align:left"><code class="err-code">${esc(f.melding.split("\n")[0])}</code></td></tr>`).join("")}</tbody></table></div>`
+    :'<p class="empty">Geen serverfouten in de afgelopen 30 dagen.</p>';
+}
 async function loadCoaches(){
+  loadSysteem().catch(()=>{});
   const list=await call("/api/coach/admin/coaches");
   const betalend=list.filter(k=>!k.is_owner&&k.status==="actief").length;
   $("coachStats").innerHTML=`<div><small>Coaches</small><b>${list.length}</b></div><div><small>Betalende coaches</small><b>${betalend}</b></div>`+

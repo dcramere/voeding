@@ -48,3 +48,17 @@ npm run deploy         # draait eerst de tests
   npx wrangler kv key get --binding BACKUPS --remote "backup/2026-10-04.json" > backup.json
   ```
 - D1 heeft daarnaast 30 dagen Time Travel: `npx wrangler d1 time-travel restore dcramere-voeding --timestamp=...`.
+
+## Contact, controle en beheer (sinds 30 sep 2026)
+
+- **Chat en feedback**: berichten tussen coach en cliënt (met foto's) staan in de tabel `berichten`. De coach kan per check-in reageren (`checkin_id`).
+- **Pushmeldingen**: via web push (VAPID). Het pushbericht zelf is leeg; de service worker `public/sw.js` haalt de tekst op via `/api/push/pending`, met de sessie van de gebruiker. Nodig: `VAPID_PUBLIC` (in de config) en de secret `VAPID_PRIVATE_JWK`.
+- **Herinneringen**: de Durable Object `Scheduler` zet elk uur een alarm, zonder cron-slot. Om 12:00 UTC gaan de check-in- en fotoherinneringen uit; elk uur wordt de back-up gecontroleerd.
+- **Coach-controle**:
+  - handmatig dagdoel per cliënt (`clients.doelen`, komt als `profiel.override` in de app terecht);
+  - eigen trainingsprogramma's (`programmas`, id `c<n>`). Houd de bibliotheek van oefeningen in `src/worker.js` (`BASE_EX`) gelijk aan die in `public/training.js`; daar is een test voor.
+  - branding per coach (`coaches.merk`);
+  - een voorbeeldcliënt via `POST /api/coach/demo`.
+- **Self-service**: cliënten kunnen hun gegevens downloaden (`/api/account/export`) en hun account verwijderen. Een lopend Stripe-abonnement wordt daarbij stopgezet.
+- **Monitoring**: serverfouten komen in `fouten` terecht, met een push naar de eigenaar (maximaal één per uur). Het overzicht staat onder Coaches → Systeem. Een uptime-check is beschikbaar op `GET /api/health`.
+- Tests: `TEST_SERVER_LOG=pad npm test` schrijft de log van de testserver weg.

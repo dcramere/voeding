@@ -22,7 +22,7 @@ const pushMock = createServer((req, res) => { let b = ""; req.on("data", (d) => 
 }); });
 
 // ---- minimal Stripe API mock (only what the worker uses) ----
-const sessions = new Map(); let seq = 0;
+const sessions = new Map(); let seq = 0; const cancelled = [];
 const stripeMock = createServer((req, res) => {
   let body = ""; req.on("data", (d) => (body += d)); req.on("end", () => {
     const u = new URL(req.url, "http://x"), p = new URLSearchParams(body);
@@ -46,6 +46,7 @@ const stripeMock = createServer((req, res) => {
         subscription: s.status === "complete" ? { id: "sub_" + s.id, status: "active", current_period_end: 1790000000, customer: "cus_" + s.id } : null });
     }
     if (req.method === "POST" && u.pathname === "/v1/billing_portal/sessions") return send(200, { url: "https://billing.stripe.test/" + p.get("customer") });
+    if (req.method === "DELETE" && u.pathname.startsWith("/v1/subscriptions/")) { cancelled.push(u.pathname.split("/").pop()); return send(200, { id: u.pathname.split("/").pop(), status: "canceled" }); }
     send(404, { error: { message: "not mocked: " + req.method + " " + u.pathname } });
   });
 });
@@ -568,4 +569,34 @@ test("root: old invite links go to /app/, landing page always reachable", async 
   assert.equal(r2.status, 200, "logged-in clients can still see the landing page");
   const r3 = await fetch(`${BASE}/`, { redirect: "manual" });
   assert.equal(r3.status, 200); assert.match(await r3.text(), /Start uw coaching/);
+});
+
+test("self-service: data export, account deletion cancels Stripe, health, owner system view", async () => {
+  // a paying client (Stripe) with some data
+  const buyer = client();
+  const co = await buyer("/api/checkout/client", "POST", { naam: "Eva", email: "eva@t.nl", akkoord: true });
+  const sid = pay(co.data.url);
+  const done = await buyer(`/api/checkout/client?session_id=${sid}`);
+  await buyer("/api/invite", "POST", { token: done.data.invite, password: "eva-pass-123", privacy: true });
+  await buyer("/api/metingen", "POST", { datum: "2026-09-29", gewicht: 64 });
+  await buyer("/api/berichten", "POST", { tekst: "Hallo" });
+  const exp = await buyer("/api/account/export");
+  assert.match(exp.headers.get("content-disposition"), /mijn-gegevens-/);
+  assert.equal(exp.data.account.email, "eva@t.nl"); assert.equal(exp.data.metingen[0].gewicht, 64); assert.equal(exp.data.berichten[0].tekst, "Hallo");
+  assert.ok(!JSON.stringify(exp.data).includes("pbkdf2"));
+  assert.equal((await buyer("/api/account/verwijderen", "POST", { password: "eva-pass-123", bevestig: "ja" }, { "cf-connecting-ip": "10.9.9.9" })).status, 400);
+  assert.equal((await buyer("/api/account/verwijderen", "POST", { password: "wrong-pass", bevestig: "VERWIJDEREN" }, { "cf-connecting-ip": "10.9.9.9" })).status, 400);
+  const del = await buyer("/api/account/verwijderen", "POST", { password: "eva-pass-123", bevestig: "VERWIJDEREN" }, { "cf-connecting-ip": "10.9.9.9" });
+  assert.equal(del.status, 200);
+  assert.ok(cancelled.includes("sub_" + sid), "Stripe subscription cancelled");
+  assert.equal((await buyer("/api/me")).status, 401);
+  assert.ok(!(await coach("/api/coach/clients")).data.some((c) => c.email === "eva@t.nl"), "gone from the coach's list");
+  // health + system view
+  const h = await anon("/api/health");
+  assert.equal(h.status, 200); assert.equal(h.data.db, true);
+  const sys = await coach("/api/coach/admin/systeem");
+  assert.equal(sys.status, 200); assert.equal(typeof sys.data.fouten24, "number"); assert.equal(sys.data.betalingen, true);
+  const two = client();
+  await two("/api/coach/login", "POST", { email: "three@t.nl", password: "coach-three-pass" }, { "cf-connecting-ip": "10.9.9.8" }); // active, non-owner coach
+  assert.equal((await two("/api/coach/admin/systeem")).status, 403);
 });

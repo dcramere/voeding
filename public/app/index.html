@@ -209,6 +209,17 @@
     </details>
     <div class="actions"><button class="btn ghost" type="button" id="logout">Uitloggen</button></div>
 
+    <h2>Uw gegevens</h2>
+    <p class="sub">Download al uw gegevens (metingen, check-ins, trainingen, dagboek en berichten), of verwijder uw account definitief.</p>
+    <div class="actions" style="margin-top:0"><a class="btn ghost" href="/api/account/export" download>Mijn gegevens downloaden</a><button class="btn danger" type="button" id="delOpen">Account verwijderen</button></div>
+    <form id="fDelete" class="narrow" novalidate hidden style="margin-top:14px;border:1px solid var(--warn);border-radius:8px;padding:14px">
+      <p class="sub" style="margin:0">Hiermee worden uw account, metingen, foto's, trainingen, dagboek en berichten <b>definitief</b> verwijderd. Loopt er een abonnement, dan wordt dat direct stopgezet. Dit kan niet ongedaan worden gemaakt.</p>
+      <label>Wachtwoord<input type="password" name="password" autocomplete="current-password"></label>
+      <label>Typ VERWIJDEREN ter bevestiging<input name="bevestig" autocomplete="off"></label>
+      <div><button class="btn danger" type="submit">Definitief verwijderen</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+
     <footer class="fine">
       De berekeningen zijn richtlijnen op basis van erkende formules (Mifflin-St Jeor, Katch-McArdle, Durnin &amp; Womersley, Deurenberg) en vervangen geen medisch advies. Bent u zwanger, heeft u diabetes of een andere medische aandoening, overleg dan eerst met uw arts.
       <br><br>Begeleiding: <span id="coachNaam">Dino E. Cramer</span> — DCRAMERE. Uw gegevens worden beveiligd bewaard en zijn alleen zichtbaar voor u en uw coach. <a href="/privacy.html">Privacyverklaring</a>

@@ -429,3 +429,6 @@ ul.tips li{margin:3px 0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .tr-detail table.sets{max-width:460px}
 .tr-detail{border:1px solid var(--line);border-radius:8px;padding:6px 16px 12px;margin:18px 0}
+.mbars .mbar-h{flex-direction:column;gap:0}
+.mbars .mbar-h span:first-child{font-size:12px}
+.mbars .mbar-h b{font-size:16px}

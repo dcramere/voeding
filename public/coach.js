@@ -145,6 +145,7 @@ async function loadClient(id){
 function renderClient(){
   const c=cur, [st]=status(c);
   DC.setCustomFoods(c.producten); // the client's own products can appear in their menu
+  TR.registerProgram(c.programmaDef);
   $("clientHead").innerHTML=`<h1 style="margin-top:14px">${esc(c.naam)}</h1>
     <p class="sub">${esc(c.email)}<span class="sep">·</span>${pill(c)}<span class="sep">·</span>cliënt sinds ${new Date(c.aangemaakt*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}${c.laatstGezien?`<span class="sep">·</span>laatst actief ${ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))}`:""}${c.privacyAkkoord?`<span class="sep">·</span>privacy akkoord ${new Date(c.privacyAkkoord*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"})}`:""}</p>
     <div class="actions" style="margin-top:0">
@@ -165,6 +166,7 @@ function renderClient(){
   renderFotos();
   renderTraining();
   $("pProducts").innerHTML=VD.productsTableHTML(c.producten);
+  renderDoelen();
   const fp=$("fProfiel");
   fp.reset(); fp.elements.naam.value=c.naam; fp.elements.email.value=c.email; DC.fillProfiel(fp,c.profiel);
   $("fNotities").elements.notities.value=c.notities||"";
@@ -194,7 +196,8 @@ function renderTraining(){
   if(!P){
     $("pTrAssign").innerHTML=`<h2 style="margin-top:0">Trainingsprogramma toewijzen</h2>
       <p class="sub">${esc(c.naam)} heeft nog geen trainingsprogramma. Na het toewijzen verschijnt het tabblad Training in de app van de cliënt.</p>
-      <form id="fTrAssign" class="narrow" novalidate><label>Programma<select name="id">${Object.values(TR.PROGRAMS).map(p=>`<option value="${p.id}">${p.naam} (${p.sub})</option>`).join("")}</select></label>
+      <form id="fTrAssign" class="narrow" novalidate><label>Programma<select name="id"><option value="ppl12">${TR.PROGRAMS.ppl12.naam} (${TR.PROGRAMS.ppl12.sub})</option>${mijnProgrammas.map(p=>`<option value="${p.id}">${esc(p.naam)} (${p.weken} weken, ${p.dagen} dagen)</option>`).join("")}</select></label>
+      <p class="sub" style="font-size:13px;margin:0">Eigen programma's maakt u onder <a href="#/programmas">Programma's</a>.</p>
       <label>Startdatum (week 1)<input type="date" name="start" value="${DC.today()}" required></label>
       <div><button class="btn" type="submit">Toewijzen</button></div><div class="flash" data-msg role="status"></div></form>`;
     ["pTrOverview","pTrDetail","pTrGrid","pTrProgress"].forEach(id=>$(id).innerHTML="");
@@ -204,7 +207,7 @@ function renderTraining(){
     });
     return;
   }
-  if(trWeek==null) trWeek=TR.weekOf(P.start);
+  if(trWeek==null) trWeek=TR.weekOf(P.start,P.id);
   $("pTrAssign").innerHTML=`<div class="actions" style="margin:0 0 6px;justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:400">Startdatum<input type="date" id="trStart" value="${P.start}" style="width:auto;padding:6px 8px"></label><button class="btn small danger" type="button" data-tr-remove>Programma verwijderen</button></div>`;
   $("pTrOverview").innerHTML=TR.overviewHTML(P,c.workouts,trWeek,{coach:true});
   const w=trSel&&c.workouts.find(x=>x.week===trSel.week&&x.dag===trSel.dag);
@@ -292,6 +295,156 @@ $("navPush").addEventListener("click",async()=>{
   }catch(x){alert(x.message)}
   renderNavPush();
 });
+
+// ---------- manual targets ----------
+function autoTargets(){
+  const m=DC.latest(cur.metingen); if(!cur.profiel||!m) return null;
+  const P={...cur.profiel}; delete P.override;
+  return {A:DC.analyse(P,m),m};
+}
+function renderDoelen(){
+  const f=$("fDoelen"), t=autoTargets(), d=cur.doelen;
+  f.hidden=!t;
+  if(!t) return;
+  $("doelenInfo").textContent=d?`Handmatig ingesteld. De formule komt uit op ${DC.fmt(t.A.auto.kcal)} kcal, ${t.A.auto.prot} g eiwit en ${t.A.auto.fat} g vet.`
+    :`Automatisch berekend op de meting van ${DC.dateNL(t.m.datum,{day:"numeric",month:"short"})}. Vul een eigen dagdoel in om de formule te overschrijven; koolhydraten vullen de rest aan.`;
+  f.elements.kcal.value=d?d.kcal:""; f.elements.prot.value=d&&d.prot?d.prot:""; f.elements.fat.value=d&&d.fat?d.fat:"";
+  f.elements.kcal.placeholder=t.A.auto.kcal; f.elements.prot.placeholder=t.A.auto.prot; f.elements.fat.placeholder=t.A.auto.fat;
+  $("doelenAuto").hidden=!d;
+  calcDoelen();
+}
+function calcDoelen(){
+  const f=$("fDoelen"), t=autoTargets(); if(!t) return;
+  const v=n=>{const x=parseFloat(f.elements[n].value);return x>0?x:null};
+  const kcal=v("kcal"); if(!kcal){$("doelenCalc").textContent="";return}
+  const P={...cur.profiel,override:{kcal,prot:v("prot"),fat:v("fat")}}, A=DC.analyse(P,t.m), D=DC.dagTargets(P,A);
+  $("doelenCalc").innerHTML=`Resultaat: ${A.prot} g eiwit · ${A.carb} g koolhydraten · ${A.fat} g vet`+
+    (D?` · trainingsdag ${DC.fmt(D.train.kcal)} / rustdag ${DC.fmt(D.rust.kcal)} kcal`:"")+
+    (kcal<t.A.floor?`<br><span class="stale">Let op: onder de berekende veilige ondergrens van ${DC.fmt(t.A.floor)} kcal.</span>`:"");
+}
+$("fDoelen").addEventListener("input",calcDoelen);
+DC.handleForm($("fDoelen"),async f=>{
+  const n=k=>{const x=parseFloat(f.elements[k].value);return x>0?Math.round(x):null};
+  if(!n("kcal")) throw new Error("Vul een dagdoel in calorieën in, of kies Terug naar automatisch.");
+  cur=await call("/api/coach/clients/"+cur.id,"PUT",{doelen:{kcal:n("kcal"),prot:n("prot"),fat:n("fat")}});
+  renderClient(); return "Dagdoel opgeslagen. De cliënt ziet het nieuwe plan direct.";
+});
+$("doelenAuto").addEventListener("click",async()=>{
+  try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{doelen:null});renderClient()}catch(x){alert(x.message)}
+});
+
+// ---------- program builder ----------
+let mijnProgrammas=[], ed=null;
+const GROUPS=[["Borst",["chest"]],["Schouders",["fdelt","sdelt","rdelt"]],["Triceps",["triceps"]],["Biceps",["biceps","forearms"]],["Rug",["lats","upperback","traps","lowerback"]],["Benen",["quads","hams","glutes","adductors"]],["Kuiten",["calves"]],["Buik",["abs"]]];
+const EQUIP=["Dumbbell","Barbell","Kabel","Machine","Smith","Lichaamsgewicht","Kettlebell","Band","Overig"];
+const DAYTYPES=[["push","Push"],["pull","Pull"],["legs","Benen"],["upper","Bovenlichaam"],["lower","Onderlichaam"],["full","Full body"],["other","Overig"]];
+async function loadMijnProgrammas(){mijnProgrammas=await call("/api/coach/programmas");return mijnProgrammas}
+async function renderProgrammas(){
+  const list=await loadMijnProgrammas();
+  $("progLijst").innerHTML=list.length?`<table class="clients"><thead><tr><th>Programma</th><th class="n">Weken</th><th class="n">Dagen</th><th class="n">Cliënten</th><th class="hide-sm">Gewijzigd</th><th></th></tr></thead><tbody>${list.map(p=>
+    `<tr data-prog="${p.id.slice(1)}"><td class="who"><b>${esc(p.naam)}</b></td><td class="n">${p.weken}</td><td class="n">${p.dagen}</td><td class="n">${p.clienten}</td><td class="hide-sm">${new Date(p.updated*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short"})}</td><td class="n"><button class="linkbtn" type="button" data-prog-dup="${p.id.slice(1)}">Dupliceer</button></td></tr>`).join("")}</tbody></table>`
+    :'<p class="empty">Nog geen eigen programma\'s. Begin met een kopie van PPL 12 weken of een leeg programma.</p>';
+}
+$("progLijst").addEventListener("click",async e=>{
+  const dup=e.target.closest("[data-prog-dup]");
+  if(dup){e.stopPropagation();try{const p=await call("/api/coach/programmas/"+dup.dataset.progDup);ed=toEditor(p);ed.id=null;ed.naam=p.naam+" (kopie)";location.hash="#/programmas/concept"}catch(x){alert(x.message)}return}
+  const tr=e.target.closest("[data-prog]"); if(tr) location.hash="#/programmas/"+tr.dataset.prog;
+});
+const toEditor=p=>({id:p.id||null,naam:p.naam,weken:p.weken,deload:!!p.deload,oefeningen:JSON.parse(JSON.stringify(p.oefeningen||{})),
+  dagen:p.dagen.map(d=>({naam:d.naam,focus:d.focus||"",type:d.type||"other",ex:d.ex.map(x=>({id:x.id,reps:[...x.reps]}))}))});
+function exOptions(sel){
+  const all={...TR.EX,...Object.fromEntries(Object.entries(ed.oefeningen).map(([k,v])=>[k,{...v,custom:true}]))};
+  const own=Object.keys(ed.oefeningen);
+  return (own.length?`<optgroup label="Eigen oefeningen">${own.map(k=>`<option value="${k}"${k===sel?" selected":""}>${esc(ed.oefeningen[k].n)}</option>`).join("")}</optgroup>`:"")+
+    GROUPS.map(([l,ms])=>{const ks=Object.keys(TR.EX).filter(k=>!TR.EX[k].custom&&ms.includes(TR.EX[k].m[0]));
+      return ks.length?`<optgroup label="${l}">${ks.map(k=>`<option value="${k}"${k===sel?" selected":""}>${esc(all[k].n)}</option>`).join("")}</optgroup>`:""}).join("");
+}
+function editorHTML(){
+  return `<h1 style="margin-top:14px" id="t-prog">${ed.id?"Programma bewerken":"Nieuw programma"}</h1>
+    <div class="row3 pe-top"><label>Naam<input data-ed="naam" value="${esc(ed.naam)}" maxlength="60"></label>
+      <label>Aantal weken<input data-ed="weken" type="number" min="1" max="16" value="${ed.weken}"></label>
+      <label class="consent" style="align-self:end"><input type="checkbox" data-ed="deload" ${ed.deload?"checked":""}><span>Laatste week is een deload (±60% van de sets)</span></label></div>
+    ${ed.dagen.map((d,di)=>`<section class="pe-day">
+      <div class="pe-day-h"><b>Dag ${di+1}</b>
+        <input data-day="${di}" data-f="naam" value="${esc(d.naam)}" placeholder="Naam, bijv. Push A" maxlength="40">
+        <select data-day="${di}" data-f="type">${DAYTYPES.map(([k,l])=>`<option value="${k}"${d.type===k?" selected":""}>${l}</option>`).join("")}</select>
+        <input data-day="${di}" data-f="focus" value="${esc(d.focus)}" placeholder="Focus, bijv. borst en schouders" maxlength="80" class="pe-focus">
+        <span class="pe-tools"><button class="linkbtn" type="button" data-act="day-up" data-d="${di}" ${di===0?"disabled":""}>↑</button><button class="linkbtn" type="button" data-act="day-down" data-d="${di}" ${di===ed.dagen.length-1?"disabled":""}>↓</button><button class="linkbtn danger-t" type="button" data-act="day-del" data-d="${di}">Verwijder dag</button></span></div>
+      <table class="pe-ex"><thead><tr><th>#</th><th>Oefening</th><th>Herhalingen per set</th><th></th></tr></thead><tbody>
+      ${d.ex.map((x,xi)=>`<tr><td>${xi+1}</td><td><select data-ex="${di}:${xi}" data-f="id">${exOptions(x.id)}</select></td>
+        <td><input data-ex="${di}:${xi}" data-f="reps" value="${x.reps.join(", ")}" placeholder="10, 8, 8, 6"></td>
+        <td class="pe-tools"><button class="linkbtn" type="button" data-act="ex-up" data-d="${di}" data-x="${xi}" ${xi===0?"disabled":""}>↑</button><button class="linkbtn" type="button" data-act="ex-down" data-d="${di}" data-x="${xi}" ${xi===d.ex.length-1?"disabled":""}>↓</button><button class="linkbtn danger-t" type="button" data-act="ex-del" data-d="${di}" data-x="${xi}" aria-label="Verwijder oefening">✕</button></td></tr>`).join("")}
+      </tbody></table>
+      <div class="actions" style="margin-top:8px"><button class="btn small ghost" type="button" data-act="ex-add" data-d="${di}">+ Oefening</button><button class="btn small ghost" type="button" data-act="own-open" data-d="${di}">+ Eigen oefening</button></div>
+      <div class="pe-own" data-own="${di}" hidden>
+        <div class="row3"><label>Naam<input data-own-f="n" maxlength="60" placeholder="bijv. Hip Thrust"></label>
+          <label>Apparaat<select data-own-f="eq">${EQUIP.map(x=>`<option>${x}</option>`).join("")}</select></label>
+          <label>Rust <small>sec</small><input data-own-f="rust" type="number" min="30" max="300" value="90"></label></div>
+        <div class="row3"><label>Primaire spiergroep<select data-own-f="m">${Object.entries(TR.MUSCLE_NL).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></label>
+          <label>Secundair <small>optioneel</small><select data-own-f="s"><option value="">–</option>${Object.entries(TR.MUSCLE_NL).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></label>
+          <label>Herhalingen<input data-own-f="reps" value="10, 10, 10"></label></div>
+        <label>Uitleg voor de cliënt <small>optioneel</small><textarea data-own-f="cue" style="min-height:60px" maxlength="300"></textarea></label>
+        <div class="actions" style="margin-top:6px"><button class="btn small" type="button" data-act="own-add" data-d="${di}">Toevoegen</button><button class="btn small ghost" type="button" data-act="own-close" data-d="${di}">Annuleren</button></div>
+      </div>
+    </section>`).join("")}
+    <div class="actions">${ed.dagen.length<7?`<button class="btn ghost" type="button" data-act="day-add">+ Trainingsdag</button>`:""}</div>
+    <div class="pe-save"><button class="btn" type="button" data-act="save">Programma opslaan</button>${ed.id?`<button class="btn danger" type="button" data-act="delete">Verwijderen</button>`:""}<span class="err" id="edMsg" role="status"></span></div>`;
+}
+const renderEditor=()=>{$("progEditor").innerHTML=editorHTML()};
+const parseReps=v=>String(v).split(/[^\d]+/).filter(Boolean).map(Number);
+$("progEditor").addEventListener("input",e=>{
+  const t=e.target;
+  if(t.dataset.ed){ed[t.dataset.ed]=t.type==="checkbox"?t.checked:t.type==="number"?+t.value:t.value;return}
+  if(t.dataset.day){ed.dagen[+t.dataset.day][t.dataset.f]=t.value;return}
+  if(t.dataset.ex){const [d,x]=t.dataset.ex.split(":").map(Number);ed.dagen[d].ex[x][t.dataset.f]=t.dataset.f==="reps"?parseReps(t.value):t.value}
+});
+$("progEditor").addEventListener("change",e=>{if(e.target.dataset.ex||e.target.dataset.day||e.target.dataset.ed)e.target.dispatchEvent(new Event("input",{bubbles:true}))});
+$("progEditor").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-act]"); if(!b) return;
+  const d=+b.dataset.d, x=+b.dataset.x, days=ed.dagen, swap=(a,i,j)=>{[a[i],a[j]]=[a[j],a[i]]};
+  switch(b.dataset.act){
+    case "day-add": days.push({naam:`Dag ${days.length+1}`,focus:"",type:"other",ex:[{id:"flat_db_press",reps:[10,10,10]}]}); break;
+    case "day-del": if(days.length===1||!confirm(`Dag ${d+1} verwijderen?`)) return; days.splice(d,1); break;
+    case "day-up": swap(days,d,d-1); break;
+    case "day-down": swap(days,d,d+1); break;
+    case "ex-add": days[d].ex.push({id:days[d].ex.length?days[d].ex[days[d].ex.length-1].id:"flat_db_press",reps:[10,10,10]}); break;
+    case "ex-del": if(days[d].ex.length===1) return alert("Een trainingsdag heeft minstens één oefening."); days[d].ex.splice(x,1); break;
+    case "ex-up": swap(days[d].ex,x,x-1); break;
+    case "ex-down": swap(days[d].ex,x,x+1); break;
+    case "own-open": document.querySelector(`[data-own="${d}"]`).hidden=false; return;
+    case "own-close": document.querySelector(`[data-own="${d}"]`).hidden=true; return;
+    case "own-add":{
+      const box=document.querySelector(`[data-own="${d}"]`), v=k=>box.querySelector(`[data-own-f="${k}"]`).value.trim();
+      if(!v("n")) return alert("Geef de oefening een naam.");
+      const id="c_"+Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"x").padEnd(8,"x");
+      ed.oefeningen[id]={n:v("n"),eq:v("eq"),m:[v("m")],s:v("s")&&v("s")!==v("m")?[v("s")]:[],rust:+v("rust")||90,cue:v("cue")};
+      TR.EX[id]={...ed.oefeningen[id],custom:true};
+      days[d].ex.push({id,reps:parseReps(v("reps")).length?parseReps(v("reps")):[10,10,10]}); break;
+    }
+    case "save":{
+      $("edMsg").textContent=""; b.disabled=true;
+      try{
+        const body={naam:ed.naam,data:{weken:ed.weken,deload:ed.deload,oefeningen:ed.oefeningen,dagen:ed.dagen}};
+        const r=ed.id?await call(`/api/coach/programmas/${ed.id.slice(1)}`,"PUT",body):await call("/api/coach/programmas","POST",body);
+        TR.registerProgram(r); ed=toEditor(r); location.hash="#/programmas/"+r.id.slice(1);
+        $("edMsg").className="flash"; $("edMsg").textContent="Opgeslagen.";
+      }catch(x){$("edMsg").className="err";$("edMsg").textContent=x.message}
+      b.disabled=false; return;
+    }
+    case "delete":
+      if(!confirm(`"${ed.naam}" verwijderen?`)) return;
+      try{await call(`/api/coach/programmas/${ed.id.slice(1)}`,"DELETE");location.hash="#/programmas"}catch(x){$("edMsg").className="err";$("edMsg").textContent=x.message}
+      return;
+  }
+  renderEditor();
+});
+async function openEditor(which){
+  if(which==="nieuw") ed={id:null,naam:"Nieuw programma",weken:8,deload:true,oefeningen:{},dagen:[{naam:"Dag 1",focus:"",type:"full",ex:[{id:"flat_db_press",reps:[10,10,10]}]}]};
+  else if(which==="kopie"){const p=TR.PROGRAMS.ppl12;ed=toEditor({naam:"Mijn PPL",weken:12,deload:true,oefeningen:{},dagen:p.dagen})}
+  else if(which==="concept"){ if(!ed) return location.hash="#/programmas" }
+  else { const p=await call("/api/coach/programmas/"+which); TR.registerProgram(p); ed=toEditor(p) }
+  renderEditor();
+}
 
 function setPane(p){
   pane=p;
@@ -401,6 +554,9 @@ async function route(){
   const m=location.hash.match(/^#\/client\/(\d+)(?:\/(\w+))?/);
   try{
     if(location.hash==="#/coaches"&&coach.isOwner){cur=null;show("coaches");await loadCoaches();return}
+    if(location.hash==="#/programmas"){cur=null;show("programmas");await renderProgrammas();return}
+    const pm=location.hash.match(/^#\/programmas\/(\w+)/);
+    if(pm){cur=null;show("programma");await openEditor(pm[1]);return}
     if(m){
       if(!cur||cur.id!==+m[1]){pane=m[2]||"plan";viewDag=null;cmpA=cmpB=null;trWeek=null;trSel=null;diary=null;cchat=[];$("cChat").innerHTML="";$("fotoDatum").value="";$("clientInvite").innerHTML="";}
       else if(m[2]) pane=m[2];
@@ -441,6 +597,7 @@ async function boot(){
     coach=await DC.api("/api/coach/me");
     $("coachNaam").textContent=coach.naam;
     $("navCoaches").hidden=!coach.isOwner;
+    loadMijnProgrammas().catch(()=>{});
     renderNavPush();
     $("navBilling").hidden=coach.isOwner||!coach.portaal;
     if(q.get("betaald")){show("laden");await afterPayment(q.get("betaald"));history.replaceState(null,"","/coach/");coach=await DC.api("/api/coach/me");$("navBilling").hidden=coach.isOwner||!coach.portaal}

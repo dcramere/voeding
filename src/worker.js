@@ -10,6 +10,11 @@ const MAX_FOTO = 5 * 1024 * 1024; // client resizes to ~1600 px, typically 150�
 const POSES = ["voor", "achter", "zijkant"];
 // training programs the coach can assign (definitions live in public/training.js)
 const PROGRAMMAS = { ppl12: { weken: 12, dagen: ["pushA", "pullA", "legsA", "pushB", "pullB", "legsB"] } };
+// exercise library ids from public/training.js (a test keeps this list in sync)
+const BASE_EX = new Set(["incline_db_press", "flat_db_press", "smith_incline_press", "incline_bb_press", "db_barrel_press", "incline_db_lateral", "cable_lateral_single", "seated_db_lateral", "machine_lateral", "seated_db_press_hammer", "standing_bb_ohp", "straight_bar_ext", "rope_ext", "skull_crushers", "incline_skull", "wide_pulldown", "vbar_pulldown", "bb_pullover", "seated_row_vbar", "seated_lat_row", "seated_row_high_elbow", "bent_bb_row", "tbar_row", "meadows_row", "incline_db_high_elbow_row", "incline_db_rear_delt", "cable_rear_delt_close", "rear_delt_btb", "cable_rear_delt_partials", "cable_straight_curl", "ez_curl", "db_preacher_curl", "incline_cable_curl", "leg_ext", "seated_leg_curl", "he_smith_squat", "he_highbar_squat", "hack_squat", "leg_press_low", "glute_rdl", "smith_stiff_leg", "sumo_deads", "walking_lunges", "db_split_squat", "seated_calf_partials", "smith_calf_raise"]);
+const EQUIP = ["Dumbbell", "Barbell", "Kabel", "Machine", "Smith", "Lichaamsgewicht", "Kettlebell", "Band", "Overig"];
+const MUSCLES = ["chest", "fdelt", "sdelt", "rdelt", "triceps", "biceps", "forearms", "lats", "upperback", "traps", "lowerback", "abs", "quads", "hams", "glutes", "calves", "adductors"];
+const DAYTYPES = ["push", "pull", "legs", "upper", "lower", "full", "other"];
 
 const ACTIVITEIT = [1.35, 1.45, 1.55, 1.7, 1.85];
 const DOEL = [-0.2, -0.1, 0, 0.1];
@@ -397,6 +402,11 @@ const ROUTES = [
   ["DELETE", /^\/coach\/clients\/(\d+)\/fotos\/(\d+)$/, withCoach(coachDelFoto)],
   ["GET", /^\/coach\/clients\/(\d+)\/dagboek$/, withCoach(coachGetDagboek)],
   ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
+  ["GET", "/coach/programmas", withCoach(listProgrammas)],
+  ["POST", "/coach/programmas", withCoach(createProgramma)],
+  ["GET", /^\/coach\/programmas\/(\d+)$/, withCoach(getProgramma)],
+  ["PUT", /^\/coach\/programmas\/(\d+)$/, withCoach(updateProgramma)],
+  ["DELETE", /^\/coach\/programmas\/(\d+)$/, withCoach(deleteProgramma)],
   ["POST", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachPostBericht)],
   ["POST", /^\/coach\/clients\/(\d+)\/berichten\/foto$/, withCoach(async (c) => postBerichtFoto(c, await ownClient(c, c.params[0]), "coach")), RAW],
   ["GET", /^\/coach\/berichten\/foto\/(\d+)$/, withCoach(coachBerichtFoto)],
@@ -534,9 +544,10 @@ async function clientMe(c) {
   ]);
   return json({
     naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "",
-    profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
+    profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
+    programmaDef: cl.programma ? await customDefOut(env, JSON.parse(cl.programma).id, cl.coach_id) : null,
     abonnement: cl.abo_status ? { status: cl.abo_status, einde: cl.abo_einde } : null,
     ongelezen: (await env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL").bind(cl.id).first()).n,
     // coach feedback on check-ins, for the progress screen (reading it here does not mark it read)
@@ -550,7 +561,7 @@ async function clientPutProfiel(c) {
   const profiel = cleanProfiel(c.body.profiel);
   await c.env.DB.prepare("UPDATE clients SET naam = ?, profiel = ? WHERE id = ?")
     .bind(naam, JSON.stringify(profiel), c.client.id).run();
-  return json({ naam, profiel });
+  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen }) });
 }
 
 async function clientPutMenu(c) {
@@ -643,11 +654,20 @@ async function ownClient(c, id) {
   return row;
 }
 
+// the coach's manual targets travel inside the profile as profiel.override (clients cannot write them)
+const profielOut = (r) => (r.profiel ? { ...JSON.parse(r.profiel), ...(r.doelen ? { override: JSON.parse(r.doelen) } : {}) } : null);
+function cleanDoelen(b) {
+  if (b === null) return null;
+  if (!b || typeof b !== "object") fail(400, "Ongeldige doelen.");
+  const d = { kcal: num(b.kcal, 800, 6000, "Calorieën", true), prot: num(b.prot, 30, 400, "Eiwit"), fat: num(b.fat, 20, 300, "Vet") };
+  if ((d.prot || 0) * 4 + (d.fat || 0) * 9 > d.kcal) fail(400, "Eiwit en vet leveren samen meer calorieën dan het dagdoel.");
+  return d;
+}
 function publicClient(r) {
   return {
     id: r.id, naam: r.naam, email: r.email, actief: !!r.actief, geactiveerd: !!r.pw_hash,
     uitnodigingVerloopt: r.invite_expires, notities: r.notities, privacyAkkoord: r.privacy_akkoord,
-    profiel: r.profiel ? JSON.parse(r.profiel) : null, intake: r.intake ? JSON.parse(r.intake) : null,
+    profiel: profielOut(r), doelen: r.doelen ? JSON.parse(r.doelen) : null, intake: r.intake ? JSON.parse(r.intake) : null,
     programma: r.programma ? JSON.parse(r.programma) : null, menu: JSON.parse(r.menu),
     aangemaakt: r.created_at, laatstGezien: r.last_seen,
   };
@@ -706,7 +726,8 @@ async function getClient(c) {
     metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id), workoutsOf(c.env, row), productenOf(c.env, row.id)]);
   const ongelezen = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'client' AND gelezen IS NULL").bind(row.id).first()).n;
   const feedback = (await c.env.DB.prepare("SELECT id, tekst, checkin_id, created_at FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id").bind(row.id).all()).results;
-  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback });
+  const programmaDef = row.programma ? await customDefOut(c.env, JSON.parse(row.programma).id, row.coach_id) : null;
+  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback, programmaDef });
 }
 
 async function coachExport(c) {
@@ -736,7 +757,12 @@ async function updateClient(c) {
   }
   if ("notities" in b) { sets.push("notities = ?"); vals.push(str(b.notities, 10000, "Notities")); }
   if ("profiel" in b) { sets.push("profiel = ?"); vals.push(JSON.stringify(cleanProfiel(b.profiel))); }
-  if ("programma" in b) { sets.push("programma = ?"); vals.push(b.programma === null ? null : JSON.stringify(cleanProgramma(b.programma))); }
+  if ("doelen" in b) { const d = cleanDoelen(b.doelen); sets.push("doelen = ?"); vals.push(d ? JSON.stringify(d) : null); }
+  if ("programma" in b) {
+    const p = b.programma === null ? null : cleanProgramma(b.programma);
+    if (p && !(await programDef(c.env, p.id, c.coach.id))) fail(404, "Programma niet gevonden.");
+    sets.push("programma = ?"); vals.push(p ? JSON.stringify(p) : null);
+  }
   if ("actief" in b) {
     sets.push("actief = ?"); vals.push(b.actief ? 1 : 0);
     if (!b.actief) extra.push(c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id));
@@ -879,9 +905,52 @@ async function coachDelFoto(c) {
 
 // ---------- training ----------
 function cleanProgramma(p) {
-  if (!p || typeof p !== "object" || !PROGRAMMAS[p.id]) fail(400, "Onbekend trainingsprogramma.");
+  if (!p || typeof p !== "object" || !(PROGRAMMAS[p.id] || /^c\d{1,9}$/.test(p.id))) fail(400, "Onbekend trainingsprogramma.");
   if (!isDate(p.start)) fail(400, "Kies een geldige startdatum.");
   return { id: p.id, start: p.start };
+}
+// program definition (built-in or a coach's own); null when the id is unknown
+async function programDef(env, id, coachId) {
+  if (PROGRAMMAS[id]) return { ...PROGRAMMAS[id], custom: false };
+  const m = /^c(\d+)$/.exec(id || "");
+  if (!m) return null;
+  const r = await env.DB.prepare("SELECT id, coach_id, naam, data FROM programmas WHERE id = ?").bind(Number(m[1])).first();
+  if (!r || (coachId && r.coach_id !== coachId)) return null;
+  const data = JSON.parse(r.data);
+  return { id, naam: r.naam, custom: true, weken: data.weken, dagen: data.dagen.map((d) => d.key), data };
+}
+function cleanProgramDef(b) {
+  const naam = str(b && b.naam, 60, "Naam");
+  if (!naam) fail(400, "Geef het programma een naam.");
+  const d = b.data || {};
+  const weken = Number(d.weken);
+  if (!Number.isInteger(weken) || weken < 1 || weken > 16) fail(400, "Kies 1 tot 16 weken.");
+  const oefeningen = {};
+  for (const [k, e] of Object.entries(d.oefeningen || {})) {
+    if (!/^c_[a-z0-9]{4,20}$/.test(k)) fail(400, "Ongeldige eigen oefening.");
+    if (Object.keys(oefeningen).length >= 60) fail(400, "Maximaal 60 eigen oefeningen per programma.");
+    const n = str(e && e.n, 60, "Naam oefening");
+    if (!n) fail(400, "Geef elke eigen oefening een naam.");
+    const m = (Array.isArray(e.m) ? e.m : []).filter((x) => MUSCLES.includes(x)).slice(0, 3);
+    if (!m.length) fail(400, `Kies de spiergroep van "${n}".`);
+    oefeningen[k] = { n, eq: EQUIP.includes(e.eq) ? e.eq : "Overig", m, s: (Array.isArray(e.s) ? e.s : []).filter((x) => MUSCLES.includes(x) && !m.includes(x)).slice(0, 3),
+      rust: Math.min(300, Math.max(30, Math.round(Number(e.rust) || 90))), cue: str(e.cue, 300, "Uitleg") || "Voer de oefening gecontroleerd uit over de volledige bewegingsbaan." };
+  }
+  const dagenIn = Array.isArray(d.dagen) ? d.dagen : [];
+  if (!dagenIn.length || dagenIn.length > 7) fail(400, "Een programma heeft 1 tot 7 trainingsdagen.");
+  const dagen = dagenIn.map((day, i) => {
+    const dn = str(day && day.naam, 40, "Naam dag") || `Dag ${i + 1}`;
+    const ex = (Array.isArray(day.ex) ? day.ex : []).map((x) => {
+      const id = String(x && x.id || "");
+      if (!BASE_EX.has(id) && !oefeningen[id]) fail(400, `Onbekende oefening op ${dn}.`);
+      const reps = (Array.isArray(x.reps) ? x.reps : []).map(Number);
+      if (!reps.length || reps.length > 10 || reps.some((r) => !Number.isInteger(r) || r < 1 || r > 100)) fail(400, `Controleer de herhalingen op ${dn} (1 tot 10 sets van 1–100).`);
+      return { id, reps };
+    });
+    if (!ex.length || ex.length > 15) fail(400, `${dn} heeft 1 tot 15 oefeningen nodig.`);
+    return { key: `d${i + 1}`, naam: dn, focus: str(day.focus, 80, "Focus"), type: DAYTYPES.includes(day.type) ? day.type : "other", ex };
+  });
+  return { naam, data: { weken, deload: !!d.deload && weken > 1, dagen, oefeningen } };
 }
 
 // sets: {exerciseId: [{kg, reps, ok}]} — shape and ranges only; exercise ids are defined client-side
@@ -913,7 +982,8 @@ async function workoutsOf(env, client) {
 async function clientPutWorkout(c) {
   const cl = c.client;
   if (!cl.programma) fail(400, "Er is geen trainingsprogramma toegewezen.");
-  const p = JSON.parse(cl.programma), def = PROGRAMMAS[p.id], b = c.body;
+  const p = JSON.parse(cl.programma), def = await programDef(c.env, p.id, cl.coach_id), b = c.body;
+  if (!def) fail(409, "Uw trainingsprogramma bestaat niet meer. Neem contact op met uw coach.");
   if (b.programma !== p.id) fail(409, "Uw trainingsprogramma is gewijzigd. Vernieuw de pagina.");
   const week = Number(b.week);
   if (!Number.isInteger(week) || week < 1 || week > def.weken) fail(400, "Ongeldige week.");
@@ -1546,4 +1616,53 @@ async function sendReminders(env, now) {
       sent += await remindOnce(env, c.id, "foto", 7 * DAY, now, { titel: "Tijd voor nieuwe progressiefoto's", tekst: "Maak een nieuwe set: voorkant, achterkant en zijkant.", url: "/app/?v=checkin" });
   }
   if (sent) console.log(`reminders sent: ${sent}`);
+}
+
+// ---------- coach-built training programs ----------
+async function customDefOut(env, id, coachId) {
+  const def = await programDef(env, id, coachId);
+  return def && def.custom ? { id, naam: def.naam, ...def.data } : null;
+}
+async function listProgrammas(c) {
+  const { results } = await c.env.DB.prepare(
+    `SELECT p.id, p.naam, p.data, p.updated_at,
+       (SELECT COUNT(*) FROM clients cl WHERE cl.coach_id = p.coach_id AND json_extract(cl.programma, '$.id') = 'c' || p.id) AS clienten
+     FROM programmas p WHERE p.coach_id = ? ORDER BY p.updated_at DESC`,
+  ).bind(c.coach.id).all();
+  return json(results.map((r) => { const d = JSON.parse(r.data); return { id: `c${r.id}`, naam: r.naam, weken: d.weken, dagen: d.dagen.length, clienten: r.clienten, updated: r.updated_at }; }));
+}
+async function ownProgramma(c) {
+  const r = await c.env.DB.prepare("SELECT * FROM programmas WHERE id = ? AND coach_id = ?").bind(c.params[0], c.coach.id).first();
+  if (!r) fail(404, "Programma niet gevonden.");
+  return r;
+}
+async function createProgramma(c) {
+  const n = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM programmas WHERE coach_id = ?").bind(c.coach.id).first();
+  if (n.n >= 100) fail(400, "Maximaal 100 programma's.");
+  const p = cleanProgramDef(c.body);
+  const { meta } = await c.env.DB.prepare("INSERT INTO programmas (coach_id, naam, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(c.coach.id, p.naam, JSON.stringify(p.data), c.now, c.now).run();
+  return json({ id: `c${meta.last_row_id}`, naam: p.naam, ...p.data }, 201);
+}
+async function getProgramma(c) {
+  const r = await ownProgramma(c);
+  return json({ id: `c${r.id}`, naam: r.naam, ...JSON.parse(r.data) });
+}
+async function updateProgramma(c) {
+  const r = await ownProgramma(c);
+  const p = cleanProgramDef(c.body);
+  const old = JSON.parse(r.data);
+  // clients already on this program keep their logs: days and weeks may only grow, never disappear
+  const inUse = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM workouts w JOIN clients cl ON cl.id = w.client_id WHERE cl.coach_id = ? AND w.programma = ?").bind(c.coach.id, `c${r.id}`).first();
+  if (inUse.n && (p.data.dagen.length < old.dagen.length || p.data.weken < old.weken))
+    fail(409, "Cliënten hebben al trainingen gelogd in dit programma. U kunt dagen en weken toevoegen, maar niet verwijderen. Maak anders een kopie.");
+  await c.env.DB.prepare("UPDATE programmas SET naam = ?, data = ?, updated_at = ? WHERE id = ?").bind(p.naam, JSON.stringify(p.data), c.now, r.id).run();
+  return json({ id: `c${r.id}`, naam: p.naam, ...p.data });
+}
+async function deleteProgramma(c) {
+  const r = await ownProgramma(c);
+  const used = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM clients WHERE coach_id = ? AND json_extract(programma, '$.id') = ?").bind(c.coach.id, `c${r.id}`).first();
+  if (used.n) fail(409, `Dit programma is toegewezen aan ${used.n} cliënt(en). Wijs eerst een ander programma toe.`);
+  await c.env.DB.prepare("DELETE FROM programmas WHERE id = ?").bind(r.id).run();
+  return json({ ok: true });
 }

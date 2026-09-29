@@ -99,13 +99,22 @@ function analyse(P,m){
   const floor=Math.max(bmr, man?1500:1200);
   if(kcal<floor){kcal=floor;notes.push("Het dagdoel is afgerond naar een veilige ondergrens.");}
   kcal=Math.round(kcal/10)*10;
-  let prot=Math.min(lbm*(adj<0?2.2:2.0), w*2.4);
-  let fat=Math.max(kcal*0.25/9, w*0.7);
+  const auto={kcal,prot:Math.round(Math.min(lbm*(adj<0?2.2:2.0), w*2.4))};
+  auto.fat=Math.round(Math.max(kcal*0.25/9, w*0.7));
+  // coach override (P.override, set in the dashboard): calories and optionally protein/fat; carbs fill the rest
+  const ov=P.override&&P.override.kcal>0?P.override:null;
+  if(ov){
+    kcal=Math.round(ov.kcal/10)*10;
+    notes.length=0; notes.push("Uw coach heeft uw dagdoel persoonlijk ingesteld.");
+  }
+  let prot=ov&&ov.prot>0?ov.prot:Math.min(lbm*(adj<0?2.2:2.0), w*2.4);
+  let fat=ov&&ov.fat>0?ov.fat:Math.max(kcal*0.25/9, w*0.7);
   const fib=kcal/1000*14; let carb=Math.max((kcal-prot*4-fat*9-fib*2)/4,50);
   prot=Math.round(prot); fat=Math.round(fat); carb=Math.round(carb);
   const whtr=m.taille?m.taille/h:null, whr=(m.taille&&m.heup)?m.taille/m.heup:null;
   const weekly=(kcal-tdee)*7/7700;
-  return {bmi,vet,lbm,fm:w*vet,methode,bmr,tdee,kcal,prot,fat,carb,fiber:Math.round(kcal/1000*14),water:r1(w*0.035),whtr,whr,weekly,notes,age};
+  return {bmi,vet,lbm,fm:w*vet,methode,bmr,tdee,kcal,prot,fat,carb,fiber:Math.round(kcal/1000*14),water:r1(w*0.035),whtr,whr,weekly,notes,age,
+    handmatig:!!ov,auto,floor:Math.round(floor)};
 }
 // Training/rest-day split. The weekly average stays at A.kcal: training days get +a, rest days −b,
 // with n·a = (7−n)·b. The rest-day cut is capped at 15% and never goes below the safe floor.

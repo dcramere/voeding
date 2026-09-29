@@ -187,6 +187,20 @@ test("targetFor picks the measurement and day type for a date", () => {
   assert.equal(DC.targetFor(P, [], "2026-09-28"), null);
 });
 
+test("coach override: kcal/protein/fat replace the formula, carbs fill the rest, split still works", () => {
+  const P = { ...BASE, trainingsdagen: [1, 3, 5] };
+  const auto = DC.analyse(P, M);
+  const A = DC.analyse({ ...P, override: { kcal: 2000, prot: 180, fat: 60 } }, M);
+  assert.equal(A.kcal, 2000); assert.equal(A.prot, 180); assert.equal(A.fat, 60);
+  assert.ok(A.handmatig && A.notes[0].includes("coach"));
+  assert.equal(A.auto.kcal, auto.kcal, "formula result stays available for the coach");
+  assert.ok(Math.abs(A.carb - (2000 - 180 * 4 - 60 * 9 - 28 * 2) / 4) < 1);
+  const D = DC.dagTargets({ ...P, override: { kcal: 2000 } }, DC.analyse({ ...P, override: { kcal: 2000 } }, M));
+  assert.ok(Math.abs((3 * D.train.kcal + 4 * D.rust.kcal) / 7 - 2000) <= 10);
+  const only = DC.analyse({ ...P, override: { kcal: 2400 } }, M);
+  assert.equal(only.prot, auto.prot, "protein from formula when not overridden");
+});
+
 test("dates never shift a day in UTC-negative timezones", () => {
   assert.match(DC.dateNL("2026-09-28"), /28 september 2026/);
 });

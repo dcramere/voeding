@@ -295,6 +295,20 @@ test("food diary: add, edit, delete, recent, isolation, coach range", async () =
   assert.equal((await coach(`/api/coach/clients/${annaId}/dagboek?van=2026-01-01&tot=2026-09-30`)).status, 400, "max 62 days");
 });
 
+test("coach targets: validation, merged into profile, clients cannot set them", async () => {
+  assert.equal((await coach(`/api/coach/clients/${annaId}`, "PUT", { doelen: { kcal: 500 } })).status, 400);
+  assert.equal((await coach(`/api/coach/clients/${annaId}`, "PUT", { doelen: { kcal: 1500, prot: 300, fat: 100 } })).status, 400, "macros exceed kcal");
+  const r = await coach(`/api/coach/clients/${annaId}`, "PUT", { doelen: { kcal: 1750, prot: 140 } });
+  assert.deepEqual(r.data.doelen, { kcal: 1750, prot: 140, fat: null });
+  assert.deepEqual((await anna("/api/me")).data.profiel.override, { kcal: 1750, prot: 140, fat: null });
+  // the client saving their own profile keeps the coach's override and cannot inject one
+  const me = (await anna("/api/me")).data;
+  const own = await anna("/api/profiel", "PUT", { naam: me.naam, profiel: { ...me.profiel, override: { kcal: 5000 } } });
+  assert.equal(own.data.profiel.override.kcal, 1750);
+  await coach(`/api/coach/clients/${annaId}`, "PUT", { doelen: null });
+  assert.equal((await anna("/api/me")).data.profiel.override, undefined);
+});
+
 test("messages: client ↔ coach, read status, check-in feedback, photos, isolation", async () => {
   assert.equal((await anna("/api/berichten", "POST", { tekst: "" })).status, 400);
   const a = await anna("/api/berichten", "POST", { tekst: "Mag ik rijst vervangen door cassave?" });
@@ -402,6 +416,44 @@ test("deleting a client removes all their data", async () => {
   assert.equal((await coach(`/api/coach/clients/${annaId}`, "DELETE")).status, 200);
   assert.equal((await coach(`/api/coach/clients/${annaId}`)).status, 404);
   assert.equal((await anna("/api/me")).status, 401);
+});
+
+test("custom programs: build, validate, assign, log, protect logged days, isolation", async () => {
+  const def = (extra = {}) => ({ naam: "Kracht 3x", data: { weken: 6, deload: true,
+    oefeningen: { c_hipthr01: { n: "Hip Thrust", eq: "Barbell", m: ["glutes"], s: ["hams"], rust: 120, cue: "Knijp bovenin." } },
+    dagen: [{ naam: "Onderlichaam", type: "lower", ex: [{ id: "hack_squat", reps: [8, 8, 8] }, { id: "c_hipthr01", reps: [10, 10] }] },
+            { naam: "Bovenlichaam", type: "upper", ex: [{ id: "flat_db_press", reps: [10, 8] }] }], ...extra } });
+  assert.equal((await coach("/api/coach/programmas", "POST", { ...def(), data: { ...def().data, dagen: [{ naam: "X", ex: [{ id: "moonwalk", reps: [5] }] }] } })).status, 400);
+  assert.equal((await coach("/api/coach/programmas", "POST", { ...def(), data: { ...def().data, weken: 30 } })).status, 400);
+  assert.equal((await coach("/api/coach/programmas", "POST", { ...def(), data: { ...def().data, dagen: [{ naam: "X", ex: [{ id: "hack_squat", reps: [0] }] }] } })).status, 400);
+  const p = await coach("/api/coach/programmas", "POST", def());
+  // a fresh client for this test (anna was deleted by an earlier test)
+  const lia = client();
+  const inv = await coach("/api/coach/clients", "POST", { naam: "Lia", email: "lia@t.nl" });
+  await lia("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "lia-pass-123", privacy: true });
+  const liaId = inv.data.id;
+  assert.equal(p.status, 201); assert.match(p.data.id, /^c\d+$/);
+  assert.deepEqual(p.data.dagen.map((d) => d.key), ["d1", "d2"]);
+  // assign to lia → she receives the definition incl. the custom exercise
+  await coach(`/api/coach/clients/${liaId}`, "PUT", { programma: { id: p.data.id, start: "2026-09-29" } });
+  const me = (await lia("/api/me")).data;
+  assert.equal(me.programmaDef.id, p.data.id); assert.equal(me.programmaDef.oefeningen.c_hipthr01.n, "Hip Thrust");
+  const w = await lia("/api/workouts", "PUT", { programma: p.data.id, week: 1, dag: "d1", datum: "2026-09-29", sets: { c_hipthr01: [{ kg: 60, reps: 10, ok: true }] }, notitie: "", afgerond: true });
+  assert.equal(w.status, 200);
+  assert.equal((await lia("/api/workouts", "PUT", { programma: p.data.id, week: 7, dag: "d1", datum: "2026-09-29", sets: {}, notitie: "" })).status, 400, "week beyond program");
+  assert.equal((await lia("/api/workouts", "PUT", { programma: p.data.id, week: 1, dag: "pushA", datum: "2026-09-29", sets: {}, notitie: "" })).status, 400, "day of another program");
+  // with logs, days/weeks can grow but not shrink; assigned programs cannot be deleted
+  const pid = p.data.id.slice(1);
+  assert.equal((await coach(`/api/coach/programmas/${pid}`, "PUT", { ...def(), data: { ...def().data, dagen: def().data.dagen.slice(0, 1) } })).status, 409);
+  assert.equal((await coach(`/api/coach/programmas/${pid}`, "PUT", { ...def(), naam: "Kracht 3x v2", data: { ...def().data, weken: 8 } })).status, 200);
+  assert.equal((await coach(`/api/coach/programmas/${pid}`, "DELETE")).status, 409);
+  assert.equal((await coach("/api/coach/programmas")).data.find((x) => x.id === p.data.id).clienten, 1);
+  // another coach can neither see nor assign it
+  const other = client();
+  await other("/api/coach/signup", "POST", { naam: "Coach Three", email: "three@t.nl", password: "coach-three-pass", akkoord: true }).then((r) => pay(r.data.url) && other(`/api/coach/checkout?session_id=${r.data.url.split("/").pop()}`));
+  assert.equal((await other(`/api/coach/programmas/${pid}`)).status, 404);
+  const pim = await other("/api/coach/clients", "POST", { naam: "Tom", email: "tom@t.nl" });
+  assert.equal((await other(`/api/coach/clients/${pim.data.id}`, "PUT", { programma: { id: p.data.id, start: "2026-09-29" } })).status, 404);
 });
 
 test("stripe: prices, client checkout, payment → account, gating, portal, resubscribe", async () => {

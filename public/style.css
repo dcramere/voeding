@@ -469,3 +469,26 @@ nav.tabs button{font-size:12px;padding-left:0;padding-right:0}
 .composer textarea{flex:1;min-width:0;width:auto}
 .composer .btn{flex:none}
 .kreply textarea{flex:1;min-width:0;width:auto}
+.row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+@media (max-width:520px){.row3{grid-template-columns:1fr}}
+.doelen{max-width:640px;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:10px}
+
+/* program builder */
+.pe-top{margin:14px 0 10px;max-width:900px}
+.pe-day{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:14px 0;background:var(--surface)}
+.pe-day-h{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.pe-day-h b{font-family:var(--display);color:var(--gold);min-width:52px}
+.pe-day-h input,.pe-day-h select{width:auto;padding:8px 10px;font-size:15px}
+.pe-day-h .pe-focus{flex:1;min-width:180px}
+.pe-tools{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.pe-tools .linkbtn:disabled{opacity:.3;cursor:default}
+.danger-t{color:var(--warn)!important}
+table.pe-ex{width:100%;border-collapse:collapse;font-size:14px}
+table.pe-ex th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);text-align:left;padding:4px}
+table.pe-ex td{padding:4px;border-top:1px solid var(--line)}
+table.pe-ex td:first-child{width:28px;color:var(--muted)}
+table.pe-ex select,table.pe-ex input{padding:8px 10px;font-size:14px}
+table.pe-ex td:nth-child(3){width:200px}
+.pe-own{border-top:1px dashed var(--line-strong);margin-top:12px;padding-top:12px;display:grid;gap:10px}
+.pe-save{position:sticky;bottom:0;background:rgba(10,10,10,.95);border-top:1px solid var(--line);padding:12px 0;display:flex;gap:10px;align-items:center;margin-top:16px}
+@media (max-width:640px){table.pe-ex td:nth-child(3){width:120px}}

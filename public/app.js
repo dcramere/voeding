@@ -144,7 +144,7 @@ const draftKey=()=>wo&&me&&me.programma?`dc-wo:${me.email}:${me.programma.id}:${
 function renderTraining(){
   const el=$("trOverview");
   if(!me.programma){el.innerHTML='<h1>Training</h1><p class="empty">Er is nog geen trainingsprogramma voor u klaargezet. Uw coach wijst dit aan u toe.</p>';return}
-  if(trWeek==null) trWeek=TR.weekOf(me.programma.start);
+  if(trWeek==null) trWeek=TR.weekOf(me.programma.start,me.programma.id);
   el.innerHTML=TR.overviewHTML(me.programma,me.workouts,trWeek);
 }
 function openWorkout(week,dag){
@@ -185,7 +185,7 @@ function setRow(id,si){
 const numVal=v=>{const n=parseFloat(String(v).replace(",","."));return isFinite(n)?n:null};
 function updateCount(){
   const day=TR.dayOf(me.programma.id,wo.dag);
-  const total=day.ex.reduce((t,x)=>t+TR.setsFor(x.reps,wo.week).length,0);
+  const total=day.ex.reduce((t,x)=>t+TR.setsFor(x.reps,wo.week,me.programma.id).length,0);
   const done=Object.values(wo.sets).reduce((t,a)=>t+a.filter(s=>s&&s.ok).length,0);
   const c=document.querySelector("[data-wo-count]"); if(c) c.textContent=`${done} van ${total} sets`;
   const bar=document.querySelector(".wo-progress i"); if(bar) bar.style.width=(total?done/total*100:0)+"%";
@@ -414,6 +414,7 @@ async function boot(){
     me=await DC.api("/api/me");
     me.menu=me.menu||{seed:0,off:[]}; me.menu.off=me.menu.off||[]; me.menu.offT=me.menu.offT||[];
     me.checkins=me.checkins||[]; me.fotos=me.fotos||[]; me.workouts=me.workouts||[]; me.producten=me.producten||[];
+    TR.registerProgram(me.programmaDef);
     DC.setCustomFoods(me.producten);
     renderAll();
     const want=new URLSearchParams(location.search).get("v");

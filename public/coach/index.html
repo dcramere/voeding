@@ -18,6 +18,7 @@
     <a class="brand" href="#/"><img src="/img/emblem.webp" alt=""><span><b>DCRAMERE</b><small>Coach</small></span></a>
     <div class="top-actions">
       <button class="linkbtn" type="button" id="navPush" hidden>Meldingen</button>
+      <a class="linkbtn" href="#/programmas">Programma's</a>
       <a class="linkbtn" href="#/coaches" id="navCoaches" hidden>Coaches</a>
       <button class="linkbtn" type="button" id="navBilling" hidden>Abonnement</button>
       <span id="coachNaam"></span>
@@ -75,6 +76,21 @@
       </div>
       <div class="err" id="cAboMsg" role="status"></div>
     </div>
+  </section>
+
+  <!-- PROGRAMMA'S -->
+  <section class="view" id="v-programmas" aria-labelledby="t-progs">
+    <a class="back" href="#/">← Mijn cliënten</a>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px">
+      <h1 id="t-progs">Trainingsprogramma's</h1>
+      <div class="actions" style="margin:0"><a class="btn ghost small" href="#/programmas/kopie">Kopie van PPL 12 weken</a><a class="btn small" href="#/programmas/nieuw">Nieuw programma</a></div>
+    </div>
+    <p class="sub">Bouw uw eigen schema's en wijs ze toe via het tabblad Training bij een cliënt. Het standaardprogramma Push · Pull · Legs (12 weken) is altijd beschikbaar.</p>
+    <div id="progLijst"></div>
+  </section>
+  <section class="view" id="v-programma" aria-labelledby="t-prog">
+    <a class="back" href="#/programmas">← Programma's</a>
+    <div id="progEditor"></div>
   </section>
 
   <!-- COACHES (alleen eigenaar) -->
@@ -190,6 +206,19 @@
     </div>
     <div class="pane" data-pane-body="intake" id="pIntake"></div>
     <div class="pane" data-pane-body="profiel">
+      <form id="fDoelen" novalidate class="doelen">
+        <h2 style="margin-top:0">Dagdoel</h2>
+        <p class="sub" id="doelenInfo"></p>
+        <div class="row3">
+          <label>Calorieën <small>kcal per dag (gem.)</small><input name="kcal" inputmode="numeric"></label>
+          <label>Eiwit <small>g, optioneel</small><input name="prot" inputmode="numeric"></label>
+          <label>Vet <small>g, optioneel</small><input name="fat" inputmode="numeric"></label>
+        </div>
+        <p class="sub" id="doelenCalc" style="margin:0"></p>
+        <div class="actions" style="margin-top:4px"><button class="btn" type="submit">Dagdoel opslaan</button><button class="btn ghost" type="button" id="doelenAuto">Terug naar automatisch</button></div>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+      <h2>Profiel</h2>
       <form id="fProfiel" novalidate>
         <div class="row">
           <label>Naam<input name="naam" autocomplete="off" required></label>

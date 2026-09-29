@@ -24,6 +24,26 @@ test("ppl12: 6 days, every exercise defined with muscles, cue and rest", () => {
   assert.deepEqual([...Object.keys(TR.EX)].filter((k) => !used.has(k)), [], "no unused exercises");
 });
 
+test("worker exercise library matches training.js", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
+  const ids = JSON.parse(src.match(/const BASE_EX = new Set\((\[[^\]]*\])\)/)[1]);
+  assert.deepEqual(ids.sort(), Object.keys(TR.EX).filter((k) => !TR.EX[k].custom).sort());
+});
+
+test("custom programs: registry, phases, deload, week clamp", () => {
+  TR.registerProgram({ id: "c77", naam: "Test", weken: 4, deload: true, oefeningen: { c_abcd1234: { n: "Eigen", eq: "Band", m: ["abs"], s: [], rust: 60, cue: "x" } },
+    dagen: [{ key: "d1", naam: "A", type: "full", ex: [{ id: "c_abcd1234", reps: [10, 10, 10, 10, 10] }] }] });
+  assert.equal(TR.PROGRAMS.c77.sub, "4 weken, 1 training per week");
+  assert.equal(TR.phaseOf(2, "c77").naam, "Progressie");
+  assert.equal(TR.phaseOf(4, "c77").naam, "Deload");
+  assert.equal(TR.setsFor([10, 10, 10, 10, 10], 4, "c77").length, 3);
+  assert.equal(TR.setsFor([10, 10, 10, 10, 10], 12, "ppl12").length, 3);
+  const ago = (d) => { const t = new Date(); t.setDate(t.getDate() - d); return new Date(t - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+  assert.equal(TR.weekOf(ago(200), "c77"), 4);
+  assert.match(TR.overviewHTML({ id: "c77", start: ago(0) }, [], 1), /Overige 6 dagen/);
+});
+
 test("phases and deload", () => {
   assert.equal(TR.phaseOf(1).naam, "Fundament");
   assert.equal(TR.phaseOf(6).naam, "Opbouw");

@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "dcramere-voeding",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "9defbbed-3c03-46fd-b3fd-b5a51bed981a",
       "migrations_dir": "migrations"
     }
   ],

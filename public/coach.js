@@ -82,8 +82,34 @@ function inviteHTML(naam,link){
 // ---------- list ----------
 async function loadList(){
   clients=await call("/api/coach/clients");
-  renderList();
+  renderList(); renderOnboard();
 }
+// ---------- onboarding checklist ----------
+const onboardKey=()=>"dc-onboard-hide-"+coach.id;
+async function renderOnboard(){
+  const el=$("onboard");
+  let hidden=false; try{hidden=localStorage.getItem(onboardKey())==="1"}catch(e){}
+  const real=clients.filter(c=>!c.demo);
+  if(hidden||real.length>=3){el.innerHTML="";return}
+  const push=await CHAT.pushState().catch(()=>"unsupported");
+  const steps=[
+    [clients.some(c=>c.demo),"Bekijk een voorbeeldcliënt","Verken plan, training, check-ins en chat met 6 weken voorbeelddata.",clients.some(c=>c.demo)?"":`<button class="btn small" type="button" id="demoBtn">Voorbeeld toevoegen</button>`],
+    [real.length>0,"Nodig uw eerste cliënt uit","Klik op Nieuwe cliënt en stuur de persoonlijke link via WhatsApp.",""],
+    [push==="on","Zet meldingen aan","Krijg direct een melding bij nieuwe berichten en check-ins.",push==="on"||push==="unsupported"?"":`<button class="btn small ghost" type="button" data-onb-push>Aanzetten</button>`],
+    [!!coach.merk,"Stel uw branding in","Uw naam, logo en kleur in de app van uw cliënten.",coach.merk?"":`<a class="btn small ghost" href="#/instellingen">Instellen</a>`],
+    [mijnProgrammas.length>0,"Maak een eigen trainingsprogramma","Optioneel: het PPL-programma van 12 weken is altijd beschikbaar.",mijnProgrammas.length?"":`<a class="btn small ghost" href="#/programmas">Openen</a>`],
+  ];
+  const done=steps.filter(x=>x[0]).length;
+  el.innerHTML=`<div class="onboard"><div class="onboard-h"><div><p class="kicker">Aan de slag</p><b>${done} van ${steps.length} stappen gedaan</b></div><button class="linkbtn" type="button" id="onbHide">Verbergen</button></div>
+    <div class="onboard-bar"><i style="width:${done/steps.length*100}%"></i></div>
+    <ol>${steps.map(([ok,t,d,act])=>`<li class="${ok?"done":""}"><span class="onb-check">${ok?"✓":""}</span><div><b>${t}</b><small>${d}</small></div>${ok?"":act}</li>`).join("")}</ol></div>`;
+  $("onbHide").onclick=()=>{try{localStorage.setItem(onboardKey(),"1")}catch(e){}el.innerHTML=""};
+  const demo=$("demoBtn");
+  if(demo) demo.onclick=async()=>{demo.disabled=true;try{const r=await call("/api/coach/demo","POST",{});location.hash="#/client/"+r.id}catch(x){alert(x.message);demo.disabled=false}};
+  const pb=el.querySelector("[data-onb-push]");
+  if(pb) pb.onclick=async()=>{try{await CHAT.enablePush("coach");renderNavPush();renderOnboard()}catch(x){alert(x.message)}};
+}
+
 function renderList(){
   const act=clients.filter(c=>c.actief);
   const week=act.filter(c=>c.checkin&&DC.daysSince(c.checkin.datum)<=7).length;
@@ -115,7 +141,7 @@ function renderList(){
       const k=c.checkin, kd=k?DC.daysSince(k.datum):null, flags=DC.checkinFlags(k);
       return `<tr data-id="${c.id}" tabindex="0">
         <td class="who"><b>${esc(c.naam)}${c.ongelezen?` <span class="badge inline" title="Ongelezen berichten">${c.ongelezen}</span>`:""}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</td>
-        <td>${pill(c)}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
+        <td>${c.demo?'<span class="pill">Voorbeeld</span>':pill(c)}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
         <td>${l?`${DC.dateNL(l.datum,{day:"numeric",month:"short",year:"numeric"})}<br><small class="${d>STALE_DAYS&&c.actief?"stale":""}" style="${d>STALE_DAYS&&c.actief?"":"color:var(--muted)"}">${ago(d)}</small>`:'<span style="color:var(--muted)">nog geen</span>'}</td>
         <td class="hide-sm">${k?`${ago(kd)}<br><small class="${flags.length?"stale":""}" style="${flags.length?"":"color:var(--muted)"}">${flags.length?flags.join(", "):"geen bijzonderheden"}</small>`:'<span style="color:var(--muted)">–</span>'}</td>
         <td class="n">${l?DC.fmt(l.gewicht,1)+" kg":"–"}</td>
@@ -446,6 +472,39 @@ async function openEditor(which){
   renderEditor();
 }
 
+// ---------- settings: branding ----------
+function brandPreview(naam,kleur,logo){
+  $("bpNaam").textContent=naam||"DCRAMERE"; $("bpLogo").src=logo||"/img/emblem.webp";
+  const k=kleur||"#f4d03f"; $("bpKcal").style.color=k; $("bpBtn").style.background=k; $("bpNaam").style.color=k;
+}
+function renderInstellingen(){
+  const m=coach.merk||{}, f=$("fMerk");
+  f.elements.naam.value=m.naam||""; f.elements.kleur.value=m.kleur||"#f4d03f"; f.elements.kleurHex.value=m.kleur||""; f.elements.logo.value="";
+  $("logoDel").hidden=!m.logo; brandPreview(m.naam,m.kleur,m.logo);
+}
+$("fMerk").addEventListener("input",e=>{
+  const f=$("fMerk");
+  if(e.target.name==="kleur") f.elements.kleurHex.value=f.elements.kleur.value;
+  if(e.target.name==="kleurHex"&&/^#[0-9a-f]{6}$/i.test(f.elements.kleurHex.value)) f.elements.kleur.value=f.elements.kleurHex.value.toLowerCase();
+  brandPreview(f.elements.naam.value.trim(),f.elements.kleurHex.value?f.elements.kleur.value:"",(coach.merk||{}).logo);
+});
+$("fMerk").elements.logo.addEventListener("change",e=>{const file=e.target.files[0];if(file)$("bpLogo").src=URL.createObjectURL(file)});
+$("kleurReset").addEventListener("click",()=>{const f=$("fMerk");f.elements.kleurHex.value="";f.elements.kleur.value="#f4d03f";f.dispatchEvent(new Event("input"))});
+DC.handleForm($("fMerk"),async f=>{
+  const hex=f.elements.kleurHex.value.trim();
+  let r=await call("/api/coach/merk","PUT",{naam:f.elements.naam.value.trim(),kleur:hex?f.elements.kleur.value:""});
+  const file=f.elements.logo.files[0];
+  if(file){
+    if(file.size>1024*1024) throw new Error("Het logo is te groot (max. 1 MB).");
+    const res=await fetch("/api/coach/merk/logo",{method:"POST",credentials:"same-origin",headers:{"content-type":file.type||"image/png"},body:file});
+    const d=await res.json().catch(()=>null); if(!res.ok) throw new Error((d&&d.error)||"Uploaden mislukt.");
+    r=d;
+  }
+  coach.merk=r.merk; renderInstellingen();
+  return "Opgeslagen. Uw cliënten zien de nieuwe stijl bij hun volgende bezoek.";
+});
+$("logoDel").addEventListener("click",async()=>{try{coach.merk=(await call("/api/coach/merk/logo","DELETE")).merk;renderInstellingen()}catch(x){alert(x.message)}});
+
 function setPane(p){
   pane=p;
   document.querySelectorAll("[data-pane]").forEach(b=>{if(b.dataset.pane===p)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current")});
@@ -485,7 +544,7 @@ document.addEventListener("click",async e=>{
     $("pShop").innerHTML=`<h2>Boodschappenlijst</h2>${DC.shoppingHTML(cur.profiel,m,cur.menu)}`;
     $("pShop").scrollIntoView({behavior:"smooth",block:"start"}); return;
   }
-  if(e.target.closest("[data-print]")&&m){DC.printPlan(cur.profiel,m,cur.menu,{naam:cur.naam,coach:coach.naam});return}
+  if(e.target.closest("[data-print]")&&m){DC.printPlan(cur.profiel,m,cur.menu,{naam:cur.naam,coach:coach.naam,merk:coach.merk});return}
   const fdel=e.target.closest("[data-foto-del]");
   if(fdel&&cur){
     if(!confirm("Deze foto verwijderen?")) return;
@@ -555,6 +614,7 @@ async function route(){
   try{
     if(location.hash==="#/coaches"&&coach.isOwner){cur=null;show("coaches");await loadCoaches();return}
     if(location.hash==="#/programmas"){cur=null;show("programmas");await renderProgrammas();return}
+    if(location.hash==="#/instellingen"){cur=null;show("instellingen");renderInstellingen();return}
     const pm=location.hash.match(/^#\/programmas\/(\w+)/);
     if(pm){cur=null;show("programma");await openEditor(pm[1]);return}
     if(m){

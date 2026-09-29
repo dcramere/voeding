@@ -221,6 +221,7 @@ function renderAll(){
   $("accEmail").textContent=me.email;
   $("fPw").elements.email.value=me.email;
   if(me.coach) $("coachNaam").textContent=me.coach;
+  DC.applyBrand(me.merk);
   setBadge(me.ongelezen||0); renderPush();
   const ab=me.abonnement;
   $("aboBlock").hidden=!ab;
@@ -232,7 +233,7 @@ function saveMenu(){
 }
 function printPlan(){
   const m=DC.latest(me.metingen);
-  if(me.profiel&&m) DC.printPlan(me.profiel,m,me.menu,{naam:me.naam,coach:me.coach});
+  if(me.profiel&&m) DC.printPlan(me.profiel,m,me.menu,{naam:me.naam,coach:me.coach,merk:me.merk});
 }
 
 // ---------- events ----------

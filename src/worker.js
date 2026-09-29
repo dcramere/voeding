@@ -325,7 +325,7 @@ const withClient = (fn, opts = {}) => async (c) => {
 const withCoach = (fn, opts = {}) => async (c) => {
   const id = await sessionSubject(c, "coach");
   if (!id) fail(401, "Log opnieuw in.");
-  const coach = await c.env.DB.prepare("SELECT id, naam, email, is_owner, status, stripe_customer, abo_status, abo_einde FROM coaches WHERE id = ?").bind(id).first();
+  const coach = await c.env.DB.prepare("SELECT id, naam, email, is_owner, status, stripe_customer, abo_status, abo_einde, merk FROM coaches WHERE id = ?").bind(id).first();
   if (!coach) fail(401, "Log opnieuw in.");
   if (!opts.billing && !coach.is_owner && coach.status !== "actief")
     fail(402, "Uw platformabonnement is niet actief.", "abonnement");
@@ -403,6 +403,11 @@ const ROUTES = [
   ["GET", /^\/coach\/clients\/(\d+)\/dagboek$/, withCoach(coachGetDagboek)],
   ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
   ["GET", "/coach/programmas", withCoach(listProgrammas)],
+  ["PUT", "/coach/merk", withCoach(putMerk)],
+  ["POST", "/coach/merk/logo", withCoach(putMerkLogo), RAW],
+  ["DELETE", "/coach/merk/logo", withCoach(delMerkLogo)],
+  ["GET", /^\/merk\/(\d+)\/logo$/, getMerkLogo],
+  ["POST", "/coach/demo", withCoach(createDemo)],
   ["POST", "/coach/programmas", withCoach(createProgramma)],
   ["GET", /^\/coach\/programmas\/(\d+)$/, withCoach(getProgramma)],
   ["PUT", /^\/coach\/programmas\/(\d+)$/, withCoach(updateProgramma)],
@@ -534,7 +539,7 @@ async function inviteAccept(c) {
 async function clientMe(c) {
   const { client: cl, env } = c;
   const [coach, metingen, checkins, fotos, workouts, producten] = await Promise.all([
-    env.DB.prepare("SELECT naam FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
+    env.DB.prepare("SELECT id, naam, merk FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
     metingenOf(env, cl.id),
     checkinsOf(env, cl.id, 12),
     fotosOf(env, cl.id),
@@ -543,7 +548,7 @@ async function clientMe(c) {
     env.DB.prepare("UPDATE clients SET last_seen = ? WHERE id = ?").bind(c.now, cl.id).run(),
   ]);
   return json({
-    naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "",
+    naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "", merk: coach ? merkOut(coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
@@ -693,7 +698,7 @@ async function listClients(c) {
      FROM clients c WHERE c.coach_id = ? ORDER BY c.naam COLLATE NOCASE`,
   ).bind(c.coach.id).all();
   return json(results.map((r) => ({
-    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto, laatsteTraining: r.laatste_training, ongelezen: r.ongelezen,
+    ...publicClient(r), demo: !!r.demo, aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto, laatsteTraining: r.laatste_training, ongelezen: r.ongelezen,
     eerste: r.eerste ? JSON.parse(r.eerste) : null, laatste: r.laatste ? JSON.parse(r.laatste) : null,
   })));
 }
@@ -823,6 +828,7 @@ async function fotosOf(env, clientId) {
 function imageType(b) {
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
   if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
   return null;
 }
 
@@ -1347,7 +1353,7 @@ async function clientResubscribe(c) {
 async function coachMeInfo(c) {
   const k = c.coach;
   return json({ id: k.id, naam: k.naam, email: k.email, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
-    aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env) });
+    aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k) });
 }
 async function coachSessionFor(c, coachId, customer, mail) {
   return stripe(c.env, "POST", "/checkout/sessions", {
@@ -1665,4 +1671,91 @@ async function deleteProgramma(c) {
   if (used.n) fail(409, `Dit programma is toegewezen aan ${used.n} cliënt(en). Wijs eerst een ander programma toe.`);
   await c.env.DB.prepare("DELETE FROM programmas WHERE id = ?").bind(r.id).run();
   return json({ ok: true });
+}
+
+// ---------- coach branding ----------
+// {naam, kleur, logo (url)} — null when the coach uses the DCRAMERE default
+function merkOut(k) {
+  if (!k || !k.merk) return null;
+  const m = JSON.parse(k.merk);
+  return { naam: m.naam || null, kleur: m.kleur || null, logo: m.logo_key ? `/api/merk/${k.id}/logo?v=${m.v || 0}` : null };
+}
+// WCAG relative luminance: the accent is used as text/buttons on #0a0a0a, so it must be light enough
+function contrastOnBlack(hex) {
+  const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  const L = 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  return (L + 0.05) / (0.0033 + 0.05);
+}
+async function merkOf(env, coachId) {
+  const r = await env.DB.prepare("SELECT merk FROM coaches WHERE id = ?").bind(coachId).first();
+  return r && r.merk ? JSON.parse(r.merk) : {};
+}
+async function saveMerk(env, coachId, m) {
+  const empty = !m.naam && !m.kleur && !m.logo_key;
+  await env.DB.prepare("UPDATE coaches SET merk = ? WHERE id = ?").bind(empty ? null : JSON.stringify(m), coachId).run();
+}
+async function putMerk(c) {
+  const naam = str(c.body.naam, 40, "Naam");
+  let kleur = c.body.kleur ? String(c.body.kleur).toLowerCase() : "";
+  if (kleur && !/^#[0-9a-f]{6}$/.test(kleur)) fail(400, "Kies een geldige kleur.");
+  if (kleur && contrastOnBlack(kleur) < 4.5) fail(400, "Deze kleur is te donker voor de zwarte achtergrond. Kies een lichtere tint.");
+  const m = { ...(await merkOf(c.env, c.coach.id)), naam: naam || null, kleur: kleur || null };
+  await saveMerk(c.env, c.coach.id, m);
+  return json({ merk: merkOut({ id: c.coach.id, merk: JSON.stringify(m) }) });
+}
+async function putMerkLogo(c) {
+  const buf = new Uint8Array(await c.req.arrayBuffer());
+  if (buf.length > 1024 * 1024) fail(413, "Het logo is te groot (max. 1 MB).");
+  const type = buf.length > 12 ? imageType(buf) : null;
+  if (!type) fail(415, "Upload een PNG-, JPEG- of WebP-afbeelding.");
+  const m = await merkOf(c.env, c.coach.id);
+  const key = `merk/${c.coach.id}/logo`;
+  await c.env.FOTOS.put(key, buf, { httpMetadata: { contentType: type } });
+  Object.assign(m, { logo_key: key, logo_type: type, v: c.now });
+  await saveMerk(c.env, c.coach.id, m);
+  return json({ merk: merkOut({ id: c.coach.id, merk: JSON.stringify(m) }) });
+}
+async function delMerkLogo(c) {
+  const m = await merkOf(c.env, c.coach.id);
+  if (m.logo_key) await c.env.FOTOS.delete(m.logo_key);
+  delete m.logo_key; delete m.logo_type;
+  await saveMerk(c.env, c.coach.id, m);
+  return json({ merk: merkOut({ id: c.coach.id, merk: JSON.stringify(m) }) });
+}
+// logos are shown to clients and in the PDF; they are brand assets, not personal data, so no session is needed
+async function getMerkLogo(c) {
+  const m = await merkOf(c.env, c.params[0]);
+  const obj = m.logo_key && await c.env.FOTOS.get(m.logo_key);
+  if (!obj) fail(404, "Geen logo.");
+  return new Response(obj.body, { headers: { "content-type": m.logo_type, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+}
+
+// ---------- demo client (onboarding) ----------
+// A realistic example so a new coach can explore every screen. It cannot log in (no password).
+async function createDemo(c) {
+  const exists = await c.env.DB.prepare("SELECT id FROM clients WHERE coach_id = ? AND demo = 1").bind(c.coach.id).first();
+  if (exists) fail(409, "U heeft al een voorbeeldcliënt.");
+  const iso = (d) => new Date((c.now - d * DAY) * 1000).toISOString().slice(0, 10);
+  const profiel = { geslacht: "v", geboorte: "1994-05-12", lengte: 168, maaltijden: 4, activiteit: 1.55, doel: -0.1,
+    geenRood: true, geenVis: false, vega: false, geenZuivel: false, excl: [], trainingsdagen: [1, 2, 3, 4, 5, 6], trainingsmoment: "avond" };
+  const intake = { doel: "5 kg vetmassa kwijt en sterker worden. Ik wil me weer fit voelen na mijn zwangerschap.", streefgewicht: 66,
+    medisch: "", blessures: "Soms lage rugpijn bij zwaar tillen", allergieen: "", werk: "zittend", slaap: 7, ervaring: "beginner", sport: "Fitness 3–4x per week", lastig: "Snacken in de avond", alcohol: "soms" };
+  const { meta } = await c.env.DB.prepare(
+    "INSERT INTO clients (coach_id, naam, email, created_at, profiel, intake, demo, privacy_akkoord, programma, notities) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+  ).bind(c.coach.id, "Voorbeeld: Maya Jansen", `voorbeeld-${c.coach.id}@demo.invalid`, c.now - 43 * DAY, JSON.stringify(profiel), JSON.stringify(intake),
+    c.now - 43 * DAY, JSON.stringify({ id: "ppl12", start: iso(42) }), "Voorbeeldcliënt: verken hier alle tabbladen. Verwijder haar gerust als u klaar bent.").run();
+  const id = meta.last_row_id, q = [];
+  const kg = [72.4, 71.9, 71.3, 71.0, 70.4, 70.1, 69.6];
+  kg.forEach((w, i) => q.push(c.env.DB.prepare("INSERT INTO metingen (client_id, datum, gewicht, taille, created_at, door) VALUES (?, ?, ?, ?, ?, 'client')")
+    .bind(id, iso(42 - i * 7), w, 82 - i * 0.7, c.now)));
+  [[3, 3, 3, 3, 4], [3, 4, 3, 3, 3], [4, 3, 4, 2, 4], [2, 4, 3, 4, 3], [4, 2, 4, 3, 5], [4, 3, 4, 2, 4]].forEach((k, i) =>
+    q.push(c.env.DB.prepare("INSERT INTO checkins (client_id, datum, energie, honger, slaap, stress, naleving, training, opmerking, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(id, iso(35 - i * 7), ...k, 4 + (i % 3), i === 3 ? "Drukke week op werk, 's avonds veel trek." : "", c.now)));
+  const sets = { incline_db_press: [{ kg: 12, reps: 10, ok: true }, { kg: 14, reps: 8, ok: true }, { kg: 14, reps: 8, ok: true }, { kg: 16, reps: 6, ok: true }] };
+  for (let w = 1; w <= 5; w++) q.push(c.env.DB.prepare("INSERT INTO workouts (client_id, programma, week, dag, datum, sets, notitie, afgerond, updated_at) VALUES (?, 'ppl12', ?, 'pushA', ?, ?, '', ?, ?)")
+    .bind(id, w, iso(42 - (w - 1) * 7), JSON.stringify({ incline_db_press: sets.incline_db_press.map((s) => ({ ...s, kg: s.kg + (w - 1) * 1 })) }), c.now, c.now));
+  q.push(c.env.DB.prepare("INSERT INTO berichten (client_id, van, tekst, created_at, gelezen) VALUES (?, 'client', ?, ?, NULL)").bind(id, "Hoi coach! Mag ik de rijst bij de lunch vervangen door cassave?", c.now - 3600));
+  q.push(c.env.DB.prepare("INSERT INTO dagboek (client_id, datum, maaltijd, naam, bron, ref, gram, kcal, eiwit, koolh, vet, created_at) VALUES (?, ?, 'ontbijt', 'Magere kwark', 'basis', 'kwark', 250, 142.5, 25, 10, 0.5, ?)").bind(id, iso(0), c.now));
+  await c.env.DB.batch(q);
+  return json({ id }, 201);
 }

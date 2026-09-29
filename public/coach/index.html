@@ -19,6 +19,7 @@
     <div class="top-actions">
       <button class="linkbtn" type="button" id="navPush" hidden>Meldingen</button>
       <a class="linkbtn" href="#/programmas">Programma's</a>
+      <a class="linkbtn" href="#/instellingen">Instellingen</a>
       <a class="linkbtn" href="#/coaches" id="navCoaches" hidden>Coaches</a>
       <button class="linkbtn" type="button" id="navBilling" hidden>Abonnement</button>
       <span id="coachNaam"></span>
@@ -93,6 +94,33 @@
     <div id="progEditor"></div>
   </section>
 
+  <!-- INSTELLINGEN -->
+  <section class="view" id="v-instellingen" aria-labelledby="t-inst">
+    <a class="back" href="#/">← Mijn cliënten</a>
+    <h1 id="t-inst" style="margin-top:14px">Instellingen</h1>
+    <div class="split">
+      <div>
+        <h2 style="margin-top:0">Uw branding</h2>
+        <p class="sub">Uw cliënten zien de app en hun PDF-plan met uw naam, logo en accentkleur. Laat leeg om de DCRAMERE-stijl te gebruiken.</p>
+        <form id="fMerk" novalidate>
+          <label>Merknaam <small>bijv. uw bedrijfsnaam</small><input name="naam" maxlength="40" placeholder="DCRAMERE"></label>
+          <label>Accentkleur<span class="kleur-row"><input type="color" name="kleur" value="#f4d03f"><input name="kleurHex" maxlength="7" placeholder="#f4d03f"><button class="linkbtn" type="button" id="kleurReset">Standaard</button></span></label>
+          <label>Logo <small>PNG, JPEG of WebP, bij voorkeur vierkant, max. 1 MB</small><input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
+          <div class="actions" style="margin-top:0"><button class="btn" type="submit">Branding opslaan</button><button class="btn ghost" type="button" id="logoDel" hidden>Logo verwijderen</button></div>
+          <div class="flash" data-msg role="status"></div>
+        </form>
+      </div>
+      <div>
+        <p class="kicker">Voorbeeld in de app</p>
+        <div class="brand-preview" id="brandPreview">
+          <div class="bp-top"><img alt="" id="bpLogo" src="/img/emblem.webp"><span><b id="bpNaam">DCRAMERE</b><small>Coaching</small></span></div>
+          <div class="bp-kcal" id="bpKcal">2.190</div><small class="bp-sub">kcal op een trainingsdag</small>
+          <div class="bp-btn" id="bpBtn">Nieuw menu maken</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- COACHES (alleen eigenaar) -->
   <section class="view" id="v-coaches" aria-labelledby="t-coaches">
     <a class="back" href="#/">← Mijn cliënten</a>
@@ -126,6 +154,7 @@
       </div>
     </div>
     <div class="stats" id="stats"></div>
+    <div id="onboard"></div>
     <form id="fNew" class="narrow" novalidate hidden>
       <div class="row">
         <label>Naam<input name="naam" autocomplete="off" required></label>

@@ -417,8 +417,8 @@ function printHTML(P,m,menu,o){
       <div class="p-targets"><div><b>${fmt(pd.A.kcal)}</b><small>kcal</small></div><div><b>${pd.A.prot}<span class="unit">g</span></b><small>eiwit</small></div><div><b>${pd.A.carb}<span class="unit">g</span></b><small>koolhydraten</small></div><div><b>${pd.A.fat}<span class="unit">g</span></b><small>vet</small></div></div>
       ${pd.meals.map(ml=>mealHTML(ml,{print:true})).join("")}</section>`;
   };
-  return `<header class="p-head"><img src="/img/logo.webp" alt="DCRAMERE"><div><p class="p-kicker">Persoonlijk voedingsplan</p><h1>${esc(o.naam||"")}</h1>
-      <p>Opgesteld op ${dateNL(today())}<span class="sep">·</span>gebaseerd op de meting van ${dateNL(m.datum)} (${fmt(m.gewicht,1)} kg)<br>Coach: ${esc(o.coach||"Dino E. Cramer")} — DCRAMERE</p></div></header>
+  return `<header class="p-head"><img src="${o.merk&&o.merk.logo?o.merk.logo:"/img/logo.webp"}" alt="${esc(o.merk&&o.merk.naam||"DCRAMERE")}"><div><p class="p-kicker">Persoonlijk voedingsplan</p><h1>${esc(o.naam||"")}</h1>
+      <p>Opgesteld op ${dateNL(today())}<span class="sep">·</span>gebaseerd op de meting van ${dateNL(m.datum)} (${fmt(m.gewicht,1)} kg)<br>Coach: ${esc(o.coach||"Dino E. Cramer")} — ${esc(o.merk&&o.merk.naam||"DCRAMERE")}</p></div></header>
     <div class="p-summary"><div><small>Doel</small><b>${DOEL_LABEL[String(P.doel)]||""}</b></div><div><small>Gemiddeld per dag</small><b>${fmt(W.kcal)} kcal</b></div><div><small>Verwacht</small><b>${W.weekly<0?"−":"+"}${fmt(Math.abs(W.weekly),2)} kg/week</b></div><div><small>Water</small><b>${fmt(W.water,1)} l per dag</b></div></div>
     ${types.map(section).join("")}
     <section class="p-shop"><h2>Boodschappenlijst voor een week</h2>${shoppingHTML(P,m,menu)}</section>
@@ -702,6 +702,21 @@ function handleForm(form,fn){
     finally{if(btn) btn.disabled=false}
   });
 }
+// coach branding: name, logo and accent colour (validated server-side for contrast on black)
+function applyBrand(merk){
+  const r=document.documentElement.style, k=merk&&merk.kleur;
+  if(k){
+    const n=parseInt(k.slice(1),16), c=[n>>16&255,n>>8&255,n&255];
+    r.setProperty("--gold",k); r.setProperty("--c",k);
+    r.setProperty("--gold-dim",`rgb(${c.map(v=>Math.round(v*0.72)).join(",")})`);
+    r.setProperty("--gold-soft",`rgba(${c.join(",")},.08)`);
+  }else ["--gold","--c","--gold-dim","--gold-soft"].forEach(v=>r.removeProperty(v));
+  document.querySelectorAll(".brand").forEach(b=>{
+    const img=b.querySelector("img"), name=b.querySelector("b");
+    if(img) img.src=merk&&merk.logo?merk.logo:"/img/emblem.webp";
+    if(name) name.textContent=merk&&merk.naam?merk.naam:"DCRAMERE";
+  });
+}
 // fills the hidden #print container and opens the print dialog (browsers offer "Save as PDF")
 function printPlan(P,m,menu,o){
   const el=document.getElementById("print");
@@ -711,7 +726,7 @@ function printPlan(P,m,menu,o){
   if(img&&!img.complete){img.onload=go;img.onerror=go}else go();
 }
 
-window.DC={FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
+window.DC={applyBrand,FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
   shoppingList,shoppingHTML,printHTML,printPlan,POSES,FOTO_EVERY,FOTO_TIPS,fotoSets,lastFotoDate,fotosDue,prepareFoto,uploadFoto,fotoUploadHTML,fotoCompareHTML,checkinFieldsHTML,readCheckin,checkinsHTML,checkinFlags,intakeFieldsHTML,fillIntake,readIntake,intakeSummaryHTML,
   profielFieldsHTML,fillProfiel,readProfiel,metingFieldsHTML,readMeting,api,handleForm};
 })();

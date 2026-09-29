@@ -492,3 +492,28 @@ table.pe-ex td:nth-child(3){width:200px}
 .pe-own{border-top:1px dashed var(--line-strong);margin-top:12px;padding-top:12px;display:grid;gap:10px}
 .pe-save{position:sticky;bottom:0;background:rgba(10,10,10,.95);border-top:1px solid var(--line);padding:12px 0;display:flex;gap:10px;align-items:center;margin-top:16px}
 @media (max-width:640px){table.pe-ex td:nth-child(3){width:120px}}
+.kleur-row{display:flex;gap:8px;align-items:center}
+.kleur-row input[type=color]{width:52px;height:44px;padding:3px;flex:none}
+.kleur-row input[name=kleurHex]{width:120px}
+.brand-preview{border:1px solid var(--line-strong);border-radius:14px;padding:16px;background:var(--bg);max-width:300px}
+.bp-top{display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:14px}
+.bp-top img{width:34px;height:34px;object-fit:contain;mix-blend-mode:lighten}
+.bp-top b{font-family:var(--display);letter-spacing:.14em;color:var(--gold)}
+.bp-top small{display:block;font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+.bp-kcal{font-family:var(--display);font-size:56px;line-height:1;color:var(--gold)}
+.bp-sub{color:var(--muted)}
+.bp-btn{margin-top:16px;display:inline-block;background:var(--gold);color:#0a0a0a;font-weight:700;border-radius:4px;padding:10px 16px;font-size:14px}
+.onboard{border:1px solid var(--gold-dim);background:var(--gold-soft);border-radius:12px;padding:16px 18px;margin:0 0 18px}
+.onboard-h{display:flex;justify-content:space-between;align-items:flex-start}
+.onboard-h b{font-size:16px}
+.onboard-bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin:10px 0 6px}
+.onboard-bar i{display:block;height:100%;background:var(--gold)}
+.onboard ol{list-style:none;padding:0;margin:0;display:grid}
+.onboard li{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.onboard li div{flex:1}
+.onboard li b{display:block;font-size:15px}
+.onboard li small{color:var(--muted);font-size:13px}
+.onboard li.done b{color:var(--muted);text-decoration:line-through}
+.onb-check{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);color:var(--on-gold);font-weight:800;flex:none}
+.onboard li.done .onb-check{background:var(--gold);border-color:var(--gold)}
+#stats.stats{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}

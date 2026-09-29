@@ -456,6 +456,43 @@ test("custom programs: build, validate, assign, log, protect logged days, isolat
   assert.equal((await other(`/api/coach/clients/${pim.data.id}`, "PUT", { programma: { id: p.data.id, start: "2026-09-29" } })).status, 404);
 });
 
+test("branding: contrast check, logo upload, clients see their coach's brand", async () => {
+  assert.equal((await coach("/api/coach/merk", "PUT", { naam: "Fit Lab", kleur: "#1a1a2e" })).status, 400, "too dark on black");
+  assert.equal((await coach("/api/coach/merk", "PUT", { naam: "Fit Lab", kleur: "red" })).status, 400);
+  const m = await coach("/api/coach/merk", "PUT", { naam: "Fit Lab", kleur: "#4fd1c5" });
+  assert.deepEqual(m.data.merk, { naam: "Fit Lab", kleur: "#4fd1c5", logo: null });
+  const png = new Uint8Array(300).fill(1); png.set([0x89, 0x50, 0x4e, 0x47]);
+  assert.equal((await coach("/api/coach/merk/logo", "POST", new Uint8Array(300).fill(1), { "content-type": "image/png" })).status, 415);
+  const up = await coach("/api/coach/merk/logo", "POST", png, { "content-type": "image/png" });
+  assert.match(up.data.merk.logo, /^\/api\/merk\/\d+\/logo\?v=/);
+  const logo = await fetch(BASE + up.data.merk.logo);
+  assert.equal(logo.status, 200); assert.equal(logo.headers.get("content-type"), "image/png");
+  // an invited client of this coach receives the branding
+  const kim = client();
+  const inv = await coach("/api/coach/clients", "POST", { naam: "Ruben", email: "ruben@t.nl" });
+  await kim("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "ruben-pass-1", privacy: true });
+  assert.equal((await kim("/api/me")).data.merk.naam, "Fit Lab");
+  assert.equal((await coach("/api/coach/me")).data.merk.kleur, "#4fd1c5");
+  await coach("/api/coach/merk/logo", "DELETE");
+  await coach("/api/coach/merk", "PUT", { naam: "", kleur: "" });
+  assert.equal((await kim("/api/me")).data.merk, null, "back to DCRAMERE defaults");
+});
+
+test("demo client: full example data, once per coach, cannot log in", async () => {
+  const d = await coach("/api/coach/demo", "POST", {});
+  assert.equal(d.status, 201);
+  assert.equal((await coach("/api/coach/demo", "POST", {})).status, 409);
+  const c = (await coach(`/api/coach/clients/${d.data.id}`)).data;
+  assert.equal(c.metingen.length, 7); assert.equal(c.checkins.length, 6); assert.equal(c.workouts.length, 5);
+  assert.equal(c.programma.id, "ppl12"); assert.ok(c.intake.doel);
+  assert.ok((await coach("/api/coach/clients")).data.find((x) => x.id === d.data.id).demo);
+  const x = client();
+  const login = await x("/api/login", "POST", { email: `voorbeeld-${1}@demo.invalid`, password: "anything-at-all" });
+  assert.ok([401, 429].includes(login.status), "demo account has no password (429 = lockout from earlier failed-login tests)");
+  assert.ok(!(login.headers.get("set-cookie") || "").includes("vc="), "no session");
+  assert.equal((await coach(`/api/coach/clients/${d.data.id}`, "DELETE")).status, 200);
+});
+
 test("stripe: prices, client checkout, payment → account, gating, portal, resubscribe", async () => {
   const pr = (await anon("/api/prijzen")).data;
   assert.deepEqual(pr.client, { bedrag: 79, valuta: "USD", interval: "month" });

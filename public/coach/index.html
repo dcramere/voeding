@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DCRAMERE Coach</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0A0A0A">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="top">
+    <a class="brand" href="#/">DCRAMERE<small>Coach</small></a>
+    <div class="top-actions" id="topActions" hidden>
+      <span id="coachNaam"></span>
+      <button class="linkbtn" type="button" id="logout">Uitloggen</button>
+    </div>
+  </header>
+
+  <section class="view on" id="v-laden"><p class="empty">Laden…</p></section>
+
+  <!-- SETUP (eenmalig) -->
+  <section class="view" id="v-setup" aria-labelledby="t-setup">
+    <h1 id="t-setup">Coach-account aanmaken</h1>
+    <p class="sub">Eenmalige stap. Vul de setupcode in die bij de installatie is gemaakt, en kies uw inloggegevens.</p>
+    <form id="fSetup" class="narrow" novalidate>
+      <label>Setupcode<input name="code" autocomplete="off" required></label>
+      <label>Naam<input name="naam" autocomplete="name" value="Dino E. Cramer" required></label>
+      <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+      <label>Wachtwoord <small>minimaal 10 tekens</small><input type="password" name="password" autocomplete="new-password" required></label>
+      <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
+      <div><button class="btn" type="submit">Account aanmaken</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+  </section>
+
+  <!-- LOGIN -->
+  <section class="view" id="v-login" aria-labelledby="t-login">
+    <h1 id="t-login">Coach inloggen</h1>
+    <form id="fLogin" class="narrow" novalidate>
+      <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+      <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
+      <div><button class="btn" type="submit">Inloggen</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+  </section>
+
+  <!-- CLIËNTEN -->
+  <section class="view" id="v-lijst" aria-labelledby="t-lijst">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1 id="t-lijst">Cliënten</h1>
+      <button class="btn" type="button" id="toggleNew">Nieuwe cliënt</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <form id="fNew" class="narrow" novalidate hidden>
+      <div class="row">
+        <label>Naam<input name="naam" autocomplete="off" required></label>
+        <label>E-mailadres<input type="email" name="email" autocomplete="off" required></label>
+      </div>
+      <div class="actions" style="margin-top:0"><button class="btn" type="submit">Toevoegen en link maken</button><button class="btn ghost" type="button" id="cancelNew">Annuleren</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+    <div id="newInvite"></div>
+    <div class="toolbar">
+      <input type="search" id="zoek" placeholder="Zoek op naam of e-mailadres" aria-label="Zoeken">
+      <select id="filter" aria-label="Filter" style="width:auto;padding:9px 12px;font-size:15px">
+        <option value="">Alle cliënten</option>
+        <option value="aandacht">Aandacht nodig</option>
+        <option value="uitgenodigd">Nog niet geactiveerd</option>
+        <option value="inactief">Gedeactiveerd</option>
+      </select>
+    </div>
+    <div class="table-scroll" id="lijst"></div>
+  </section>
+
+  <!-- CLIËNT -->
+  <section class="view" id="v-client">
+    <a class="back" href="#/">← Alle cliënten</a>
+    <div id="clientHead"></div>
+    <div id="clientInvite"></div>
+    <nav class="seg" aria-label="Onderdelen">
+      <button type="button" data-pane="plan">Plan</button>
+      <button type="button" data-pane="metingen">Metingen</button>
+      <button type="button" data-pane="profiel">Profiel</button>
+      <button type="button" data-pane="notities">Notities</button>
+    </nav>
+    <div class="pane" data-pane-body="plan" id="pPlan"></div>
+    <div class="pane" data-pane-body="metingen">
+      <div class="split">
+        <div id="pHist"></div>
+        <div>
+          <h2 style="margin-top:0">Meting toevoegen</h2>
+          <form id="fMeting" novalidate>
+            <div data-fields></div>
+            <div><button class="btn" type="submit">Meting opslaan</button></div>
+            <div class="flash" data-msg role="status"></div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="pane" data-pane-body="profiel">
+      <form id="fProfiel" novalidate>
+        <div class="row">
+          <label>Naam<input name="naam" autocomplete="off" required></label>
+          <label>E-mailadres<input type="email" name="email" autocomplete="off" required></label>
+        </div>
+        <div data-fields></div>
+        <div><button class="btn" type="submit">Opslaan</button></div>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </div>
+    <div class="pane" data-pane-body="notities">
+      <form id="fNotities" novalidate style="max-width:720px">
+        <label>Notities <small>alleen zichtbaar voor u</small><textarea name="notities" placeholder="Afspraken, blessures, voorkeuren, voortgangsgesprekken…"></textarea></label>
+        <div><button class="btn" type="submit">Notities opslaan</button></div>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </div>
+  </section>
+</div>
+
+<script src="/core.js"></script>
+<script src="/coach.js"></script>
+</body>
+</html>

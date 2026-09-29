@@ -1,0 +1,14 @@
+{
+  "name": "dcramere-voeding",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply dcramere-voeding --local",
+    "db:migrate": "wrangler d1 migrations apply dcramere-voeding --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.143.0"
+  }
+}

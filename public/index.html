@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DCRAMERE Voeding</title>
+<meta name="description" content="Persoonlijk voedingsplan: calorieën, macro's en menu op basis van uw gewicht. Begeleiding door Dino E. Cramer — DCRAMERE.">
+<meta name="theme-color" content="#0A0A0A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DCRAMERE">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">DCRAMERE</div>
+    <div class="hello" id="hello">Voeding op maat</div>
+  </header>
+
+  <section class="view on" id="v-laden"><p class="empty">Laden…</p></section>
+
+  <!-- LOGIN -->
+  <section class="view" id="v-login" aria-labelledby="t-login">
+    <h1 id="t-login">Inloggen</h1>
+    <p class="sub">Log in om uw persoonlijke voedingsplan te bekijken.</p>
+    <form id="fLogin" class="narrow" novalidate>
+      <label>E-mailadres<input type="email" name="email" autocomplete="username" required></label>
+      <label>Wachtwoord<input type="password" name="password" autocomplete="current-password" required></label>
+      <div><button class="btn" type="submit">Inloggen</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+    <p class="sub" style="margin-top:24px;font-size:14px">Nog geen account, of wachtwoord vergeten? Vraag uw coach om een persoonlijke link.</p>
+  </section>
+
+  <!-- UITNODIGING -->
+  <section class="view" id="v-uitnodiging" aria-labelledby="t-inv">
+    <h1 id="t-inv">Welkom</h1>
+    <p class="sub" id="invSub"></p>
+    <form id="fInvite" class="narrow" novalidate>
+      <input type="email" name="email" autocomplete="username" hidden>
+      <label>Kies een wachtwoord <small>minimaal 8 tekens</small><input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
+      <div><button class="btn" type="submit">Account activeren</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+  </section>
+
+  <!-- PLAN -->
+  <section class="view" id="v-plan"><div id="plan"></div></section>
+
+  <!-- METING -->
+  <section class="view" id="v-meting" aria-labelledby="t-meting">
+    <h1 id="t-meting">Nieuwe meting</h1>
+    <p class="sub">Weeg uzelf bij voorkeur 's ochtends, na het opstaan en vóór het ontbijt. Uw calorieën, macro's en menu worden direct herberekend.</p>
+    <form id="fMeting" novalidate>
+      <div data-fields></div>
+      <div><button class="btn" type="submit">Meting opslaan</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+  </section>
+
+  <!-- VOORTGANG -->
+  <section class="view" id="v-voortgang" aria-labelledby="t-voort">
+    <h1 id="t-voort">Voortgang</h1>
+    <div id="prog"></div>
+  </section>
+
+  <!-- PROFIEL -->
+  <section class="view" id="v-profiel" aria-labelledby="t-prof">
+    <h1 id="t-prof">Uw profiel</h1>
+    <p class="sub">Deze gegevens bepalen uw energiebehoefte en uw menu.</p>
+    <form id="fProfiel" novalidate>
+      <label>Naam<input name="naam" autocomplete="name" required></label>
+      <div data-fields></div>
+      <div><button class="btn" type="submit">Profiel opslaan</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+
+    <h2>Account</h2>
+    <p class="sub">Ingelogd als <b id="accEmail" style="color:var(--ink)"></b>.</p>
+    <details>
+      <summary>Wachtwoord wijzigen</summary>
+      <form id="fPw" class="narrow" novalidate style="margin-top:10px">
+        <input type="email" name="email" autocomplete="username" hidden>
+        <label>Huidig wachtwoord<input type="password" name="huidig" autocomplete="current-password" required></label>
+        <label>Nieuw wachtwoord <small>minimaal 8 tekens</small><input type="password" name="nieuw" autocomplete="new-password" required></label>
+        <div><button class="btn" type="submit">Wachtwoord wijzigen</button></div>
+        <div class="flash" data-msg role="status"></div>
+      </form>
+    </details>
+    <div class="actions"><button class="btn ghost" type="button" id="logout">Uitloggen</button></div>
+
+    <footer class="fine">
+      De berekeningen zijn richtlijnen op basis van erkende formules (Mifflin-St Jeor, Katch-McArdle, Durnin &amp; Womersley, Deurenberg) en vervangen geen medisch advies. Bent u zwanger, heeft u diabetes of een andere medische aandoening, overleg dan eerst met uw arts.
+      <br><br>Begeleiding: <span id="coachNaam">Dino E. Cramer</span> — DCRAMERE. Uw gegevens worden beveiligd online bewaard en zijn alleen zichtbaar voor u en uw coach.
+    </footer>
+  </section>
+</div>
+
+<nav class="tabs" id="tabs" aria-label="Hoofdmenu" hidden>
+  <button type="button" data-v="plan">Mijn plan</button>
+  <button type="button" data-v="meting">Meting</button>
+  <button type="button" data-v="voortgang">Voortgang</button>
+  <button type="button" data-v="profiel">Profiel</button>
+</nav>
+
+<script src="/core.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "test": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
+    "test": "node --test --test-concurrency=1 --test-timeout=120000 \"test/*.test.mjs\"",
     "test:core": "node --test test/core.test.mjs",
     "fit": "node test/fit.mjs",
     "db:migrate:local": "wrangler d1 migrations apply dcramere-voeding --local",

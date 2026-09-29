@@ -63,7 +63,7 @@
         <input type="email" name="email" autocomplete="username" hidden>
         <label>Kies een wachtwoord <small>minimaal 8 tekens</small><input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
         <label>Herhaal het wachtwoord<input type="password" name="password2" autocomplete="new-password" required></label>
-        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen en intake) te laten verwerken voor mijn begeleiding.</span></label>
+        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen, progressiefoto's en intake) te laten verwerken voor mijn begeleiding.</span></label>
         <button class="btn block" type="submit">Account activeren</button>
         <div class="flash" data-msg role="status"></div>
       </form>
@@ -77,7 +77,7 @@
       <h1 id="t-toest">Uw privacy</h1>
       <p class="sub">Voordat u verdergaat, vragen wij uw toestemming voor het verwerken van uw gegevens.</p>
       <form id="fPrivacy" novalidate>
-        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen en intake) te laten verwerken voor mijn begeleiding.</span></label>
+        <label class="consent"><input type="checkbox" name="privacy" required><span>Ik ga akkoord met de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a> en geef toestemming om mijn gezondheidsgegevens (gewicht, lichaamsmetingen, progressiefoto's en intake) te laten verwerken voor mijn begeleiding.</span></label>
         <button class="btn block" type="submit">Akkoord en verder</button>
         <div class="flash" data-msg role="status"></div>
       </form>
@@ -124,6 +124,14 @@
       <div><button class="btn" type="submit">Check-in versturen</button></div>
       <div class="flash" data-msg role="status"></div>
     </form>
+
+    <div id="fotoSection" hidden>
+      <h2 id="fotoTitle">Progressiefoto's</h2>
+      <p class="sub" id="fotoSub"></p>
+      <div id="fotoUpload"></div>
+      <div class="flash" id="fotoMsg" role="status"></div>
+      <details><summary>Tips voor goede foto's</summary><div data-tips></div></details>
+    </div>
   </section>
 
   <!-- VOORTGANG -->

@@ -1,6 +1,6 @@
 # DCRAMERE Voeding
 
-Voedingsplan-app voor cliënten met coachdashboard. Cliënten volgen een intake, voeren wekelijks hun gewicht en een check-in in, en krijgen een persoonlijk menu met recepten, een boodschappenlijst en een PDF in de DCRAMERE-huisstijl. De coach beheert cliënten, metingen (incl. huidplooien), check-ins, intake, profielen en notities.
+Voedingsplan-app voor cliënten met coachdashboard. Cliënten volgen een intake, voeren wekelijks hun gewicht en een check-in in, en krijgen een persoonlijk menu met recepten, een boodschappenlijst en een PDF in de DCRAMERE-huisstijl. Cliënten maken elke 4 weken progressiefoto's (voor, achter, zijkant), met een herinnering in de app. De coach beheert cliënten, metingen (incl. huidplooien), check-ins, progressiefoto's, intake, profielen en notities.
 
 Live: https://dcramere-voeding.dcramere.workers.dev · Coach: `/coach/`
 
@@ -8,6 +8,7 @@ Live: https://dcramere-voeding.dcramere.workers.dev · Coach: `/coach/`
 
 - **Cloudflare Worker** (`src/worker.js`): API onder `/api/*`, serveert daarnaast `public/` als static assets. Zodra de coach het dashboard opent en de laatste back-up ouder is dan 7 dagen, schrijft de Worker op de achtergrond een volledige back-up naar KV (`BACKUPS`, 60 dagen bewaard). Een cron-trigger is niet mogelijk, omdat de 5 gratis cron-slots van het account al in gebruik zijn; de `scheduled`-handler bestaat nog voor als er een slot vrijkomt.
 - **D1** (SQLite): schema in `migrations/`.
+- **R2** (`dcramere-voeding-fotos`, privé): progressiefoto's onder `c/<client_id>/…`. De foto's worden alleen via de Worker geserveerd na een check van de sessie (cliënt: eigen foto's, coach: eigen cliënten). De app verkleint ze vóór het uploaden tot max. 1600 px; via canvas verdwijnt de EXIF, dus ook de GPS-locatie. De server controleert type (JPEG/WebP, op de bytes) en grootte (max. 5 MB).
 - **Frontend**: plain HTML/JS, geen build. `public/core.js` bevat de berekeningen, de menu-optimalisatie, de boodschappenlijst en het PDF-document. Dit bestand wordt gedeeld door de cliënt-app (`/`) en het dashboard (`/coach/`).
 - **Huisstijl**: Cinzel + Overpass (zelf gehost in `public/fonts/`), zwart/goud `#f4d03f`, logo in `public/img/`.
 
@@ -40,7 +41,7 @@ npm run deploy         # draait eerst de tests
 
 ## Back-ups
 
-- Het dashboard heeft de knop **Back-up downloaden**, die alle gegevens als JSON exporteert, zonder wachtwoorden.
+- Het dashboard heeft de knop **Back-up downloaden**, die alle gegevens als JSON exporteert, zonder wachtwoorden. Foto's staan daar niet in; die blijven in R2.
 - Een wekelijkse snapshot (gemaakt bij een bezoek aan het dashboard) staat in KV onder `backup/JJJJ-MM-DD.json`. Ophalen gaat zo:
   ```bash
   npx wrangler kv key get --binding BACKUPS --remote "backup/2026-10-04.json" > backup.json

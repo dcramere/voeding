@@ -6,6 +6,8 @@ const INVITE_TTL = 14 * DAY;
 const PBKDF2_ITER = 100000; // Workers' WebCrypto maximum
 const COOKIE = { client: "vc", coach: "vk" };
 const MAX_BODY = 20000;
+const MAX_FOTO = 5 * 1024 * 1024; // client resizes to ~1600 px, typically 150–400 KB
+const POSES = ["voor", "achter", "zijkant"];
 
 const ACTIVITEIT = [1.35, 1.45, 1.55, 1.7, 1.85];
 const DOEL = [-0.2, -0.1, 0, 0.1];
@@ -286,6 +288,7 @@ const withCoach = (fn) => async (c) => {
 };
 
 // ---------- router ----------
+const RAW = true;
 const ROUTES = [
   // client
   ["POST", "/login", clientLogin],
@@ -299,6 +302,9 @@ const ROUTES = [
   ["DELETE", /^\/metingen\/(\d+)$/, withClient(clientDelMeting)],
   ["PUT", "/intake", withClient(clientPutIntake)],
   ["POST", "/privacy", withClient(clientAcceptPrivacy)],
+  ["POST", "/fotos", withClient((c) => storeFoto(c, c.client.id, "client")), RAW],
+  ["GET", /^\/fotos\/(\d+)$/, withClient(clientGetFoto)],
+  ["DELETE", /^\/fotos\/(\d+)$/, withClient(clientDelFoto)],
   ["POST", "/checkins", withClient(clientAddCheckin)],
   ["POST", "/wachtwoord", withClient(clientChangePassword)],
   // coach
@@ -316,6 +322,9 @@ const ROUTES = [
   ["POST", /^\/coach\/clients\/(\d+)\/uitnodiging$/, withCoach(newInvite)],
   ["POST", /^\/coach\/clients\/(\d+)\/metingen$/, withCoach(coachAddMeting)],
   ["DELETE", /^\/coach\/clients\/(\d+)\/metingen\/(\d+)$/, withCoach(coachDelMeting)],
+  ["POST", /^\/coach\/clients\/(\d+)\/fotos$/, withCoach(coachAddFoto), RAW],
+  ["GET", /^\/coach\/fotos\/(\d+)$/, withCoach(coachGetFoto)],
+  ["DELETE", /^\/coach\/clients\/(\d+)\/fotos\/(\d+)$/, withCoach(coachDelFoto)],
 ];
 
 async function route(req, env, url, ctx) {
@@ -325,12 +334,12 @@ async function route(req, env, url, ctx) {
     if (origin && origin !== url.origin) fail(403, "Ongeldige herkomst.");
   }
   const path = url.pathname.slice(4);
-  for (const [m, pattern, handler] of ROUTES) {
+  for (const [m, pattern, handler, raw] of ROUTES) {
     if (m !== method) continue;
     let params = [];
     if (typeof pattern === "string") { if (pattern !== path) continue; }
     else { const hit = path.match(pattern); if (!hit) continue; params = hit.slice(1).map(Number); }
-    const body = method === "POST" || method === "PUT" ? await readJson(req) : {};
+    const body = !raw && (method === "POST" || method === "PUT") ? await readJson(req) : {};
     return handler({ req, env, url, ctx, body, params, now: Math.floor(Date.now() / 1000) });
   }
   fail(404, "Niet gevonden.");
@@ -435,16 +444,17 @@ async function inviteAccept(c) {
 
 async function clientMe(c) {
   const { client: cl, env } = c;
-  const [coach, metingen, checkins] = await Promise.all([
+  const [coach, metingen, checkins, fotos] = await Promise.all([
     env.DB.prepare("SELECT naam FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
     metingenOf(env, cl.id),
     checkinsOf(env, cl.id, 12),
+    fotosOf(env, cl.id),
     env.DB.prepare("UPDATE clients SET last_seen = ? WHERE id = ?").bind(c.now, cl.id).run(),
   ]);
   return json({
     naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "",
     profiel: cl.profiel ? JSON.parse(cl.profiel) : null, intake: cl.intake ? JSON.parse(cl.intake) : null,
-    privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins,
+    privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
   });
 }
 
@@ -568,11 +578,12 @@ async function listClients(c) {
           FROM metingen m WHERE m.client_id = c.id ORDER BY datum DESC LIMIT 1) AS laatste,
        (SELECT json_object('datum', datum, 'energie', energie, 'honger', honger, 'slaap', slaap,
                            'stress', stress, 'naleving', naleving)
-          FROM checkins k WHERE k.client_id = c.id ORDER BY datum DESC LIMIT 1) AS checkin
+          FROM checkins k WHERE k.client_id = c.id ORDER BY datum DESC LIMIT 1) AS checkin,
+       (SELECT MAX(datum) FROM fotos f WHERE f.client_id = c.id) AS laatste_foto
      FROM clients c WHERE c.coach_id = ? ORDER BY c.naam COLLATE NOCASE`,
   ).bind(c.coach.id).all();
   return json(results.map((r) => ({
-    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null,
+    ...publicClient(r), aantal: r.aantal, checkin: r.checkin ? JSON.parse(r.checkin) : null, laatsteFoto: r.laatste_foto,
     eerste: r.eerste ? JSON.parse(r.eerste) : null, laatste: r.laatste ? JSON.parse(r.laatste) : null,
   })));
 }
@@ -598,8 +609,8 @@ async function createClient(c) {
 
 async function getClient(c) {
   const row = await ownClient(c, c.params[0]);
-  const [metingen, checkins] = await Promise.all([metingenOf(c.env, row.id), checkinsOf(c.env, row.id)]);
-  return json({ ...publicClient(row), metingen, checkins });
+  const [metingen, checkins, fotos] = await Promise.all([metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id)]);
+  return json({ ...publicClient(row), metingen, checkins, fotos });
 }
 
 async function coachExport(c) {
@@ -643,7 +654,9 @@ async function updateClient(c) {
 
 async function deleteClient(c) {
   const row = await ownClient(c, c.params[0]);
+  await deleteAllFotos(c.env, row.id);
   await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM metingen WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
@@ -667,4 +680,93 @@ async function coachDelMeting(c) {
   const row = await ownClient(c, c.params[0]);
   await c.env.DB.prepare("DELETE FROM metingen WHERE id = ? AND client_id = ?").bind(c.params[1], row.id).run();
   return json({ metingen: await metingenOf(c.env, row.id) });
+}
+
+// ---------- progress photos ----------
+async function fotosOf(env, clientId) {
+  const { results } = await env.DB.prepare(
+    "SELECT id, datum, pose, door FROM fotos WHERE client_id = ? ORDER BY datum, pose",
+  ).bind(clientId).all();
+  return results;
+}
+
+// JPEG: FF D8 FF · WebP: "RIFF" .... "WEBP"
+function imageType(b) {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  return null;
+}
+
+async function storeFoto(c, clientId, door) {
+  const datum = c.url.searchParams.get("datum"), pose = c.url.searchParams.get("pose");
+  if (!isDate(datum)) fail(400, "Ongeldige datum.");
+  if (!POSES.includes(pose)) fail(400, "Kies voor, achter of zijkant.");
+  if (Number(c.req.headers.get("content-length")) > MAX_FOTO) fail(413, "De foto is te groot (max. 5 MB).");
+  const buf = new Uint8Array(await c.req.arrayBuffer());
+  if (buf.length > MAX_FOTO) fail(413, "De foto is te groot (max. 5 MB).");
+  const type = buf.length > 12 ? imageType(buf) : null;
+  if (!type) fail(415, "Upload een JPEG- of WebP-foto.");
+  const old = await c.env.DB.prepare("SELECT id, r2_key FROM fotos WHERE client_id = ? AND datum = ? AND pose = ?")
+    .bind(clientId, datum, pose).first();
+  const key = `c/${clientId}/${datum}-${pose}-${randomToken(9)}`;
+  await c.env.FOTOS.put(key, buf, { httpMetadata: { contentType: type } });
+  // a replaced photo gets a new id, so browsers never show a cached older version
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ? AND datum = ? AND pose = ?").bind(clientId, datum, pose),
+    c.env.DB.prepare("INSERT INTO fotos (client_id, datum, pose, r2_key, type, bytes, door, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(clientId, datum, pose, key, type, buf.length, door, c.now),
+  ]);
+  if (old) await c.env.FOTOS.delete(old.r2_key);
+  return json({ fotos: await fotosOf(c.env, clientId) }, 201);
+}
+
+async function serveFoto(env, row) {
+  const obj = row && await env.FOTOS.get(row.r2_key);
+  if (!obj) fail(404, "Foto niet gevonden.");
+  return new Response(obj.body, {
+    headers: {
+      "content-type": row.type, "content-length": String(row.bytes),
+      "cache-control": "private, max-age=3600", "content-disposition": "inline",
+    },
+  });
+}
+
+async function removeFoto(c, clientId, fotoId) {
+  const row = await c.env.DB.prepare("SELECT r2_key FROM fotos WHERE id = ? AND client_id = ?").bind(fotoId, clientId).first();
+  if (row) {
+    await c.env.DB.prepare("DELETE FROM fotos WHERE id = ?").bind(fotoId).run();
+    await c.env.FOTOS.delete(row.r2_key);
+  }
+  return json({ fotos: await fotosOf(c.env, clientId) });
+}
+
+async function deleteAllFotos(env, clientId) {
+  let cursor;
+  do {
+    const list = await env.FOTOS.list({ prefix: `c/${clientId}/`, cursor });
+    if (list.objects.length) await env.FOTOS.delete(list.objects.map((o) => o.key));
+    cursor = list.truncated ? list.cursor : undefined;
+  } while (cursor);
+}
+
+async function clientGetFoto(c) {
+  const row = await c.env.DB.prepare("SELECT r2_key, type, bytes FROM fotos WHERE id = ? AND client_id = ?")
+    .bind(c.params[0], c.client.id).first();
+  return serveFoto(c.env, row);
+}
+function clientDelFoto(c) { return removeFoto(c, c.client.id, c.params[0]); }
+
+async function coachAddFoto(c) {
+  const row = await ownClient(c, c.params[0]);
+  return storeFoto(c, row.id, "coach");
+}
+async function coachGetFoto(c) {
+  const row = await c.env.DB.prepare(
+    "SELECT f.r2_key, f.type, f.bytes FROM fotos f JOIN clients cl ON cl.id = f.client_id WHERE f.id = ? AND cl.coach_id = ?",
+  ).bind(c.params[0], c.coach.id).first();
+  return serveFoto(c.env, row);
+}
+async function coachDelFoto(c) {
+  const row = await ownClient(c, c.params[0]);
+  return removeFoto(c, row.id, c.params[1]);
 }

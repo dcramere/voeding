@@ -96,6 +96,7 @@
       <button type="button" data-pane="plan">Plan</button>
       <button type="button" data-pane="metingen">Metingen</button>
       <button type="button" data-pane="checkins">Check-ins</button>
+      <button type="button" data-pane="fotos">Foto's</button>
       <button type="button" data-pane="intake">Intake</button>
       <button type="button" data-pane="profiel">Profiel</button>
       <button type="button" data-pane="notities">Notities</button>
@@ -115,6 +116,14 @@
       </div>
     </div>
     <div class="pane" data-pane-body="checkins" id="pCheckins"></div>
+    <div class="pane" data-pane-body="fotos">
+      <div id="pFotoCompare"></div>
+      <h2>Foto's toevoegen</h2>
+      <p class="sub">Bijvoorbeeld tijdens een meting bij u. Een bestaande foto voor dezelfde datum en pose wordt vervangen.</p>
+      <label class="narrow" style="max-width:220px">Datum<input type="date" id="fotoDatum"></label>
+      <div id="pFotoUpload"></div>
+      <div class="flash" id="fotoMsg" role="status"></div>
+    </div>
     <div class="pane" data-pane-body="intake" id="pIntake"></div>
     <div class="pane" data-pane-body="profiel">
       <form id="fProfiel" novalidate>

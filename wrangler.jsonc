@@ -19,5 +19,9 @@
   "kv_namespaces": [
     { "binding": "BACKUPS", "id": "ce3ea2e2d0a64a7382210a86e3bb1138" }
   ],
+  // progress photos: private bucket, only served through the Worker after auth
+  "r2_buckets": [
+    { "binding": "FOTOS", "bucket_name": "dcramere-voeding-fotos" }
+  ],
   "observability": { "enabled": true }
 }

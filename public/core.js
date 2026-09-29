@@ -442,6 +442,62 @@ function checkinsHTML(list){
 }
 const checkinFlags=k=>k?CHECK_Q.filter(q=>flagged(q,k[q[0]])).map(q=>q[1].toLowerCase()):[];
 
+// ---------- progress photos ----------
+const POSES=[["voor","Voorkant"],["achter","Achterkant"],["zijkant","Zijkant"]];
+const FOTO_EVERY=28; // days between photo sets
+function fotoSets(fotos){
+  const by={};
+  (fotos||[]).forEach(f=>{(by[f.datum]=by[f.datum]||{datum:f.datum})[f.pose]=f.id});
+  return Object.values(by).sort((a,b)=>a.datum<b.datum?-1:1);
+}
+const lastFotoDate=fotos=>{const s=fotoSets(fotos);return s.length?s[s.length-1].datum:null};
+const fotosDue=fotos=>{const d=lastFotoDate(fotos);return !d||daysSince(d)>=FOTO_EVERY};
+// Downscale on the device before upload (max 1600 px, JPEG). Drawing to a canvas also drops all EXIF
+// metadata such as GPS location; createImageBitmap applies the EXIF rotation first.
+async function prepareFoto(file){
+  if(!file||!/^image\//.test(file.type)) throw new Error("Kies een foto.");
+  let img;
+  try{img=await createImageBitmap(file,{imageOrientation:"from-image"})}
+  catch(e){throw new Error("Deze foto kan niet worden gelezen. Probeer een JPEG- of PNG-foto.")}
+  const MAX=1600, r=Math.min(1,MAX/Math.max(img.width,img.height));
+  const cv=document.createElement("canvas"); cv.width=Math.round(img.width*r); cv.height=Math.round(img.height*r);
+  cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+  return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error("Verwerken van de foto is mislukt.")),"image/jpeg",0.85));
+}
+async function uploadFoto(url,blob){
+  const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"content-type":"image/jpeg"},body:blob});
+  let data=null; try{data=await r.json()}catch(e){}
+  if(!r.ok) throw new Error((data&&data.error)||"Uploaden is mislukt. Controleer uw internetverbinding.");
+  return data;
+}
+// three slots for one date; data-foto-pose inputs are handled by the page script
+function fotoUploadHTML(fotos,datum,src,o){
+  o=o||{};
+  const set=fotoSets(fotos).find(s=>s.datum===datum)||{};
+  return `<div class="foto-grid">${POSES.map(([p,l])=>`
+    <div class="foto-slot${set[p]?" has":""}">
+      <div class="foto-frame">${set[p]?`<img src="${src(set[p])}" alt="${l}" loading="lazy">`:`<span class="foto-ghost foto-ghost-${p}" aria-hidden="true"></span>`}</div>
+      <b>${l}</b>
+      <div class="foto-btns">
+        <label class="btn small${set[p]?" ghost":""}"><input type="file" accept="image/*" capture="environment" data-foto-pose="${p}" hidden>${set[p]?"Opnieuw":"Foto maken"}</label>
+        <label class="btn small ghost"><input type="file" accept="image/*" data-foto-pose="${p}" hidden>Uit galerij</label>
+        ${set[p]&&o.del?`<button class="linkbtn" type="button" data-foto-del="${set[p]}">Verwijderen</button>`:""}
+      </div>
+    </div>`).join("")}</div>`;
+}
+const FOTO_TIPS=`<ul class="tips"><li>Zelfde plek, zelfde licht en zelfde tijdstip (bij voorkeur 's ochtends, nuchter).</li><li>Strakke sportkleding of zwemkleding, armen ontspannen langs het lichaam.</li><li>Laat iemand anders de foto maken, of gebruik de zelfontspanner, op heuphoogte.</li><li>Uw foto's zijn alleen zichtbaar voor u en uw coach. Locatiegegevens worden verwijderd.</li></ul>`;
+// side-by-side comparison of two dates (defaults: first vs latest)
+function fotoCompareHTML(fotos,src,a,b){
+  const sets=fotoSets(fotos);
+  if(!sets.length) return '<p class="empty">Nog geen progressiefoto\'s.</p>';
+  const A=sets.find(s=>s.datum===a)||sets[0], B=sets.find(s=>s.datum===b)||sets[sets.length-1];
+  const opt=sel=>sets.map(s=>`<option value="${s.datum}"${s.datum===sel?" selected":""}>${dateNL(s.datum,{day:"numeric",month:"short",year:"numeric"})}</option>`).join("");
+  const cell=(s,p,l)=>s[p]?`<img src="${src(s[p])}" alt="${l} ${dateNL(s.datum)}" loading="lazy">`:`<span class="foto-missing">geen foto</span>`;
+  return `<div class="compare-bar"><label>Van<select data-foto-cmp="a">${opt(A.datum)}</select></label><label>Tot<select data-foto-cmp="b">${opt(B.datum)}</select></label>
+      <span class="sub">${sets.length} ${sets.length===1?"set":"sets"} · ${Math.max(0,Math.round((new Date(B.datum)-new Date(A.datum))/864e5/7))} weken ertussen</span></div>
+    <div class="compare">${POSES.map(([p,l])=>`<div class="compare-row"><p class="kicker">${l}</p><div class="compare-pair"><figure>${cell(A,p,l)}<figcaption>${dateNL(A.datum,{day:"numeric",month:"short",year:"numeric"})}</figcaption></figure><figure>${cell(B,p,l)}<figcaption>${dateNL(B.datum,{day:"numeric",month:"short",year:"numeric"})}</figcaption></figure></div></div>`).join("")}</div>`;
+}
+
 // ---------- intake ----------
 const INTAKE_Q=[
   ["doel","textarea","Wat wilt u bereiken, en waarom is dat belangrijk voor u?",true],
@@ -613,6 +669,6 @@ function printPlan(P,m,menu,o){
 }
 
 window.DC={FOODS,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
-  shoppingList,shoppingHTML,printHTML,printPlan,checkinFieldsHTML,readCheckin,checkinsHTML,checkinFlags,intakeFieldsHTML,fillIntake,readIntake,intakeSummaryHTML,
+  shoppingList,shoppingHTML,printHTML,printPlan,POSES,FOTO_EVERY,FOTO_TIPS,fotoSets,lastFotoDate,fotosDue,prepareFoto,uploadFoto,fotoUploadHTML,fotoCompareHTML,checkinFieldsHTML,readCheckin,checkinsHTML,checkinFlags,intakeFieldsHTML,fillIntake,readIntake,intakeSummaryHTML,
   profielFieldsHTML,fillProfiel,readProfiel,metingFieldsHTML,readMeting,api,handleForm};
 })();

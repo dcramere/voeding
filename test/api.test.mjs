@@ -14,23 +14,29 @@ let dev;
 before(async () => {
   wrangler(["d1", "migrations", "apply", "dcramere-voeding", "--local", "--persist-to", persist]);
   dev = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
-    "--var", `SETUP_CODE:${SETUP}`, "--test-scheduled", "--show-interactive-dev-session=false"], { stdio: "pipe" });
+    "--var", `SETUP_CODE:${SETUP}`, "--test-scheduled", "--show-interactive-dev-session=false"],
+    // output is discarded: an unread pipe fills up and blocks wrangler (hung CI runs)
+    { stdio: "ignore", detached: true });
   for (let i = 0; i < 120; i++) {
     try { if ((await fetch(`${BASE}/api/coach/status`)).ok) return; } catch {}
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error("wrangler dev did not start");
+  stop();
+  throw new Error("wrangler dev did not start within 60 s");
 });
-after(() => { dev?.kill(); rmSync(persist, { recursive: true, force: true }); });
+// kill the whole process group (npx → wrangler → workerd), not just npx
+function stop() { try { process.kill(-dev.pid, "SIGTERM"); } catch {} }
+after(() => { stop(); rmSync(persist, { recursive: true, force: true }); });
 
 // minimal cookie-jar client (one per browser/user)
 function client() {
   const jar = new Map();
   return async (path, method = "GET", body, headers = {}) => {
+    const raw = body instanceof Uint8Array;
     const res = await fetch(BASE + path, {
-      method, headers: { ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      method, headers: { ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}),
         cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; "), ...headers },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
     });
     for (const c of res.headers.getSetCookie()) { const [kv] = c.split(";"); const [k, v] = kv.split("="); v ? jar.set(k, v) : jar.delete(k); }
     const text = await res.text();
@@ -114,6 +120,36 @@ test("isolation: roles and clients cannot reach each other's data", async () => 
   await bram(`/api/metingen/${annaMeting}`, "DELETE");
   assert.equal((await anna("/api/me")).data.metingen.length, 3, "bram cannot delete anna's measurement");
   assert.equal((await anon("/api/me")).status, 401);
+});
+
+test("progress photos: upload, validation, access control, replace, delete", async () => {
+  const jpeg = (n = 2000, fill = 7) => { const b = new Uint8Array(n).fill(fill); b.set([0xff, 0xd8, 0xff, 0xe0]); return b; };
+  const post = async (jar, path, body, type = "image/jpeg") => jar(path, "POST", body, { "content-type": type });
+  const r1 = await post(anna, "/api/fotos?datum=2026-09-28&pose=voor", jpeg());
+  assert.equal(r1.status, 201);
+  assert.equal(r1.data.fotos.length, 1);
+  const id1 = r1.data.fotos[0].id;
+  assert.equal((await post(anna, "/api/fotos?datum=2026-09-28&pose=boven", jpeg())).status, 400, "unknown pose");
+  assert.equal((await post(anna, "/api/fotos?datum=2026-09-28&pose=achter", new TextEncoder().encode("<svg onload=alert(1)>".padEnd(100)), "image/jpeg")).status, 415, "not an image");
+  assert.equal((await post(anna, "/api/fotos?datum=2026-09-28&pose=achter", jpeg(5 * 1024 * 1024 + 10))).status, 413, "too large");
+  // owner and coach can view; another client cannot; anonymous cannot
+  const own = await anna(`/api/fotos/${id1}`);
+  assert.equal(own.status, 200); assert.equal(own.headers.get("content-type"), "image/jpeg");
+  assert.equal((await bram(`/api/fotos/${id1}`)).status, 404);
+  assert.equal((await anon(`/api/fotos/${id1}`)).status, 401);
+  assert.equal((await coach(`/api/coach/fotos/${id1}`)).status, 200);
+  // coach uploads the side photo; replacing the front photo gives it a new id
+  assert.equal((await post(coach, `/api/coach/clients/${annaId}/fotos?datum=2026-09-28&pose=zijkant`, jpeg())).status, 201);
+  const r2 = await post(anna, "/api/fotos?datum=2026-09-28&pose=voor", jpeg(3000, 9));
+  const voor = r2.data.fotos.filter((f) => f.pose === "voor");
+  assert.equal(voor.length, 1); assert.notEqual(voor[0].id, id1);
+  assert.equal((await coach(`/api/coach/fotos/${id1}`)).status, 404, "replaced photo is gone");
+  assert.equal((await coach("/api/coach/clients")).data.find((c) => c.id === annaId).laatsteFoto, "2026-09-28");
+  assert.equal((await coach(`/api/coach/clients/${annaId}`)).data.fotos.length, 2);
+  // bram cannot delete anna's photo; anna can
+  await bram(`/api/fotos/${voor[0].id}`, "DELETE");
+  assert.equal((await anna("/api/me")).data.fotos.length, 2);
+  assert.equal((await anna(`/api/fotos/${voor[0].id}`, "DELETE")).data.fotos.length, 1);
 });
 
 test("security: cross-origin writes, non-JSON bodies, lockout, deactivation", async () => {

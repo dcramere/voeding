@@ -218,6 +218,32 @@ dl.intake dd{margin:0;white-space:pre-wrap}
 @media (max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}.hide-sm{display:none}dl.intake{grid-template-columns:1fr;gap:2px}dl.intake dd{margin-bottom:10px}}
 @media (max-width:520px){.row{grid-template-columns:minmax(0,1fr)}.totals{grid-template-columns:repeat(2,1fr)}}
 
+
+/* progress photos */
+.foto-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:10px 0 6px}
+.foto-slot{display:grid;gap:8px;justify-items:center;text-align:center}
+.foto-slot b{font-size:14px}
+.foto-frame{width:100%;aspect-ratio:3/4;border:1px dashed var(--line-strong);border-radius:6px;overflow:hidden;display:grid;place-items:center;background:var(--bg-alt)}
+.foto-slot.has .foto-frame{border-style:solid;border-color:var(--gold-dim)}
+.foto-frame img{width:100%;height:100%;object-fit:cover;display:block}
+.foto-ghost{width:55%;height:80%;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 120' fill='%23b8963a' fill-opacity='.35'%3E%3Ccircle cx='30' cy='13' r='9'/%3E%3Cpath d='M18 26h24l6 34-5 1-5-24v28l3 50h-8l-3-40-3 40h-8l3-50V37l-5 24-5-1z'/%3E%3C/svg%3E") center/contain no-repeat}
+.foto-ghost-zijkant{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 120' fill='%23b8963a' fill-opacity='.35'%3E%3Ccircle cx='31' cy='13' r='9'/%3E%3Cpath d='M24 26h13l4 12-1 26-3 1v10l2 40h-8l-2-38-2 38h-7l2-50-3-14 1-15z'/%3E%3C/svg%3E")}
+.foto-btns{display:grid;gap:6px;width:100%}
+.foto-btns .btn{text-align:center;padding:7px 6px;font-size:13px}
+.foto-slot.busy .foto-frame{opacity:.4}
+ul.tips{margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--muted)}
+ul.tips li{margin:3px 0}
+.compare-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin:6px 0 14px}
+.compare-bar label{font-size:13px}
+.compare-bar select{padding:8px 10px;font-size:14px;width:auto}
+.compare-bar .sub{margin:0 0 8px;font-size:13px}
+.compare-row{margin-bottom:18px}
+.compare-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.compare-pair figure{margin:0}
+.compare-pair img,.compare-pair .foto-missing{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:6px;display:grid;place-items:center;background:var(--bg-alt);border:1px solid var(--line);color:var(--faint);font-size:13px}
+.compare-pair figcaption{font-size:12px;color:var(--muted);text-align:center;margin-top:4px}
+@media (min-width:861px){.compare{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}}
+
 /* ---------- print (the #print document, see printHTML in core.js) ---------- */
 #print{display:none}
 @page{size:A4;margin:14mm 14mm 16mm}

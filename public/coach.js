@@ -3,7 +3,8 @@
 "use strict";
 const DC=window.DC, esc=DC.esc, $=id=>document.getElementById(id);
 const STALE_DAYS=14, CHECKIN_LATE=10;
-let coach=null, clients=[], cur=null, pane="plan", viewDag=null;
+let coach=null, clients=[], cur=null, pane="plan", viewDag=null, cmpA=null, cmpB=null;
+const fotoSrc=id=>"/api/coach/fotos/"+id;
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML({open:true});
 $("fProfiel").querySelector("[data-fields]").innerHTML=DC.profielFieldsHTML();
@@ -34,6 +35,8 @@ function attentionReasons(c){
   if(!c.laatste) r.push("nog geen meting");
   else if(DC.daysSince(c.laatste.datum)>STALE_DAYS) r.push("lang niet gewogen");
   if(checkinLate(c)) r.push("check-in achter");
+  const fotoAge=c.laatsteFoto?DC.daysSince(c.laatsteFoto):Math.floor((Date.now()/1000-c.aangemaakt)/86400);
+  if(c.laatste&&fotoAge>DC.FOTO_EVERY+7) r.push("foto's achter");
   const flags=DC.checkinFlags(c.checkin);
   if(flags.length) r.push(flags.join(", "));
   return r;
@@ -128,11 +131,31 @@ function renderClient(){
     :c.metingen.length?'<p class="empty">Vul eerst het profiel in om de analyse te zien.</p>':'<p class="empty">Nog geen metingen.</p>';
   $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins);
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
+  renderFotos();
   const fp=$("fProfiel");
   fp.reset(); fp.elements.naam.value=c.naam; fp.elements.email.value=c.email; DC.fillProfiel(fp,c.profiel);
   $("fNotities").elements.notities.value=c.notities||"";
   setPane(pane);
 }
+function renderFotos(){
+  const d=$("fotoDatum"); if(!d.value) d.value=DC.today();
+  $("pFotoCompare").innerHTML=DC.fotoCompareHTML(cur.fotos,fotoSrc,cmpA,cmpB);
+  $("pFotoUpload").innerHTML=DC.fotoUploadHTML(cur.fotos,d.value,fotoSrc,{del:true});
+}
+$("fotoDatum").addEventListener("change",()=>cur&&renderFotos());
+document.addEventListener("change",async e=>{
+  if(!cur) return;
+  const cmp=e.target.closest("[data-foto-cmp]");
+  if(cmp){if(cmp.dataset.fotoCmp==="a")cmpA=cmp.value;else cmpB=cmp.value;renderFotos();return}
+  const inp=e.target.closest("input[data-foto-pose]"); if(!inp||!inp.files[0]) return;
+  const slot=inp.closest(".foto-slot"), msg=$("fotoMsg");
+  slot.classList.add("busy"); msg.className="flash"; msg.textContent="Foto wordt geüpload…";
+  try{
+    const blob=await DC.prepareFoto(inp.files[0]);
+    cur.fotos=(await DC.uploadFoto(`/api/coach/clients/${cur.id}/fotos?datum=${$("fotoDatum").value}&pose=${inp.dataset.fotoPose}`,blob)).fotos;
+    renderFotos(); msg.textContent="Foto opgeslagen.";
+  }catch(err){slot.classList.remove("busy");msg.className="err";msg.textContent=err.message}
+});
 function setPane(p){
   pane=p;
   document.querySelectorAll("[data-pane]").forEach(b=>{if(b.dataset.pane===p)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current")});
@@ -155,6 +178,12 @@ document.addEventListener("click",async e=>{
     $("pShop").scrollIntoView({behavior:"smooth",block:"start"}); return;
   }
   if(e.target.closest("[data-print]")&&m){DC.printPlan(cur.profiel,m,cur.menu,{naam:cur.naam,coach:coach.naam});return}
+  const fdel=e.target.closest("[data-foto-del]");
+  if(fdel&&cur){
+    if(!confirm("Deze foto verwijderen?")) return;
+    try{cur.fotos=(await call(`/api/coach/clients/${cur.id}/fotos/${fdel.dataset.fotoDel}`,"DELETE")).fotos;renderFotos()}catch(err){alert(err.message)}
+    return;
+  }
   const del=e.target.closest("[data-del]");
   if(del&&cur){
     if(!confirm("Deze meting verwijderen?")) return;
@@ -217,7 +246,7 @@ async function route(){
   const m=location.hash.match(/^#\/client\/(\d+)/);
   try{
     if(m){
-      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;$("clientInvite").innerHTML="";}
+      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;cmpA=cmpB=null;$("fotoDatum").value="";$("clientInvite").innerHTML="";}
       show("client"); await loadClient(+m[1]);
     }else{
       cur=null; show("lijst"); await loadList();

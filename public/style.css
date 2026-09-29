@@ -52,6 +52,12 @@ p.sub{color:var(--muted);margin:0 0 18px;max-width:60ch}
 .macro .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px}
 .facts{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:14px;color:var(--muted);margin-top:16px}
 .facts b{color:var(--ink);font-weight:600}
+.daytoggle{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:6px 0 8px}
+.daytoggle button{background:none;border:0;padding:8px 18px;cursor:pointer;color:var(--muted);text-align:left;font-size:15px;font-weight:600;line-height:1.25}
+.daytoggle button+button{border-left:1px solid var(--line)}
+.daytoggle button small{display:block;font-weight:400;font-size:12px}
+.daytoggle button[aria-pressed="true"]{background:var(--gold);color:var(--on-gold)}
+.meal-h .hint{display:block;font-weight:400;font-size:13px;color:var(--muted)}
 .note{border-left:3px solid var(--warn);padding:8px 12px;margin:14px 0;font-size:14px;background:var(--surface)}
 /* meals */
 .meal{border-top:1px solid var(--line);padding:16px 0 10px}

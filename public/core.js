@@ -42,8 +42,13 @@ const FOODS = {
 const TEMPL = {
   ontbijt:{fixed:[],prot:["kwark","ei","yoghurt"],carb:["havermout","brood"],fruit:["banaan","bessen","papaya","appel"],fat:["walnoten","amandelen","pindakaas"]},
   hoofd:{fixed:[["groente",250]],prot:["kip","witvis","kvv","zalm","tofu","ei","tonijn","tempeh","gehakt"],carb:["rijst","zoeteaardappel","peul","aardappel","cassave","pasta","bakbanaan"],fat:["kokosolie","olijfolie","walnoten","avocado"]},
-  snack:{fixed:[],prot:["kwark","yoghurt","ei","tonijn"],carb:[],fruit:["papaya","watermeloen","ananas","banaan","appel","bessen"],fat:["walnoten","amandelen"]}
+  snack:{fixed:[],prot:["kwark","yoghurt","ei","tonijn"],carb:[],fruit:["papaya","watermeloen","ananas","banaan","appel","bessen"],fat:["walnoten","amandelen"]},
+  // around the workout: protein + fast carbs, deliberately no added fat
+  training:{fixed:[],prot:["kwark","yoghurt","ei"],carb:["havermout","brood"],fruit:["banaan","ananas","papaya"],fat:[]}
 };
+const TRAINING_SHARE=.15;
+const DAGEN=[[1,"ma"],[2,"di"],[3,"wo"],[4,"do"],[5,"vr"],[6,"za"],[0,"zo"]];
+const MOMENT_LABEL={ochtend:"'s ochtends",middag:"'s middags",avond:"'s avonds"};
 const LAYOUT = {
   3:[["Ontbijt","ontbijt",.30],["Lunch","hoofd",.35],["Avondmaaltijd","hoofd",.35]],
   4:[["Ontbijt","ontbijt",.25],["Lunch","hoofd",.30],["Tussendoortje","snack",.15],["Avondmaaltijd","hoofd",.30]],
@@ -95,6 +100,21 @@ function analyse(P,m){
   const weekly=(kcal-tdee)*7/7700;
   return {bmi,vet,lbm,fm:w*vet,methode,bmr,tdee,kcal,prot,fat,carb,fiber:Math.round(kcal/1000*14),water:r1(w*0.035),whtr,whr,weekly,notes,age};
 }
+// Training/rest-day split. The weekly average stays at A.kcal: training days get +a, rest days −b,
+// with n·a = (7−n)·b. The rest-day cut is capped at 15% and never goes below the safe floor.
+// Protein and fat stay constant; the difference is carried by carbohydrates.
+function dagTargets(P,A){
+  const n=(P.trainingsdagen||[]).length;
+  if(!n||n>=7) return null;
+  const b=Math.min(0.15,0.10*n/(7-n)), a=b*(7-n)/n;
+  const floor=Math.max(A.bmr,P.geslacht==="m"?1500:1200);
+  const mk=k=>{
+    k=Math.round(k/10)*10; const fib=k/1000*14;
+    return {kcal:k,prot:A.prot,fat:A.fat,fiber:Math.round(fib),carb:Math.round(Math.max((k-A.prot*4-A.fat*9-fib*2)/4,50))};
+  };
+  return {train:mk(A.kcal*(1+a)),rust:mk(Math.max(A.kcal*(1-b),floor))};
+}
+const isTrainingDay=(P,d)=>(P.trainingsdagen||[]).includes((d||new Date()).getDay());
 function bmiLabel(b){return b<18.5?"ondergewicht":b<25?"gezond gewicht":b<27?"neiging tot overgewicht":b<30?"overgewicht":b<35?"obesitas":b<40?"zeer ernstig overgewicht":"morbide obesitas"}
 function sorted(ms){return [...(ms||[])].sort((a,b)=>a.datum<b.datum?-1:a.datum>b.datum?1:0)}
 function latest(ms){return sorted(ms).pop()||null}
@@ -123,7 +143,7 @@ function buildMeal(P,type,share,T,idx){
   const fruit=tp.fruit?pick(P,tp.fruit,idx*3+1):null;
   if(fruit) it.push({key:fruit,g:type==="snack"?Math.min(150,Math.max(100,tgt.c/FOODS[fruit].c*100)):120});
   const prot=pick(P,tp.prot,idx), carb=tp.carb.length?pick(P,tp.carb,idx*2+1):null, fat=pick(P,tp.fat,idx+2);
-  const vars=[]; if(prot) vars.push({key:prot,m:"p",max:type==="hoofd"?300:500,min:FOODS[prot].unit?(type==="hoofd"?120:60):(type==="hoofd"?100:type==="snack"?100:150)});
+  const vars=[]; if(prot) vars.push({key:prot,m:"p",max:type==="hoofd"?300:500,min:FOODS[prot].unit?(type==="hoofd"?120:60):(type==="ontbijt"?150:100)});
   if(carb) vars.push({key:carb,m:"c",max:400}); if(fat) vars.push({key:fat,m:"f",max:60});
   const amt={}; vars.forEach(v=>amt[v.key]=0);
   for(let n=0;n<6;n++){
@@ -137,15 +157,26 @@ function buildMeal(P,type,share,T,idx){
   it.forEach(i=>{const u=FOODS[i.key].unit; if(!u) i.g=roundAmt(i.key,i.g); else if(!vars.some(v=>v.key===i.key)) i.g=Math.max(1,Math.round(i.g/u[2]))*u[2]});
   return it;
 }
-function buildMenu(P,menu,T){
-  const L=LAYOUT[P.maaltijden]||LAYOUT[3], off=(menu&&menu.off)||[], seed=(menu&&menu.seed)||0;
-  return L.map(([name,type,share],i)=>({name,i,items:buildMeal(P,type,share,T,seed+(off[i]||0)+i*2)}));
+function layoutFor(P,dag){
+  const base=LAYOUT[P.maaltijden]||LAYOUT[3];
+  if(dag!=="train") return base;
+  const L=base.map(([n,t,s])=>[n,t,s*(1-TRAINING_SHARE)]);
+  const m=P.trainingsmoment||"middag";
+  const pos=m==="ochtend"?1:m==="avond"?L.length-1:L.findIndex(x=>x[0]==="Lunch")+1;
+  L.splice(pos,0,["Rond de training","training",TRAINING_SHARE,"30–60 minuten vóór of direct na de training"]);
+  return L;
 }
-function menuFor(P,menu,A){
-  const T={prot:A.prot,carb:A.carb,fat:A.fat}; let M=buildMenu(P,menu,T);
+// training days keep their own swap offsets, because the extra meal shifts the meal indices
+const offKey=dag=>dag==="train"?"offT":"off";
+function buildMenu(P,menu,T,dag){
+  const L=layoutFor(P,dag), off=(menu&&menu[offKey(dag)])||[], seed=(menu&&menu.seed)||0;
+  return L.map(([name,type,share,hint],i)=>({name,hint,i,items:buildMeal(P,type,share,T,seed+(off[i]||0)+i*2)}));
+}
+function menuFor(P,menu,A,dag){
+  const T={prot:A.prot,carb:A.carb,fat:A.fat}; let M=buildMenu(P,menu,T,dag);
   // correct for the difference between label calories and 4/4/9: adjust carbohydrates
   const k=M.reduce((s,ml)=>s+ml.items.reduce((t,i)=>t+macroOf(i.key,i.g).k,0),0);
-  if(Math.abs(k-A.kcal)>A.kcal*0.02){T.carb=Math.max(40,T.carb-(k-A.kcal)/4);M=buildMenu(P,menu,T)}
+  if(Math.abs(k-A.kcal)>A.kcal*0.02){T.carb=Math.max(40,T.carb-(k-A.kcal)/4);M=buildMenu(P,menu,T,dag)}
   A.carb=Math.round(T.carb);
   return M;
 }
@@ -158,8 +189,19 @@ function qty(i){
 // ---------- render: plan ----------
 function planHTML(P,m,menu,o){
   o=o||{};
-  const you=!o.coach, A=analyse(P,m), meals=menuFor(P,menu,A);
+  const you=!o.coach, W=analyse(P,m), D=dagTargets(P,W);
+  const todayType=isTrainingDay(P)?"train":"rust";
+  const dag=D?(o.dag||todayType):null;
+  const A=D?{...W,...D[dag]}:W;
+  const meals=menuFor(P,menu,A,dag);
   const pk=A.prot*4,ck=A.carb*4,fk=A.fat*9,tot=pk+ck+fk;
+  let dayBar="";
+  if(D){
+    const btn=(t,l)=>`<button type="button" data-dag="${t}" aria-pressed="${dag===t}">${l}<small>${fmt(D[t].kcal)} kcal${t===todayType?" · vandaag":""}</small></button>`;
+    const days=DAGEN.filter(([d])=>P.trainingsdagen.includes(d)).map(([,l])=>l).join(", ");
+    dayBar=`<div class="daytoggle" role="group" aria-label="Soort dag">${btn("train","Trainingsdag")}${btn("rust","Rustdag")}</div>
+      <p class="sub" style="font-size:14px">Trainingsdagen: ${days}, ${MOMENT_LABEL[P.trainingsmoment||"middag"]}. Gemiddeld over de week: ${fmt(W.kcal)} kcal per dag.</p>`;
+  }
   const macros=[["Eiwit",A.prot,pk,"--p"],["Koolhydraten",A.carb,ck,"--c"],["Vet",A.fat,fk,"--f"]].map(([l,g,k,c])=>
     `<div class="macro"><div class="v">${g} g</div><div class="l"><span class="dot" style="background:var(${c})"></span>${l} · ${Math.round(k/tot*100)}%</div></div>`).join("");
   const S={k:0,p:0,c:0,f:0,v:0};
@@ -167,21 +209,22 @@ function planHTML(P,m,menu,o){
     let mk=0;
     const rows=ml.items.map(i=>{const x=macroOf(i.key,i.g);mk+=x.k;for(const z in S)S[z]+=x[z];
       return `<tr><td class="q">${qty(i)}</td><td>${FOODS[i.key].n}</td><td class="m">${Math.round(x.k)} kcal</td></tr>`}).join("");
-    const swap=o.interactive?` <button class="swap" type="button" data-swap="${ml.i}" aria-label="Andere invulling voor ${ml.name}">Wissel</button>`:"";
-    return `<div class="meal"><div class="meal-h"><h3>${ml.name}</h3><span class="k">${fmt(Math.round(mk))} kcal${swap}</span></div><table>${rows}</table></div>`;
+    const swap=o.interactive?` <button class="swap" type="button" data-swap="${ml.i}" data-off="${offKey(dag)}" aria-label="Andere invulling voor ${ml.name}">Wissel</button>`:"";
+    return `<div class="meal"><div class="meal-h"><h3>${ml.name}${ml.hint?`<span class="hint">${ml.hint}</span>`:""}</h3><span class="k">${fmt(Math.round(mk))} kcal${swap}</span></div><table>${rows}</table></div>`;
   }).join("");
   const pct=(a,b)=>b?Math.round(a/b*100)+"%":"";
   return `
     <h1>${you?"Uw dagdoel":"Dagdoel"}</h1>
     <p class="sub">Gebaseerd op ${you?"uw":"de"} meting van ${dateNL(m.datum)} (${fmt(m.gewicht,1)} kg).</p>
+    ${dayBar}
     <div class="target">
-      <div class="kcal"><b>${fmt(A.kcal)}</b><span>kcal per dag</span></div>
+      <div class="kcal"><b>${fmt(A.kcal)}</b><span>kcal ${D?(dag==="train"?"op een trainingsdag":"op een rustdag"):"per dag"}</span></div>
       <div class="band" aria-hidden="true"><i style="width:${pk/tot*100}%;background:var(--p)"></i><i style="width:${ck/tot*100}%;background:var(--c)"></i><i style="width:${fk/tot*100}%;background:var(--f)"></i></div>
       <div class="macros">${macros}</div>
-      <div class="facts"><span>Vezels <b>${A.fiber} g</b></span><span>Water <b>${fmt(A.water,1)} l</b></span><span>Verbruik <b>${fmt(Math.round(A.tdee/10)*10)} kcal</b></span><span>Verwacht <b>${A.weekly<0?"−":"+"}${fmt(Math.abs(A.weekly),2)} kg/week</b></span></div>
+      <div class="facts"><span>Vezels <b>${A.fiber} g</b></span><span>Water <b>${fmt(A.water,1)} l</b></span><span>Verbruik${D?" (gem.)":""} <b>${fmt(Math.round(W.tdee/10)*10)} kcal</b></span><span>Verwacht <b>${W.weekly<0?"−":"+"}${fmt(Math.abs(W.weekly),2)} kg/week</b></span></div>
     </div>
-    ${A.notes.map(n=>`<div class="note">${n}</div>`).join("")}
-    <h2>${you?"Uw maaltijden vandaag":"Maaltijden"}</h2>
+    ${W.notes.map(n=>`<div class="note">${n}</div>`).join("")}
+    <h2>${D?(dag==="train"?"Maaltijden op een trainingsdag":"Maaltijden op een rustdag"):you?"Uw maaltijden vandaag":"Maaltijden"}</h2>
     ${mealsHtml}
     <div class="totals">
       <div><small>Energie</small><b>${fmt(Math.round(S.k))}</b><small>${pct(S.k,A.kcal)} van doel</small></div>
@@ -240,6 +283,14 @@ function profielFieldsHTML(){
         <option value="1.85">Zwaar fysiek werk én dagelijks training</option>
       </select>
     </label>
+    <fieldset>
+      <legend>Training</legend>
+      <p style="margin:0 0 10px;font-size:13px;color:var(--muted)">Op trainingsdagen krijgt u meer koolhydraten en een extra maaltijd rond de training, op rustdagen iets minder. Uw weekgemiddelde blijft gelijk. Geen dagen gekozen: elke dag hetzelfde plan.</p>
+      <div class="checks" data-trainingsdagen>${DAGEN.map(([d,l])=>`<label class="chip"><input type="checkbox" value="${d}">${l}</label>`).join("")}</div>
+      <label style="margin-top:12px">Wanneer traint u meestal?
+        <select name="trainingsmoment"><option value="ochtend">'s Ochtends (na het ontbijt)</option><option value="middag" selected>'s Middags (na de lunch)</option><option value="avond">'s Avonds (voor het avondeten)</option></select>
+      </label>
+    </fieldset>
     <label>Doel
       <select name="doel">
         <option value="-0.2">Vetmassa verbranden</option>
@@ -267,13 +318,17 @@ function fillProfiel(f,P){
   ["geslacht","geboorte","lengte","maaltijden","activiteit","doel"].forEach(k=>{if(P[k]!=null) f.elements[k].value=String(P[k])});
   ["geenRood","geenVis","vega","geenZuivel"].forEach(k=>{f.elements[k].checked=!!P[k]});
   f.querySelectorAll("[data-excl] input").forEach(i=>{i.checked=(P.excl||[]).includes(i.value)});
+  f.querySelectorAll("[data-trainingsdagen] input").forEach(i=>{i.checked=(P.trainingsdagen||[]).includes(+i.value)});
+  f.elements.trainingsmoment.value=P.trainingsmoment||"middag";
 }
 function readProfiel(f){
   const e=f.elements, l=+e.lengte.value;
   if(!e.geslacht.value||!e.geboorte.value||!(l>=120&&l<=230)) throw new Error("Vul geslacht, geboortedatum en lengte (120–230 cm) in.");
   return {geslacht:e.geslacht.value,geboorte:e.geboorte.value,lengte:l,maaltijden:+e.maaltijden.value,activiteit:+e.activiteit.value,doel:+e.doel.value,
     geenRood:e.geenRood.checked,geenVis:e.geenVis.checked,vega:e.vega.checked,geenZuivel:e.geenZuivel.checked,
-    excl:[...f.querySelectorAll("[data-excl] input:checked")].map(i=>i.value)};
+    excl:[...f.querySelectorAll("[data-excl] input:checked")].map(i=>i.value),
+    trainingsdagen:[...f.querySelectorAll("[data-trainingsdagen] input:checked")].map(i=>+i.value),
+    trainingsmoment:e.trainingsmoment.value};
 }
 function metingFieldsHTML(o){
   o=o||{};
@@ -332,6 +387,6 @@ function handleForm(form,fn){
   });
 }
 
-window.DC={FOODS,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,bmiLabel,sorted,latest,menuFor,planHTML,historyHTML,
+window.DC={FOODS,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planHTML,historyHTML,
   profielFieldsHTML,fillProfiel,readProfiel,metingFieldsHTML,readMeting,api,handleForm};
 })();

@@ -9,6 +9,7 @@ const MAX_BODY = 20000;
 
 const ACTIVITEIT = [1.35, 1.45, 1.55, 1.7, 1.85];
 const DOEL = [-0.2, -0.1, 0, 0.1];
+const MOMENT = ["ochtend", "middag", "avond"];
 
 export default {
   async fetch(req, env) {
@@ -130,10 +131,15 @@ function cleanProfiel(p) {
   const activiteit = ACTIVITEIT.includes(+p.activiteit) ? +p.activiteit : 1.55;
   const doel = DOEL.includes(+p.doel) ? +p.doel : 0;
   const excl = Array.isArray(p.excl) ? p.excl.filter((k) => typeof k === "string" && /^[a-z]{1,30}$/.test(k)).slice(0, 60) : [];
+  const trainingsdagen = Array.isArray(p.trainingsdagen)
+    ? [...new Set(p.trainingsdagen.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort()
+    : [];
+  const trainingsmoment = MOMENT.includes(p.trainingsmoment) ? p.trainingsmoment : "middag";
   return {
     geslacht: p.geslacht, geboorte: p.geboorte, lengte: num(p.lengte, 120, 230, "Lengte", true),
     maaltijden, activiteit, doel,
     geenRood: !!p.geenRood, geenVis: !!p.geenVis, vega: !!p.vega, geenZuivel: !!p.geenZuivel, excl,
+    trainingsdagen, trainingsmoment,
   };
 }
 
@@ -156,8 +162,8 @@ function cleanMeting(b) {
 
 function cleanMenu(b) {
   const seed = Number.isInteger(b.seed) ? Math.max(0, Math.min(b.seed, 1e6)) : 0;
-  const off = Array.isArray(b.off) ? b.off.slice(0, 5).map((x) => (Number.isInteger(x) ? Math.max(0, Math.min(x, 1e6)) : 0)) : [];
-  return { seed, off };
+  const offs = (a) => (Array.isArray(a) ? a.slice(0, 6).map((x) => (Number.isInteger(x) ? Math.max(0, Math.min(x, 1e6)) : 0)) : []);
+  return { seed, off: offs(b.off), offT: offs(b.offT) };
 }
 
 // ---------- sessions & throttling ----------

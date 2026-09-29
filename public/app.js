@@ -3,7 +3,7 @@
 "use strict";
 const DC=window.DC, $=id=>document.getElementById(id);
 const APP_VIEWS=["plan","meting","voortgang","profiel"];
-let me=null, menuTimer=null, inviteToken=null;
+let me=null, menuTimer=null, inviteToken=null, viewDag=null; // viewDag null = today's day type
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML();
 $("fProfiel").querySelector("[data-fields]").innerHTML=DC.profielFieldsHTML();
@@ -20,7 +20,7 @@ function renderPlan(){
   const el=$("plan"), P=me.profiel, m=DC.latest(me.metingen);
   if(!P) el.innerHTML='<h1>Welkom</h1><p class="sub">Vul eerst uw profiel in. Daarna voert u uw gewicht in en berekent de app uw calorieën, macro\'s en menu.</p><button class="btn" type="button" data-v="profiel">Profiel invullen</button>';
   else if(!m) el.innerHTML='<h1>Nog geen meting</h1><p class="sub">Voer uw gewicht in om uw persoonlijke dagdoel en menu te maken.</p><button class="btn" type="button" data-v="meting">Gewicht invoeren</button>';
-  else el.innerHTML=DC.planHTML(P,m,me.menu,{interactive:true});
+  else el.innerHTML=DC.planHTML(P,m,me.menu,{interactive:true,dag:viewDag});
 }
 function renderProgress(){
   $("prog").innerHTML=me.profiel&&me.metingen.length?DC.historyHTML(me.profiel,me.metingen)
@@ -42,10 +42,11 @@ function saveMenu(){
 
 // ---------- events ----------
 document.addEventListener("click",async e=>{
-  const t=e.target.closest("[data-v],[data-swap],[data-new-menu],[data-print],[data-del]"); if(!t) return;
+  const t=e.target.closest("[data-v],[data-dag],[data-swap],[data-new-menu],[data-print],[data-del]"); if(!t) return;
   if(t.dataset.v) show(t.dataset.v);
-  else if(t.dataset.swap!=null){const i=+t.dataset.swap;me.menu.off[i]=(me.menu.off[i]||0)+1;renderPlan();saveMenu()}
-  else if(t.hasAttribute("data-new-menu")){me.menu.seed++;me.menu.off=[];renderPlan();saveMenu()}
+  else if(t.dataset.dag){viewDag=t.dataset.dag;renderPlan()}
+  else if(t.dataset.swap!=null){const i=+t.dataset.swap,k=t.dataset.off;const o=me.menu[k]=me.menu[k]||[];o[i]=(o[i]||0)+1;renderPlan();saveMenu()}
+  else if(t.hasAttribute("data-new-menu")){me.menu.seed++;me.menu.off=[];me.menu.offT=[];renderPlan();saveMenu()}
   else if(t.hasAttribute("data-print")) window.print();
   else if(t.dataset.del){
     if(!confirm("Deze meting verwijderen?")) return;
@@ -110,7 +111,7 @@ async function boot(){
   }
   try{
     me=await DC.api("/api/me");
-    me.menu=me.menu||{seed:0,off:[]}; me.menu.off=me.menu.off||[];
+    me.menu=me.menu||{seed:0,off:[]}; me.menu.off=me.menu.off||[]; me.menu.offT=me.menu.offT||[];
     renderAll();
     show(!me.profiel?"profiel":me.metingen.length?"plan":"meting");
   }catch(err){

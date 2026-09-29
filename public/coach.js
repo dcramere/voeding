@@ -3,7 +3,7 @@
 "use strict";
 const DC=window.DC, esc=DC.esc, $=id=>document.getElementById(id);
 const STALE_DAYS=14;
-let coach=null, clients=[], cur=null, pane="plan";
+let coach=null, clients=[], cur=null, pane="plan", viewDag=null;
 
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML({open:true});
 $("fProfiel").querySelector("[data-fields]").innerHTML=DC.profielFieldsHTML();
@@ -64,7 +64,11 @@ function renderList(){
   $("lijst").innerHTML=`<table class="clients"><thead><tr><th>Cliënt</th><th>Status</th><th>Laatste meting</th><th class="n">Gewicht</th><th class="n hide-sm">Sinds start</th><th class="n hide-sm">Dagdoel</th><th class="hide-sm">Doel</th></tr></thead><tbody>`+
     rows.map(c=>{
       const l=c.laatste, d=l?DC.daysSince(l.datum):null;
-      const kcal=c.profiel&&l?DC.fmt(DC.analyse(c.profiel,l).kcal)+" kcal":"–";
+      let kcal="–";
+      if(c.profiel&&l){
+        const A=DC.analyse(c.profiel,l), D=DC.dagTargets(c.profiel,A);
+        kcal=DC.fmt(A.kcal)+" kcal"+(D?`<br><small style="color:var(--muted)">T ${DC.fmt(D.train.kcal)} · R ${DC.fmt(D.rust.kcal)}</small>`:"");
+      }
       const delta=c.aantal>1?DC.signed(l.gewicht-c.eerste.gewicht)+" kg":"–";
       return `<tr data-id="${c.id}" tabindex="0">
         <td class="who"><b>${esc(c.naam)}</b><small>${esc(c.email)}</small></td>
@@ -107,7 +111,7 @@ function renderClient(){
   const m=DC.latest(c.metingen);
   $("pPlan").innerHTML=!c.profiel?'<p class="empty">Het profiel is nog niet ingevuld. Vul het in onder Profiel, of wacht tot de cliënt dit zelf doet.</p>'
     :!m?'<p class="empty">Nog geen meting. Voeg er een toe onder Metingen.</p>'
-    :DC.planHTML(c.profiel,m,c.menu,{coach:true});
+    :DC.planHTML(c.profiel,m,c.menu,{coach:true,dag:viewDag});
   $("pHist").innerHTML=c.metingen.length&&c.profiel?DC.historyHTML(c.profiel,c.metingen,{coach:true})
     :c.metingen.length?'<p class="empty">Vul eerst het profiel in om de analyse te zien.</p>':'<p class="empty">Nog geen metingen.</p>';
   const fp=$("fProfiel");
@@ -129,6 +133,8 @@ document.addEventListener("click",async e=>{
     try{await navigator.clipboard.writeText(input.value)}catch(err){input.select();document.execCommand("copy")}
     copy.textContent="Gekopieerd"; setTimeout(()=>copy.textContent="Kopiëren",1500); return;
   }
+  const dag=e.target.closest("[data-dag]");
+  if(dag&&cur){viewDag=dag.dataset.dag;renderClient();return}
   const del=e.target.closest("[data-del]");
   if(del&&cur){
     if(!confirm("Deze meting verwijderen?")) return;
@@ -191,7 +197,7 @@ async function route(){
   const m=location.hash.match(/^#\/client\/(\d+)/);
   try{
     if(m){
-      if(!cur||cur.id!==+m[1]){pane="plan";$("clientInvite").innerHTML="";}
+      if(!cur||cur.id!==+m[1]){pane="plan";viewDag=null;$("clientInvite").innerHTML="";}
       show("client"); await loadClient(+m[1]);
     }else{
       cur=null; show("lijst"); await loadList();

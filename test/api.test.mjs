@@ -636,6 +636,43 @@ test("storefront: slug, publishing rules, public page, directory, requests → i
   assert.equal(last.status, 429);
 });
 
+test("languages: translated errors, account language, notifications and storefront", async () => {
+  // errors follow the app's x-taal header, then the browser language
+  const bad = await anon("/api/login", "POST", { email: "lang0@t.nl", password: "wrong-password" }, { "x-taal": "pt", "cf-connecting-ip": "10.6.6.1" });
+  assert.equal(bad.data.error, "E-mail ou senha incorretos.");
+  const al = await anon("/api/login", "POST", { email: "lang1@t.nl", password: "wrong-password" }, { "accept-language": "es-419,es;q=0.9", "cf-connecting-ip": "10.6.6.2" });
+  assert.equal(al.data.error, "El correo o la contraseña no son correctos.");
+  const nl = await anon("/api/login", "POST", { email: "lang2@t.nl", password: "wrong-password" }, { "cf-connecting-ip": "10.6.6.3" });
+  assert.equal(nl.data.error, "E-mailadres of wachtwoord klopt niet.");
+  // messages with values: the field name is translated as well
+  const long = await coach("/api/coach/clients", "POST", { naam: "x".repeat(200), email: "long@t.nl" }, { "x-taal": "en" });
+  assert.equal(long.status, 400); assert.match(long.data.error, /is too long\.$/);
+  // the account language decides the language of push texts
+  const ivy = client();
+  const inv = await coach("/api/coach/clients", "POST", { naam: "Ivy Lang", email: "ivy@t.nl" });
+  await ivy("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "ivy-pass-1234", privacy: true });
+  assert.equal((await ivy("/api/taal", "PUT", { taal: "xx" })).status, 400);
+  assert.equal((await ivy("/api/taal", "PUT", { taal: "en" })).status, 200);
+  assert.equal((await ivy("/api/me")).data.taal, "en");
+  await coach(`/api/coach/clients/${inv.data.id}/berichten`, "POST", { tekst: "Hoi Ivy" });
+  await ivy("/api/push/subscribe", "POST", { endpoint: `http://127.0.0.1:${PUSH_PORT}/ivy`, role: "client" });
+  await coach(`/api/coach/clients/${inv.data.id}/berichten`, "POST", { tekst: "Goed bezig" });
+  const pend = (await ivy("/api/push/pending")).data.notificaties;
+  assert.ok(pend.some((n) => n.titel === "New message from your coach" && n.tekst === "Goed bezig"), JSON.stringify(pend));
+  assert.equal((await coach("/api/coach/taal", "PUT", { taal: "es" })).status, 200);
+  assert.equal((await coach("/api/coach/me")).data.taal, "es");
+  await coach("/api/coach/taal", "PUT", { taal: "nl" });
+  // account deletion accepts the confirmation word in the user's language
+  assert.equal((await ivy("/api/account/verwijderen", "POST", { password: "ivy-pass-1234", bevestig: "delete" }, { "cf-connecting-ip": "10.6.6.4" })).status, 200);
+  // storefront: rendered server-side in the visitor's language, the coach's own text untouched
+  const en = await (await fetch(`${BASE}/c/fit-lab?lang=en`)).text();
+  assert.match(en, /<html lang="en"/); assert.match(en, /Request a spot with Coach/); assert.match(en, /Voedingscoach/);
+  const es = await (await fetch(`${BASE}/c/fit-lab`, { headers: { cookie: "dc-taal=es" } })).text();
+  assert.match(es, /Solicita una plaza con Coach/);
+  const pt = await (await fetch(`${BASE}/c/fit-lab`, { headers: { "accept-language": "pt-BR,pt;q=0.9" } })).text();
+  assert.match(pt, /Solicite uma vaga com Coach/);
+});
+
 test("root: old invite links go to /app/, landing page always reachable", async () => {
   const r1 = await fetch(`${BASE}/?invite=abc123`, { redirect: "manual" });
   assert.equal(r1.status, 302); assert.equal(new URL(r1.headers.get("location")).pathname + new URL(r1.headers.get("location")).search, "/app/?invite=abc123");

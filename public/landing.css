@@ -112,3 +112,11 @@ body.landing{background:var(--bg)}
 .coach-card .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 .coach-card .tags i{font-style:normal;font-size:12px;border:1px solid var(--line-strong);border-radius:99px;padding:2px 9px;color:var(--muted)}
 .coach-card .avatar{flex:none}
+.lnav nav .btn{white-space:nowrap}
+@media (max-width:560px){
+  .lnav-in{gap:10px;padding:10px 14px}
+  .lnav nav{gap:8px}
+  .lnav .brand small{display:none}
+  .lnav .lang-select{padding:4px 18px 4px 6px;font-size:12px}
+  .lnav .brand b{font-size:15px}
+}

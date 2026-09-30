@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import "./i18n-stub.mjs";
 globalThis.window = {};
 await import("../public/core.js");
 await import("../public/training.js");

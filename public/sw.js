@@ -11,7 +11,11 @@ self.addEventListener("push", (e) => {
       if (r.ok) list = (await r.json()).notificaties || [];
     } catch (err) { /* offline: show the generic notification below */ }
     // browsers (iOS in particular) require a visible notification for every push
-    if (!list.length) list = [{ titel: "DCRAMERE Coaching", tekst: "Er is iets nieuws voor u.", url: "/app/" }];
+    if (!list.length) {
+      const l = (self.navigator.language || "nl").slice(0, 2);
+      const tekst = { en: "There is something new for you.", pt: "Há algo novo para você.", es: "Hay algo nuevo para ti." }[l] || "Er is iets nieuws voor u.";
+      list = [{ titel: "DCRAMERE Coaching", tekst, url: "/app/" }];
+    }
     for (const n of list) {
       await self.registration.showNotification(n.titel, {
         body: n.tekst, icon: "/img/icon-192.png", badge: "/img/icon-48.png", tag: n.url, renotify: true, data: { url: n.url },

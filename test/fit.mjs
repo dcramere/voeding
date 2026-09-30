@@ -1,4 +1,5 @@
 // quick fit report across profiles/seeds (dev tool, not a test)
+await import("./i18n-stub.mjs");
 globalThis.window = {};
 await import("../public/core.js");
 const DC = window.DC;

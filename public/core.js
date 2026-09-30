@@ -40,7 +40,8 @@ const FOODS = {
   walnoten:{n:"Walnoten (of andere ongebrande, ongezouten noten)",s:"walnoten",k:680,p:15,c:3.5,f:66,v:6,unit:["handje","handjes",26],cat:"vet"},
   pindakaas:{n:"Pindakaas (100% pinda)",s:"pindakaas",k:620,p:25,c:12,f:50,v:6,cat:"vet"}
 };
-const CATS=[["eiwit","Vlees, vis, ei en vegetarisch"],["zuivel","Zuivel"],["koolh","Brood, granen en knollen"],["groente","Groente"],["fruit","Fruit"],["vet","Noten, oliën en vetten"]];
+for(const f of Object.values(FOODS)){f.n=T(f.n);f.s=T(f.s);if(f.b)f.b=T(f.b);if(f.shop)f.shop=T(f.shop);if(f.unit)f.unit=[T(f.unit[0]),T(f.unit[1]),f.unit[2]]}
+const CATS=[["eiwit",T("Vlees, vis, ei en vegetarisch")],["zuivel",T("Zuivel")],["koolh",T("Brood, granen en knollen")],["groente",T("Groente")],["fruit",T("Fruit")],["vet",T("Noten, oliën en vetten")]];
 const TEMPL = {
   ontbijt:{fixed:[],prot:["kwark","ei","yoghurt"],carb:["havermout","brood"],fruit:["banaan","bessen","papaya","appel"],fat:["walnoten","amandelen","pindakaas"]},
   hoofd:{fixed:[["groente",250]],prot:["kip","witvis","kvv","zalm","tofu","ei","tonijn","tempeh","gehakt"],carb:["rijst","zoeteaardappel","peul","aardappel","cassave","pasta","bakbanaan"],fat:["kokosolie","olijfolie","walnoten","avocado"]},
@@ -52,27 +53,27 @@ const TEMPL = {
 const PROT_MIN={ontbijt:100,hoofd:100,snack:75,training:75}, PROT_MIN_UNIT={hoofd:120};
 const CARB_MIN={havermout:30,brood:35,rijst:30,pasta:30,aardappel:100,zoeteaardappel:100,cassave:80,bakbanaan:80,peul:30};
 const TRAINING_SHARE=.15;
-const DAGEN=[[1,"ma"],[2,"di"],[3,"wo"],[4,"do"],[5,"vr"],[6,"za"],[0,"zo"]];
-const MOMENT_LABEL={ochtend:"'s ochtends",middag:"'s middags",avond:"'s avonds"};
+const DAGEN=[[1,T("ma")],[2,T("di")],[3,T("wo")],[4,T("do")],[5,T("vr")],[6,T("za")],[0,T("zo")]];
+const MOMENT_LABEL={ochtend:T("'s ochtends"),middag:T("'s middags"),avond:T("'s avonds")};
 const LAYOUT = {
-  3:[["Ontbijt","ontbijt",.30],["Lunch","hoofd",.35],["Avondmaaltijd","hoofd",.35]],
-  4:[["Ontbijt","ontbijt",.25],["Lunch","hoofd",.30],["Tussendoortje","snack",.15],["Avondmaaltijd","hoofd",.30]],
-  5:[["Ontbijt","ontbijt",.22],["Tussendoortje","snack",.12],["Lunch","hoofd",.28],["Tussendoortje","snack",.12],["Avondmaaltijd","hoofd",.26]]
+  3:[[N_("Ontbijt"),"ontbijt",.30],[N_("Lunch"),"hoofd",.35],[N_("Avondmaaltijd"),"hoofd",.35]],
+  4:[[N_("Ontbijt"),"ontbijt",.25],[N_("Lunch"),"hoofd",.30],[N_("Tussendoortje"),"snack",.15],[N_("Avondmaaltijd"),"hoofd",.30]],
+  5:[[N_("Ontbijt"),"ontbijt",.22],[N_("Tussendoortje"),"snack",.12],[N_("Lunch"),"hoofd",.28],[N_("Tussendoortje"),"snack",.12],[N_("Avondmaaltijd"),"hoofd",.26]]
 };
 const DW = {m:[[0,1.1620,.0630],[20,1.1631,.0632],[30,1.1422,.0544],[40,1.1620,.0700],[50,1.1715,.0779]],
             v:[[0,1.1549,.0678],[20,1.1599,.0717],[30,1.1423,.0632],[40,1.1333,.0612],[50,1.1339,.0645]]};
-const DOEL_LABEL = {"-0.2":"Vet verbranden","-0.1":"Rustig afvallen","0":"Behouden","0.1":"Spieropbouw"};
+const DOEL_LABEL = {"-0.2":T("Vet verbranden"),"-0.1":T("Rustig afvallen"),"0":T("Behouden"),"0.1":T("Spieropbouw")};
 
 // ---------- formatting ----------
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmt=(x,d=0)=>Number(x).toLocaleString("nl-NL",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt=(x,d=0)=>Number(x).toLocaleString(I18N.locale,{minimumFractionDigits:d,maximumFractionDigits:d});
 // noon local time, so a YYYY-MM-DD date never shifts a day in UTC-negative timezones (Suriname = UTC−3)
-const dateNL=(d,o)=>new Date(d+"T12:00:00").toLocaleDateString("nl-NL",o||{day:"numeric",month:"long",year:"numeric"});
+const dateNL=(d,o)=>new Date(d+"T12:00:00").toLocaleDateString(I18N.locale,o||{day:"numeric",month:"long",year:"numeric"});
 const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const daysSince=d=>Math.floor((new Date(today()+"T12:00:00")-new Date(d+"T12:00:00"))/864e5);
 const signed=(x,d=1)=>(x>0?"+":x<0?"−":"")+fmt(Math.abs(x),d);
 const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
-const listNL=a=>a.length<2?a.join(""):a.slice(0,-1).join(", ")+" en "+a[a.length-1];
+const listNL=a=>a.length<2?a.join(""):new Intl.ListFormat(I18N.locale,{type:"conjunction"}).format(a);
 
 // ---------- calculations ----------
 const r1=x=>Math.round(x*10)/10;
@@ -85,19 +86,19 @@ function analyse(P,m){
   if(pl.every(x=>x>0)){
     const t=DW[man?"m":"v"]; let row=t[0]; for(const x of t) if(age>=x[0]) row=x;
     const D=row[1]-row[2]*Math.log10(pl.reduce((a,b)=>a+b,0));
-    vet=(495/D-450)/100; methode="huidplooimeting";
+    vet=(495/D-450)/100; methode=N_("huidplooimeting");
   }else{
-    vet=(1.29*bmi+0.20*age-11.4*(man?1:0)-8.3)/100; methode="schatting";
+    vet=(1.29*bmi+0.20*age-11.4*(man?1:0)-8.3)/100; methode=N_("schatting");
   }
   vet=Math.min(Math.max(vet,0.03),0.6);
   const lbm=w*(1-vet);
   const bmr = methode==="huidplooimeting" ? 370+21.6*lbm : 10*w+6.25*h-5*age+(man?5:-161);
   const tdee=bmr*(+P.activiteit||1.55);
   let adj=+P.doel||0; const notes=[];
-  if(bmi<18.5 && adj<0){adj=0;notes.push("De BMI is lager dan 18,5. Het plan staat daarom op gewicht behouden in plaats van afvallen. Bespreek het doel met uw coach.");}
+  if(bmi<18.5 && adj<0){adj=0;notes.push(T("De BMI is lager dan 18,5. Het plan staat daarom op gewicht behouden in plaats van afvallen. Bespreek het doel met uw coach."));}
   let kcal=tdee*(1+adj);
   const floor=Math.max(bmr, man?1500:1200);
-  if(kcal<floor){kcal=floor;notes.push("Het dagdoel is afgerond naar een veilige ondergrens.");}
+  if(kcal<floor){kcal=floor;notes.push(T("Het dagdoel is afgerond naar een veilige ondergrens."));}
   kcal=Math.round(kcal/10)*10;
   const auto={kcal,prot:Math.round(Math.min(lbm*(adj<0?2.2:2.0), w*2.4))};
   auto.fat=Math.round(Math.max(kcal*0.25/9, w*0.7));
@@ -105,7 +106,7 @@ function analyse(P,m){
   const ov=P.override&&P.override.kcal>0?P.override:null;
   if(ov){
     kcal=Math.round(ov.kcal/10)*10;
-    notes.length=0; notes.push("Uw coach heeft uw dagdoel persoonlijk ingesteld.");
+    notes.length=0; notes.push(T("Uw coach heeft uw dagdoel persoonlijk ingesteld."));
   }
   let prot=ov&&ov.prot>0?ov.prot:Math.min(lbm*(adj<0?2.2:2.0), w*2.4);
   let fat=ov&&ov.fat>0?ov.fat:Math.max(kcal*0.25/9, w*0.7);
@@ -131,7 +132,7 @@ function dagTargets(P,A){
   return {train:mk(A.kcal*(1+a)),rust:mk(Math.max(A.kcal*(1-b),floor))};
 }
 const isTrainingDay=(P,d)=>(P.trainingsdagen||[]).includes((d||new Date()).getDay());
-function bmiLabel(b){return b<18.5?"ondergewicht":b<25?"gezond gewicht":b<27?"neiging tot overgewicht":b<30?"overgewicht":b<35?"obesitas":b<40?"zeer ernstig overgewicht":"morbide obesitas"}
+function bmiLabel(b){return b<18.5?T("ondergewicht"):b<25?T("gezond gewicht"):b<27?T("neiging tot overgewicht"):b<30?T("overgewicht"):b<35?T("obesitas"):b<40?T("zeer ernstig overgewicht"):T("morbide obesitas")}
 function sorted(ms){return [...(ms||[])].sort((a,b)=>a.datum<b.datum?-1:a.datum>b.datum?1:0)}
 function latest(ms){return sorted(ms).pop()||null}
 
@@ -174,8 +175,8 @@ function mealStructure(P,type,idx,scale){
 // SHARE_W keeps each meal near its calorie share, PSHARE_W spreads protein the same way (no 75 g chicken
 // dinner next to a 355 g quark snack).
 const FIT_W={k:6,p:2.5,c:1,f:1.5}, SHARE_W=1.2, PSHARE_W=0.8;
-function optimizeDay(meals,T){
-  const tgt={k:T.kcal,p:T.prot,c:T.carb,f:T.fat};
+function optimizeDay(meals,G){
+  const tgt={k:G.kcal,p:G.prot,c:G.carb,f:G.fat};
   const vars=[]; meals.forEach((ml,mi)=>ml.vars.forEach(v=>{v.mi=mi;v.x=v.min;vars.push(v)}));
   const base={k:0,p:0,c:0,f:0}, mealBase=meals.map(()=>0), mealBaseP=meals.map(()=>0);
   meals.forEach((ml,mi)=>ml.fixed.forEach(i=>{const x=macroOf(i.key,i.g);for(const z in base)base[z]+=x[z];mealBase[mi]+=x.k;mealBaseP[mi]+=x.p}));
@@ -232,7 +233,7 @@ function layoutFor(P,dag){
   const L=base.map(([n,t,s])=>[n,t,s*(1-TRAINING_SHARE)]);
   const m=P.trainingsmoment||"middag";
   const pos=m==="ochtend"?1:m==="avond"?L.length-1:L.findIndex(x=>x[0]==="Lunch")+1;
-  L.splice(pos,0,["Rond de training","training",TRAINING_SHARE,"30–60 minuten vóór of direct na de training"]);
+  L.splice(pos,0,[N_("Rond de training"),"training",TRAINING_SHARE,T("30–60 minuten vóór of direct na de training")]);
   return L;
 }
 // training days keep their own swap offsets, because the extra meal shifts the meal indices
@@ -250,24 +251,25 @@ function menuFor(P,menu,A,dag){
 }
 function qty(i){
   const u=FOODS[i.key].unit;
-  if(u){const n=i.g/u[2]; const s=Number.isInteger(n)?String(n):String(n).replace(".",","); return s+" "+(n<=1?u[0]:u[1])}
+  if(u){const n=i.g/u[2]; return n.toLocaleString(I18N.locale)+" "+(n<=1?u[0]:u[1])}
   return i.g+" g";
 }
 function dishTitle(type,items){
   const k=items.map(i=>i.key), f=x=>FOODS[x];
   const prot=k.find(x=>["eiwit","zuivel"].includes(f(x).cat));
   const rest=k.filter(x=>x!==prot&&x!=="groente"&&!f(x).oil).map(x=>f(x).s);
-  if(k.includes("groente")) rest.push("groente");
+  if(k.includes("groente")) rest.push(f("groente").s);
   if(!prot) return cap(listNL(rest));
-  return cap(f(prot).s)+(rest.length?" met "+listNL(rest):"");
+  return rest.length?T("{a} met {b}",{a:cap(f(prot).s),b:listNL(rest)}):cap(f(prot).s);
 }
 function preparation(type,items){
   const steps=items.map(i=>FOODS[i.key].b).filter(Boolean);
   const k=items.map(i=>i.key);
   const oil=k.find(x=>FOODS[x].oil);
-  if(oil) steps.push(`Gebruik de ${FOODS[oil].s} om in te bakken of over de groente; dit is de hoeveelheid voor het hele gerecht.`);
-  if(k.some(x=>FOODS[x].cat==="zuivel")) steps.push(`Doe de ${FOODS[k.find(x=>FOODS[x].cat==="zuivel")].s} in een kom en voeg de rest toe${k.some(x=>FOODS[x].cat==="fruit")?", met het fruit in stukjes":""}.`);
-  else if(type==="hoofd") steps.push("Serveer alles samen op één bord.");
+  if(oil) steps.push(T("Gebruik de {x} om in te bakken of over de groente; dit is de hoeveelheid voor het hele gerecht.",{x:FOODS[oil].s}));
+  const zu=k.find(x=>FOODS[x].cat==="zuivel");
+  if(zu) steps.push(T(k.some(x=>FOODS[x].cat==="fruit")?"Doe de {x} in een kom en voeg de rest toe, met het fruit in stukjes.":"Doe de {x} in een kom en voeg de rest toe.",{x:FOODS[zu].s}));
+  else if(type==="hoofd") steps.push(T("Serveer alles samen op één bord."));
   return steps;
 }
 
@@ -279,7 +281,7 @@ let customKeys=[];
 function productFood(p){
   const naam=p.naam+(p.merk?` (${p.merk})`:"");
   return {n:naam,s:p.naam.toLowerCase(),k:+p.kcal,p:+p.eiwit,c:+p.koolh,f:+p.vet,v:+p.vezels||0,cat:ROLE_CAT[p.rol]||"overig",
-    unit:p.portie_g?[p.portie_naam||"portie",p.portie_naam||"porties",+p.portie_g]:undefined,custom:true,id:p.id};
+    unit:p.portie_g?[p.portie_naam||T("portie"),p.portie_naam||T("porties"),+p.portie_g]:undefined,custom:true,id:p.id};
 }
 function setCustomFoods(list){
   customKeys.forEach(k=>{delete FOODS[k];Object.values(TEMPL).forEach(t=>["prot","carb","fruit","fat"].forEach(r=>{if(t[r]){const i=t[r].indexOf(k);if(i>=0)t[r].splice(i,1)}}))});
@@ -317,30 +319,30 @@ function planData(P,m,menu,dag){
 }
 function mealHTML(ml,o){
   const rows=ml.items.map(i=>`<tr><td class="q">${qty(i)}</td><td>${FOODS[i.key].n}</td><td class="m">${Math.round(macroOf(i.key,i.g).k)} kcal</td></tr>`).join("");
-  const swap=o.interactive?` <button class="swap" type="button" data-swap="${ml.i}" data-off="${offKey(o.dag)}" aria-label="Andere invulling voor ${ml.name}">Wissel</button>`:"";
-  const eaten=o.interactive&&o.eaten?(o.eaten.has(ml.i)?`<span class="eaten done">✓ In dagboek</span>`:`<button class="eaten" type="button" data-eaten="${ml.i}">Gegeten</button>`):"";
+  const swap=o.interactive?` <button class="swap" type="button" data-swap="${ml.i}" data-off="${offKey(o.dag)}" aria-label="${T("Andere invulling voor {x}",{x:T(ml.name)})}">${T("Wissel")}</button>`:"";
+  const eaten=o.interactive&&o.eaten?(o.eaten.has(ml.i)?`<span class="eaten done">✓ ${T("In dagboek")}</span>`:`<button class="eaten" type="button" data-eaten="${ml.i}">${T("Gegeten")}</button>`):"";
   const prep=ml.bereiding.length?(o.print?`<ol class="prep">${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol>`
-    :`<details class="prep"><summary>Bereiding</summary><ol>${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol></details>`):"";
-  return `<div class="meal"><div class="meal-h"><h3><span class="eyebrow">${ml.name}${ml.hint?`<span class="sep">·</span>${ml.hint}`:""}</span>${ml.titel}</h3><span class="k">${fmt(Math.round(ml.kcal))} kcal${swap}</span></div><table>${rows}</table>${prep}${eaten?`<div class="meal-foot">${eaten}</div>`:""}</div>`;
+    :`<details class="prep"><summary>${T("Bereiding")}</summary><ol>${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol></details>`):"";
+  return `<div class="meal"><div class="meal-h"><h3><span class="eyebrow">${T(ml.name)}${ml.hint?`<span class="sep">·</span>${ml.hint}`:""}</span>${ml.titel}</h3><span class="k">${fmt(Math.round(ml.kcal))} kcal${swap}</span></div><table>${rows}</table>${prep}${eaten?`<div class="meal-foot">${eaten}</div>`:""}</div>`;
 }
 function totalsHTML(S,A){
   const pct=(a,b)=>b?Math.round(a/b*100)+"%":"";
   return `<div class="totals">
-      <div><small>Energie</small><b>${fmt(Math.round(S.k))}</b><small>${pct(S.k,A.kcal)} van doel</small></div>
-      <div><small>Eiwit</small><b>${Math.round(S.p)} g</b><small>doel ${A.prot} g</small></div>
-      <div><small>Koolhydraten</small><b>${Math.round(S.c)} g</b><small>doel ${A.carb} g</small></div>
-      <div><small>Vet</small><b>${Math.round(S.f)} g</b><small>doel ${A.fat} g</small></div>
+      <div><small>${T("Energie")}</small><b>${fmt(Math.round(S.k))}</b><small>${T("{x} van doel",{x:pct(S.k,A.kcal)})}</small></div>
+      <div><small>${T("Eiwit")}</small><b>${Math.round(S.p)} g</b><small>${T("doel {x} g",{x:A.prot})}</small></div>
+      <div><small>${T("Koolhydraten")}</small><b>${Math.round(S.c)} g</b><small>${T("doel {x} g",{x:A.carb})}</small></div>
+      <div><small>${T("Vet")}</small><b>${Math.round(S.f)} g</b><small>${T("doel {x} g",{x:A.fat})}</small></div>
     </div>`;
 }
 function targetHTML(A,W,D,dag){
   const pk=A.prot*4,ck=A.carb*4,fk=A.fat*9,tot=pk+ck+fk;
-  const macros=[["Eiwit",A.prot,pk,"--p"],["Koolhydraten",A.carb,ck,"--c"],["Vet",A.fat,fk,"--f"]].map(([l,g,k,c])=>
+  const macros=[[T("Eiwit"),A.prot,pk,"--p"],[T("Koolhydraten"),A.carb,ck,"--c"],[T("Vet"),A.fat,fk,"--f"]].map(([l,g,k,c])=>
     `<div class="macro"><div class="v">${g}<span class="unit">g</span></div><div class="l"><span class="dot" style="background:var(${c})"></span>${l}<span class="sep">·</span>${Math.round(k/tot*100)}%</div></div>`).join("");
   return `<div class="target">
-      <div class="kcal"><b>${fmt(A.kcal)}</b><span>kcal ${D?(dag==="train"?"op een trainingsdag":"op een rustdag"):"per dag"}</span></div>
+      <div class="kcal"><b>${fmt(A.kcal)}</b><span>kcal ${D?(dag==="train"?T("op een trainingsdag"):T("op een rustdag")):T("per dag")}</span></div>
       <div class="band" aria-hidden="true"><i style="width:${pk/tot*100}%;background:var(--p)"></i><i style="width:${ck/tot*100}%;background:var(--c)"></i><i style="width:${fk/tot*100}%;background:var(--f)"></i></div>
       <div class="macros">${macros}</div>
-      <div class="facts"><span>Vezels <b>${A.fiber} g</b></span><span>Water <b>${fmt(A.water,1)} l</b></span><span>Verbruik${D?" (gem.)":""} <b>${fmt(Math.round(W.tdee/10)*10)} kcal</b></span><span>Verwacht <b>${W.weekly<0?"−":"+"}${fmt(Math.abs(W.weekly),2)} kg/week</b></span></div>
+      <div class="facts"><span>${T("Vezels")} <b>${A.fiber} g</b></span><span>${T("Water")} <b>${fmt(A.water,1)} l</b></span><span>${D?T("Verbruik (gem.)"):T("Verbruik")} <b>${fmt(Math.round(W.tdee/10)*10)} kcal</b></span><span>${T("Verwacht")} <b>${W.weekly<0?"−":"+"}${fmt(Math.abs(W.weekly),2)} ${T("kg/week")}</b></span></div>
     </div>`;
 }
 
@@ -350,25 +352,25 @@ function planHTML(P,m,menu,o){
   const you=!o.coach, {W,D,A,dag,todayType,meals,S}=planData(P,m,menu,o.dag);
   let dayBar="";
   if(D){
-    const btn=(t,l)=>`<button type="button" data-dag="${t}" aria-pressed="${dag===t}">${l}<small>${fmt(D[t].kcal)} kcal${t===todayType?'<span class="sep">·</span>vandaag':""}</small></button>`;
+    const btn=(t,l)=>`<button type="button" data-dag="${t}" aria-pressed="${dag===t}">${l}<small>${fmt(D[t].kcal)} kcal${t===todayType?'<span class="sep">·</span>'+T("vandaag"):""}</small></button>`;
     const days=DAGEN.filter(([d])=>P.trainingsdagen.includes(d)).map(([,l])=>l).join(", ");
-    dayBar=`<div class="daytoggle" role="group" aria-label="Soort dag">${btn("train","Trainingsdag")}${btn("rust","Rustdag")}</div>
-      <p class="sub" style="font-size:14px">Trainingsdagen: ${days}, ${MOMENT_LABEL[P.trainingsmoment||"middag"]}. Gemiddeld over de week: ${fmt(W.kcal)} kcal per dag.</p>`;
+    dayBar=`<div class="daytoggle" role="group" aria-label="${T("Soort dag")}">${btn("train",T("Trainingsdag"))}${btn("rust",T("Rustdag"))}</div>
+      <p class="sub" style="font-size:14px">${T("Trainingsdagen: {d}, {m}. Gemiddeld over de week: {k} kcal per dag.",{d:days,m:MOMENT_LABEL[P.trainingsmoment||"middag"],k:fmt(W.kcal)})}</p>`;
   }
   return `
     ${o.banner||""}
-    <h1>${you?"Uw dagdoel":"Dagdoel"}</h1>
-    <p class="sub">Gebaseerd op ${you?"uw":"de"} meting van ${dateNL(m.datum)} (${fmt(m.gewicht,1)} kg).</p>
+    <h1>${you?T("Uw dagdoel"):T("Dagdoel")}</h1>
+    <p class="sub">${T(you?"Gebaseerd op uw meting van {d} ({w} kg).":"Gebaseerd op de meting van {d} ({w} kg).",{d:dateNL(m.datum),w:fmt(m.gewicht,1)})}</p>
     ${dayBar}
     ${targetHTML(A,W,D,dag)}
     ${W.notes.map(n=>`<div class="note">${n}</div>`).join("")}
-    <h2>${D?(dag==="train"?"Maaltijden op een trainingsdag":"Maaltijden op een rustdag"):you?"Uw maaltijden vandaag":"Maaltijden"}</h2>
+    <h2>${D?(dag==="train"?T("Maaltijden op een trainingsdag"):T("Maaltijden op een rustdag")):you?T("Uw maaltijden vandaag"):T("Maaltijden")}</h2>
     ${meals.map(ml=>mealHTML(ml,{interactive:o.interactive,dag,eaten:o.eaten})).join("")}
     ${totalsHTML(S,A)}
     <div class="actions">
-      ${o.interactive?`<button class="btn" type="button" data-new-menu>Nieuw menu maken</button>`:""}
-      <button class="btn ghost" type="button" data-boodschappen>Boodschappenlijst</button>
-      <button class="btn ghost" type="button" data-print>Plan als PDF</button>
+      ${o.interactive?`<button class="btn" type="button" data-new-menu>${T("Nieuw menu maken")}</button>`:""}
+      <button class="btn ghost" type="button" data-boodschappen>${T("Boodschappenlijst")}</button>
+      <button class="btn ghost" type="button" data-print>${T("Plan als PDF")}</button>
     </div>`;
 }
 
@@ -386,8 +388,8 @@ function shoppingList(P,m,menu){
     const f=FOODS[key], u=f.unit;
     if(u){
       const c=Math.ceil(g/u[2]-1e-9);
-      if(key==="brood") return `${c} sneetjes (± ${fmt(Math.ceil(c/20*2)/2,1).replace(",0","")} brood)`;
-      if(f.oil) return `${c} el (± ${Math.ceil(c*15/50)*50} ml)`;
+      if(key==="brood") return T("{n} sneetjes (± {b} brood)",{n:c,b:fmt(Math.ceil(c/20*2)/2,c%20&&Math.ceil(c/20*2)%2?1:0)});
+      if(f.oil) return T("{n} el (± {ml} ml)",{n:c,ml:Math.ceil(c*15/50)*50});
       return `${c} ${c===1?u[0]:u[1]}`;
     }
     const r=Math.ceil(g/50)*50;
@@ -399,8 +401,8 @@ function shoppingList(P,m,menu){
 }
 function shoppingHTML(P,m,menu){
   const W=analyse(P,m), D=dagTargets(P,W);
-  const note=D?`Voor 7 dagen: ${P.trainingsdagen.length} trainingsdagen en ${7-P.trainingsdagen.length} rustdagen, volgens het huidige menu.`:"Voor 7 dagen, volgens het huidige menu.";
-  return `<p class="sub">${note} Hoeveelheden zijn naar boven afgerond.</p>`+
+  const note=D?T("Voor 7 dagen: {t} trainingsdagen en {r} rustdagen, volgens het huidige menu.",{t:P.trainingsdagen.length,r:7-P.trainingsdagen.length}):T("Voor 7 dagen, volgens het huidige menu.");
+  return `<p class="sub">${note} ${T("Hoeveelheden zijn naar boven afgerond.")}</p>`+
     shoppingList(P,m,menu).map(g=>`<h3 class="shop-h">${g.label}</h3><ul class="shop">${g.items.map(i=>`<li><label><input type="checkbox"><span>${i.naam}</span></label><b>${i.hoeveel}</b></li>`).join("")}</ul>`).join("");
 }
 
@@ -412,17 +414,17 @@ function printHTML(P,m,menu,o){
   const days=D?DAGEN.filter(([d])=>P.trainingsdagen.includes(d)).map(([,l])=>l).join(", "):"";
   const section=dag=>{
     const pd=planData(P,m,menu,dag);
-    const title=dag==="train"?`Trainingsdag <small>(${days}, ${MOMENT_LABEL[P.trainingsmoment||"middag"]})</small>`:dag==="rust"?"Rustdag":"Dagmenu";
+    const title=dag==="train"?`${T("Trainingsdag")} <small>(${days}, ${MOMENT_LABEL[P.trainingsmoment||"middag"]})</small>`:dag==="rust"?T("Rustdag"):T("Dagmenu");
     return `<section class="p-day"><h2>${title}</h2>
-      <div class="p-targets"><div><b>${fmt(pd.A.kcal)}</b><small>kcal</small></div><div><b>${pd.A.prot}<span class="unit">g</span></b><small>eiwit</small></div><div><b>${pd.A.carb}<span class="unit">g</span></b><small>koolhydraten</small></div><div><b>${pd.A.fat}<span class="unit">g</span></b><small>vet</small></div></div>
+      <div class="p-targets"><div><b>${fmt(pd.A.kcal)}</b><small>kcal</small></div><div><b>${pd.A.prot}<span class="unit">g</span></b><small>${T("eiwit")}</small></div><div><b>${pd.A.carb}<span class="unit">g</span></b><small>${T("koolhydraten")}</small></div><div><b>${pd.A.fat}<span class="unit">g</span></b><small>${T("vet")}</small></div></div>
       ${pd.meals.map(ml=>mealHTML(ml,{print:true})).join("")}</section>`;
   };
-  return `<header class="p-head"><img src="${o.merk&&o.merk.logo?o.merk.logo:"/img/logo.webp"}" alt="${esc(o.merk&&o.merk.naam||"DCRAMERE")}"><div><p class="p-kicker">Persoonlijk voedingsplan</p><h1>${esc(o.naam||"")}</h1>
-      <p>Opgesteld op ${dateNL(today())}<span class="sep">·</span>gebaseerd op de meting van ${dateNL(m.datum)} (${fmt(m.gewicht,1)} kg)<br>Coach: ${esc(o.coach||"Dino E. Cramer")} — ${esc(o.merk&&o.merk.naam||"DCRAMERE")}</p></div></header>
-    <div class="p-summary"><div><small>Doel</small><b>${DOEL_LABEL[String(P.doel)]||""}</b></div><div><small>Gemiddeld per dag</small><b>${fmt(W.kcal)} kcal</b></div><div><small>Verwacht</small><b>${W.weekly<0?"−":"+"}${fmt(Math.abs(W.weekly),2)} kg/week</b></div><div><small>Water</small><b>${fmt(W.water,1)} l per dag</b></div></div>
+  return `<header class="p-head"><img src="${o.merk&&o.merk.logo?o.merk.logo:"/img/logo.webp"}" alt="${esc(o.merk&&o.merk.naam||"DCRAMERE")}"><div><p class="p-kicker">${T("Persoonlijk voedingsplan")}</p><h1>${esc(o.naam||"")}</h1>
+      <p>${T("Opgesteld op {d}",{d:dateNL(today())})}<span class="sep">·</span>${T("gebaseerd op de meting van {d} ({w} kg)",{d:dateNL(m.datum),w:fmt(m.gewicht,1)})}<br>Coach: ${esc(o.coach||"Dino E. Cramer")} — ${esc(o.merk&&o.merk.naam||"DCRAMERE")}</p></div></header>
+    <div class="p-summary"><div><small>${T("Doel")}</small><b>${DOEL_LABEL[String(P.doel)]||""}</b></div><div><small>${T("Gemiddeld per dag")}</small><b>${fmt(W.kcal)} kcal</b></div><div><small>${T("Verwacht")}</small><b>${W.weekly<0?"−":"+"}${fmt(Math.abs(W.weekly),2)} ${T("kg/week")}</b></div><div><small>${T("Water")}</small><b>${T("{x} l per dag",{x:fmt(W.water,1)})}</b></div></div>
     ${types.map(section).join("")}
-    <section class="p-shop"><h2>Boodschappenlijst voor een week</h2>${shoppingHTML(P,m,menu)}</section>
-    <footer class="p-foot">MEET. ANALYSEER. PRESTEER. — Dit plan is een richtlijn op basis van erkende formules en vervangt geen medisch advies.</footer>`;
+    <section class="p-shop"><h2>${T("Boodschappenlijst voor een week")}</h2>${shoppingHTML(P,m,menu)}</section>
+    <footer class="p-foot">${T("MEET. ANALYSEER. PRESTEER.")} — ${T("Dit plan is een richtlijn op basis van erkende formules en vervangt geen medisch advies.")}</footer>`;
 }
 
 // ---------- render: progress ----------
@@ -437,30 +439,30 @@ function chartHTML(rows){
   for(let v=lo;v<=hi;v+=step) g+=`<line x1="${pl}" x2="${W-pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${pl-8}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;
   const pts=rows.map((r,i)=>`${X(ts[i])},${Y(ws[i])}`).join(" ");
   const dots=rows.map((r,i)=>`<circle cx="${X(ts[i])}" cy="${Y(ws[i])}" r="3.5" fill="var(--bg)" stroke="var(--gold)" stroke-width="2"><title>${fmt(ws[i],1)} kg</title></circle>`).join("");
-  const lab=t=>new Date(t).toLocaleDateString("nl-NL",{month:"short",year:"2-digit"});
+  const lab=t=>new Date(t).toLocaleDateString(I18N.locale,{month:"short",year:"2-digit"});
   g+=`<text x="${pl}" y="${H-6}">${lab(t0)}</text><text x="${W-pr}" y="${H-6}" text-anchor="end">${lab(t1)}</text>`;
-  return `<h2>Gewicht (kg)</h2><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Verloop van het gewicht">${g}<polyline fill="none" stroke="var(--gold)" stroke-width="2.5" points="${pts}"/>${dots}</svg>`;
+  return `<h2>${T("Gewicht (kg)")}</h2><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${T("Verloop van het gewicht")}">${g}<polyline fill="none" stroke="var(--gold)" stroke-width="2.5" points="${pts}"/>${dots}</svg>`;
 }
 function historyHTML(P,metingen,o){
   o=o||{};
   const rows=sorted(metingen).map(m=>({m,a:analyse(P,m)}));
   const dw=rows[rows.length-1].m.gewicht-rows[0].m.gewicht;
-  let html=`<p class="sub">${rows.length} ${rows.length===1?"meting":"metingen"}. Verandering sinds de eerste meting: <b style="color:var(--ink)">${signed(dw)} kg</b>.</p>`;
+  let html=`<p class="sub">${Tn(rows.length,"1 meting","{n} metingen")}. ${T("Verandering sinds de eerste meting:")} <b style="color:var(--ink)">${signed(dw)} kg</b>.</p>`;
   if(rows.length>1) html+=chartHTML(rows);
-  html+=`<div class="table-scroll"><table class="hist"><thead><tr><th>Datum</th><th>Gewicht</th><th>BMI</th><th>Vet%</th><th>Vetvrij</th><th>WHtR</th>${o.coach?"<th>Door</th>":""}<th></th></tr></thead><tbody>`+
-    rows.slice().reverse().map(({m,a})=>`<tr><td>${dateNL(m.datum,{day:"numeric",month:"short",year:"2-digit"})}</td><td>${fmt(m.gewicht,1)}</td><td title="${bmiLabel(a.bmi)}">${fmt(a.bmi,1)}</td><td title="${a.methode}">${fmt(a.vet*100,1)}${a.methode==="schatting"?"*":""}</td><td>${fmt(a.lbm,1)}</td><td>${a.whtr?fmt(a.whtr,2):"–"}</td>${o.coach?`<td>${m.door==="coach"?"Coach":"Cliënt"}</td>`:""}<td><button class="del" type="button" data-del="${m.id}">Verwijderen</button></td></tr>`).join("")+
-    `</tbody></table></div><p class="sub" style="font-size:13px;margin-top:8px">* Geschat vetpercentage op basis van BMI en leeftijd. Een huidplooimeting met ${o.coach?"de":"uw"} coach is nauwkeuriger.</p>`;
+  html+=`<div class="table-scroll"><table class="hist"><thead><tr><th>${T("Datum")}</th><th>${T("Gewicht")}</th><th>BMI</th><th>${T("Vet%")}</th><th>${T("Vetvrij")}</th><th>WHtR</th>${o.coach?`<th>${T("Door")}</th>`:""}<th></th></tr></thead><tbody>`+
+    rows.slice().reverse().map(({m,a})=>`<tr><td>${dateNL(m.datum,{day:"numeric",month:"short",year:"2-digit"})}</td><td>${fmt(m.gewicht,1)}</td><td title="${bmiLabel(a.bmi)}">${fmt(a.bmi,1)}</td><td title="${T(a.methode)}">${fmt(a.vet*100,1)}${a.methode==="schatting"?"*":""}</td><td>${fmt(a.lbm,1)}</td><td>${a.whtr?fmt(a.whtr,2):"–"}</td>${o.coach?`<td>${m.door==="coach"?"Coach":T("Cliënt")}</td>`:""}<td><button class="del" type="button" data-del="${m.id}">${T("Verwijderen")}</button></td></tr>`).join("")+
+    `</tbody></table></div><p class="sub" style="font-size:13px;margin-top:8px">* ${T(o.coach?"Geschat vetpercentage op basis van BMI en leeftijd. Een huidplooimeting met de coach is nauwkeuriger.":"Geschat vetpercentage op basis van BMI en leeftijd. Een huidplooimeting met uw coach is nauwkeuriger.")}</p>`;
   return html;
 }
 
 // ---------- check-ins ----------
 // bad = which end of the 1–5 scale needs the coach's attention
 const CHECK_Q=[
-  ["energie","Energie","zeer laag","zeer goed","low"],
-  ["honger","Honger","nauwelijks","veel honger","high"],
-  ["slaap","Slaap","slecht","uitstekend","low"],
-  ["stress","Stress","weinig","veel","high"],
-  ["naleving","Plan gevolgd","nauwelijks","volledig","low"]
+  ["energie",T("Energie"),T("zeer laag"),T("zeer goed"),"low"],
+  ["honger",T("Honger"),T("nauwelijks"),T("veel honger"),"high"],
+  ["slaap",T("Slaap"),T("slecht"),T("uitstekend"),"low"],
+  ["stress",T("Stress"),T("weinig"),T("veel"),"high"],
+  ["naleving",T("Plan gevolgd"),T("nauwelijks"),T("volledig"),"low"]
 ];
 const flagged=(q,v)=>q[4]==="low"?v<=2:v>=4;
 function checkinFieldsHTML(){
@@ -469,24 +471,24 @@ function checkinFieldsHTML(){
       <div class="scale-row">${[1,2,3,4,5].map(v=>`<label><input type="radio" name="${q[0]}" value="${v}" required><span>${v}</span></label>`).join("")}</div>
       <div class="scale-ends"><span>${q[2]}</span><span>${q[3]}</span></div>
     </fieldset>`).join("")+`
-    <label>Aantal trainingen deze week <small>optioneel</small><input type="number" name="training" min="0" max="14" inputmode="numeric"></label>
-    <label>Opmerking voor uw coach <small>optioneel</small><textarea name="opmerking" style="min-height:90px" placeholder="Hoe ging het? Waar liep u tegenaan?"></textarea></label>`;
+    <label>${T("Aantal trainingen deze week")} <small>${T("optioneel")}</small><input type="number" name="training" min="0" max="14" inputmode="numeric"></label>
+    <label>${T("Opmerking voor uw coach")} <small>${T("optioneel")}</small><textarea name="opmerking" style="min-height:90px" placeholder="${T("Hoe ging het? Waar liep u tegenaan?")}"></textarea></label>`;
 }
 function readCheckin(f){
   const k={datum:f.elements.datum.value||today(),training:f.elements.training.value===""?null:+f.elements.training.value,opmerking:f.elements.opmerking.value.trim()};
-  for(const q of CHECK_Q){const v=f.querySelector(`input[name="${q[0]}"]:checked`);if(!v) throw new Error(`Kies een score voor ${q[1].toLowerCase()}.`);k[q[0]]=+v.value}
+  for(const q of CHECK_Q){const v=f.querySelector(`input[name="${q[0]}"]:checked`);if(!v) throw new Error(T("Kies een score voor {x}.",{x:q[1].toLowerCase()}));k[q[0]]=+v.value}
   return k;
 }
 function checkinsHTML(list){
-  if(!list||!list.length) return '<p class="empty">Nog geen check-ins.</p>';
-  return `<div class="table-scroll"><table class="hist checkins"><thead><tr><th>Week van</th>${CHECK_Q.map(q=>`<th>${q[1]}</th>`).join("")}<th>Train.</th></tr></thead><tbody>`+
+  if(!list||!list.length) return `<p class="empty">${T("Nog geen check-ins.")}</p>`;
+  return `<div class="table-scroll"><table class="hist checkins"><thead><tr><th>${T("Week van")}</th>${CHECK_Q.map(q=>`<th>${q[1]}</th>`).join("")}<th>${T("Train.")}</th></tr></thead><tbody>`+
     list.map(k=>`<tr><td>${dateNL(k.datum,{day:"numeric",month:"short"})}</td>${CHECK_Q.map(q=>`<td class="${flagged(q,k[q[0]])?"stale":""}">${k[q[0]]}</td>`).join("")}<td>${k.training==null?"–":k.training}</td></tr>${k.opmerking?`<tr class="remark"><td colspan="${CHECK_Q.length+2}">“${esc(k.opmerking)}”</td></tr>`:""}`).join("")+
-    `</tbody></table></div><p class="sub" style="font-size:13px;margin-top:8px">Scores van 1 tot 5. Rood = aandachtspunt (lage energie, slaap of naleving; veel honger of stress).</p>`;
+    `</tbody></table></div><p class="sub" style="font-size:13px;margin-top:8px">${T("Scores van 1 tot 5. Rood = aandachtspunt (lage energie, slaap of naleving; veel honger of stress).")}</p>`;
 }
 const checkinFlags=k=>k?CHECK_Q.filter(q=>flagged(q,k[q[0]])).map(q=>q[1].toLowerCase()):[];
 
 // ---------- progress photos ----------
-const POSES=[["voor","Voorkant"],["achter","Achterkant"],["zijkant","Zijkant"]];
+const POSES=[["voor",T("Voorkant")],["achter",T("Achterkant")],["zijkant",T("Zijkant")]];
 const FOTO_EVERY=28; // days between photo sets
 function fotoSets(fotos){
   const by={};
@@ -498,22 +500,22 @@ const fotosDue=fotos=>{const d=lastFotoDate(fotos);return !d||daysSince(d)>=FOTO
 // Downscale on the device before upload (max 1600 px, JPEG). Drawing to a canvas also drops all EXIF
 // metadata such as GPS location; createImageBitmap applies the EXIF rotation first.
 async function prepareFoto(file){
-  if(!file||!/^image\//.test(file.type)) throw new Error("Kies een foto.");
+  if(!file||!/^image\//.test(file.type)) throw new Error(T("Kies een foto."));
   let img;
   try{img=await createImageBitmap(file,{imageOrientation:"from-image"})}
-  catch(e){throw new Error("Deze foto kan niet worden gelezen. Probeer een JPEG- of PNG-foto.")}
+  catch(e){throw new Error(T("Deze foto kan niet worden gelezen. Probeer een JPEG- of PNG-foto."))}
   const MAX=1600, r=Math.min(1,MAX/Math.max(img.width,img.height));
   const cv=document.createElement("canvas"); cv.width=Math.round(img.width*r); cv.height=Math.round(img.height*r);
   cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-  return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error("Verwerken van de foto is mislukt.")),"image/jpeg",0.85));
+  return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error(T("Verwerken van de foto is mislukt."))),"image/jpeg",0.85));
 }
 // profile picture: centre square crop to 400×400 JPEG (also strips EXIF/GPS)
 async function prepareAvatar(file){
-  if(!file||!/^image\//.test(file.type)) throw new Error("Kies een foto.");
-  let img; try{img=await createImageBitmap(file,{imageOrientation:"from-image"})}catch(e){throw new Error("Deze foto kan niet worden gelezen.")}
+  if(!file||!/^image\//.test(file.type)) throw new Error(T("Kies een foto."));
+  let img; try{img=await createImageBitmap(file,{imageOrientation:"from-image"})}catch(e){throw new Error(T("Deze foto kan niet worden gelezen."))}
   const side=Math.min(img.width,img.height), cv=document.createElement("canvas"); cv.width=cv.height=400;
   cv.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,400,400);
-  return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error("Verwerken van de foto is mislukt.")),"image/jpeg",0.88));
+  return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error(T("Verwerken van de foto is mislukt."))),"image/jpeg",0.88));
 }
 // round avatar: photo, or initials on a gold ring
 function avatarHTML(url,naam,size){
@@ -523,9 +525,9 @@ function avatarHTML(url,naam,size){
     :`<span class="avatar ini" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.38)}px" aria-hidden="true">${esc(ini)}</span>`;
 }
 async function uploadFoto(url,blob){
-  const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"content-type":"image/jpeg"},body:blob});
+  const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"content-type":"image/jpeg","x-taal":I18N.lang},body:blob});
   let data=null; try{data=await r.json()}catch(e){}
-  if(!r.ok) throw new Error((data&&data.error)||"Uploaden is mislukt. Controleer uw internetverbinding.");
+  if(!r.ok) throw new Error((data&&data.error)||T("Uploaden is mislukt. Controleer uw internetverbinding."));
   return data;
 }
 // three slots for one date; data-foto-pose inputs are handled by the page script
@@ -537,60 +539,60 @@ function fotoUploadHTML(fotos,datum,src,o){
       <div class="foto-frame">${set[p]?`<img src="${src(set[p])}" alt="${l}" loading="lazy">`:`<span class="foto-ghost foto-ghost-${p}" aria-hidden="true"></span>`}</div>
       <b>${l}</b>
       <div class="foto-btns">
-        <label class="btn small${set[p]?" ghost":""}"><input type="file" accept="image/*" capture="environment" data-foto-pose="${p}" hidden>${set[p]?"Opnieuw":"Foto maken"}</label>
-        <label class="btn small ghost"><input type="file" accept="image/*" data-foto-pose="${p}" hidden>Uit galerij</label>
-        ${set[p]&&o.del?`<button class="linkbtn" type="button" data-foto-del="${set[p]}">Verwijderen</button>`:""}
+        <label class="btn small${set[p]?" ghost":""}"><input type="file" accept="image/*" capture="environment" data-foto-pose="${p}" hidden>${set[p]?T("Opnieuw"):T("Foto maken")}</label>
+        <label class="btn small ghost"><input type="file" accept="image/*" data-foto-pose="${p}" hidden>${T("Uit galerij")}</label>
+        ${set[p]&&o.del?`<button class="linkbtn" type="button" data-foto-del="${set[p]}">${T("Verwijderen")}</button>`:""}
       </div>
     </div>`).join("")}</div>`;
 }
-const FOTO_TIPS=`<ul class="tips"><li>Zelfde plek, zelfde licht en zelfde tijdstip (bij voorkeur 's ochtends, nuchter).</li><li>Strakke sportkleding of zwemkleding, armen ontspannen langs het lichaam.</li><li>Laat iemand anders de foto maken, of gebruik de zelfontspanner, op heuphoogte.</li><li>Uw foto's zijn alleen zichtbaar voor u en uw coach. Locatiegegevens worden verwijderd.</li></ul>`;
+const FOTO_TIPS=`<ul class="tips"><li>${T("Zelfde plek, zelfde licht en zelfde tijdstip (bij voorkeur 's ochtends, nuchter).")}</li><li>${T("Strakke sportkleding of zwemkleding, armen ontspannen langs het lichaam.")}</li><li>${T("Laat iemand anders de foto maken, of gebruik de zelfontspanner, op heuphoogte.")}</li><li>${T("Uw foto's zijn alleen zichtbaar voor u en uw coach. Locatiegegevens worden verwijderd.")}</li></ul>`;
 // side-by-side comparison of two dates (defaults: first vs latest)
 function fotoCompareHTML(fotos,src,a,b){
   const sets=fotoSets(fotos);
-  if(!sets.length) return '<p class="empty">Nog geen progressiefoto\'s.</p>';
+  if(!sets.length) return `<p class="empty">${T("Nog geen progressiefoto's.")}</p>`;
   const A=sets.find(s=>s.datum===a)||sets[0], B=sets.find(s=>s.datum===b)||sets[sets.length-1];
   const opt=sel=>sets.map(s=>`<option value="${s.datum}"${s.datum===sel?" selected":""}>${dateNL(s.datum,{day:"numeric",month:"short",year:"numeric"})}</option>`).join("");
-  const cell=(s,p,l)=>s[p]?`<img src="${src(s[p])}" alt="${l} ${dateNL(s.datum)}" loading="lazy">`:`<span class="foto-missing">geen foto</span>`;
-  return `<div class="compare-bar"><label>Van<select data-foto-cmp="a">${opt(A.datum)}</select></label><label>Tot<select data-foto-cmp="b">${opt(B.datum)}</select></label>
-      <span class="sub">${sets.length} ${sets.length===1?"set":"sets"} · ${Math.max(0,Math.round((new Date(B.datum)-new Date(A.datum))/864e5/7))} weken ertussen</span></div>
+  const cell=(s,p,l)=>s[p]?`<img src="${src(s[p])}" alt="${l} ${dateNL(s.datum)}" loading="lazy">`:`<span class="foto-missing">${T("geen foto")}</span>`;
+  return `<div class="compare-bar"><label>${T("Van")}<select data-foto-cmp="a">${opt(A.datum)}</select></label><label>${T("Tot")}<select data-foto-cmp="b">${opt(B.datum)}</select></label>
+      <span class="sub">${Tn(sets.length,"1 set","{n} sets")} · ${T("{n} weken ertussen",{n:Math.max(0,Math.round((new Date(B.datum)-new Date(A.datum))/864e5/7))})}</span></div>
     <div class="compare">${POSES.map(([p,l])=>`<div class="compare-row"><p class="kicker">${l}</p><div class="compare-pair"><figure>${cell(A,p,l)}<figcaption>${dateNL(A.datum,{day:"numeric",month:"short",year:"numeric"})}</figcaption></figure><figure>${cell(B,p,l)}<figcaption>${dateNL(B.datum,{day:"numeric",month:"short",year:"numeric"})}</figcaption></figure></div></div>`).join("")}</div>`;
 }
 
 // ---------- intake ----------
 const INTAKE_Q=[
-  ["doel","textarea","Wat wilt u bereiken, en waarom is dat belangrijk voor u?",true],
-  ["streefgewicht","number","Streefgewicht (kg)"],
-  ["medisch","textarea","Medische aandoeningen of medicijnen","Bijvoorbeeld diabetes, hoge bloeddruk, schildklier"],
-  ["blessures","textarea","Blessures of lichamelijke klachten"],
-  ["allergieen","text","Allergieën of intoleranties"],
-  ["werk","select","Wat voor werk doet u?",[["zittend","Vooral zittend"],["staand","Vooral staand of lopend"],["fysiek","Zwaar fysiek"],["ploegen","Wisselende diensten"]]],
-  ["slaap","number","Hoeveel uur slaapt u gemiddeld per nacht?"],
-  ["ervaring","select","Ervaring met training",[["geen","Geen"],["beginner","Beginner (minder dan 1 jaar)"],["gevorderd","Gevorderd (1–3 jaar)"],["ervaren","Ervaren (meer dan 3 jaar)"]]],
-  ["sport","text","Welke sport of training doet u?"],
-  ["lastig","textarea","Wat vindt u het lastigst aan gezond eten?"],
-  ["alcohol","select","Hoe vaak drinkt u alcohol?",[["nooit","Nooit"],["soms","Soms (minder dan 1× per week)"],["wekelijks","Wekelijks"],["dagelijks","Dagelijks"]]]
+  ["doel","textarea",T("Wat wilt u bereiken, en waarom is dat belangrijk voor u?"),true],
+  ["streefgewicht","number",T("Streefgewicht (kg)")],
+  ["medisch","textarea",T("Medische aandoeningen of medicijnen"),T("Bijvoorbeeld diabetes, hoge bloeddruk, schildklier")],
+  ["blessures","textarea",T("Blessures of lichamelijke klachten")],
+  ["allergieen","text",T("Allergieën of intoleranties")],
+  ["werk","select",T("Wat voor werk doet u?"),[["zittend",T("Vooral zittend")],["staand",T("Vooral staand of lopend")],["fysiek",T("Zwaar fysiek")],["ploegen",T("Wisselende diensten")]]],
+  ["slaap","number",T("Hoeveel uur slaapt u gemiddeld per nacht?")],
+  ["ervaring","select",T("Ervaring met training"),[["geen",T("Geen")],["beginner",T("Beginner (minder dan 1 jaar)")],["gevorderd",T("Gevorderd (1–3 jaar)")],["ervaren",T("Ervaren (meer dan 3 jaar)")]]],
+  ["sport","text",T("Welke sport of training doet u?")],
+  ["lastig","textarea",T("Wat vindt u het lastigst aan gezond eten?")],
+  ["alcohol","select",T("Hoe vaak drinkt u alcohol?"),[["nooit",T("Nooit")],["soms",T("Soms (minder dan 1× per week)")],["wekelijks",T("Wekelijks")],["dagelijks",T("Dagelijks")]]]
 ];
 function intakeFieldsHTML(){
   return INTAKE_Q.map(([k,t,l,x])=>{
     const ph=typeof x==="string"?` placeholder="${x}"`:"";
-    if(t==="textarea") return `<label>${l}${x===true?"":" <small>optioneel</small>"}<textarea name="${k}" style="min-height:90px"${ph}${x===true?" required":""}></textarea></label>`;
-    if(t==="select") return `<label>${l}<select name="${k}"><option value="">Kies…</option>${x.map(([v,o])=>`<option value="${v}">${o}</option>`).join("")}</select></label>`;
-    return `<label>${l} <small>optioneel</small><input name="${k}" type="${t}"${t==="number"?' inputmode="decimal" step="0.5"':""}${ph}></label>`;
+    if(t==="textarea") return `<label>${l}${x===true?"":` <small>${T("optioneel")}</small>`}<textarea name="${k}" style="min-height:90px"${ph}${x===true?" required":""}></textarea></label>`;
+    if(t==="select") return `<label>${l}<select name="${k}"><option value="">${T("Kies…")}</option>${x.map(([v,o])=>`<option value="${v}">${o}</option>`).join("")}</select></label>`;
+    return `<label>${l} <small>${T("optioneel")}</small><input name="${k}" type="${t}"${t==="number"?' inputmode="decimal" step="0.5"':""}${ph}></label>`;
   }).join("");
 }
 function fillIntake(f,I){if(!I)return;INTAKE_Q.forEach(([k])=>{if(I[k]!=null) f.elements[k].value=I[k]})}
 function readIntake(f){
   const I={};
   INTAKE_Q.forEach(([k,t])=>{const v=f.elements[k].value.trim();I[k]=t==="number"?(v===""?null:parseFloat(v.replace(",","."))):v});
-  if(!I.doel) throw new Error("Beschrijf kort wat u wilt bereiken.");
+  if(!I.doel) throw new Error(T("Beschrijf kort wat u wilt bereiken."));
   return I;
 }
 function intakeSummaryHTML(I){
-  if(!I) return '<p class="empty">De cliënt heeft de intake nog niet ingevuld.</p>';
+  if(!I) return `<p class="empty">${T("De cliënt heeft de intake nog niet ingevuld.")}</p>`;
   return `<dl class="intake">${INTAKE_Q.map(([k,t,l,x])=>{
     let v=I[k]; if(v==null||v==="") return "";
     if(t==="select") v=(x.find(o=>o[0]===v)||[,v])[1];
-    return `<dt>${l}</dt><dd>${esc(v)}${k==="streefgewicht"?" kg":k==="slaap"?" uur":""}</dd>`;
+    return `<dt>${l}</dt><dd>${esc(v)}${k==="streefgewicht"?" kg":k==="slaap"?" "+T("uur"):""}</dd>`;
   }).join("")}</dl>`;
 }
 
@@ -598,49 +600,49 @@ function intakeSummaryHTML(I){
 function profielFieldsHTML(){
   return `
     <div class="row">
-      <label>Geslacht<select name="geslacht" required><option value="">Kies…</option><option value="m">Man</option><option value="v">Vrouw</option></select></label>
-      <label>Geboortedatum<input type="date" name="geboorte" required></label>
+      <label>${T("Geslacht")}<select name="geslacht" required><option value="">${T("Kies…")}</option><option value="m">${T("Man")}</option><option value="v">${T("Vrouw")}</option></select></label>
+      <label>${T("Geboortedatum")}<input type="date" name="geboorte" required></label>
     </div>
     <div class="row">
-      <label>Lengte <small>cm</small><input type="number" name="lengte" min="120" max="230" inputmode="numeric" required></label>
-      <label>Maaltijden per dag<select name="maaltijden"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+      <label>${T("Lengte")} <small>cm</small><input type="number" name="lengte" min="120" max="230" inputmode="numeric" required></label>
+      <label>${T("Maaltijden per dag")}<select name="maaltijden"><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
     </div>
-    <label>Activiteitsniveau
+    <label>${T("Activiteitsniveau")}
       <select name="activiteit">
-        <option value="1.35">Zittend werk, nauwelijks training</option>
-        <option value="1.45">Licht actief, 1–2 trainingen per week</option>
-        <option value="1.55" selected>Actief, 3–4 trainingen per week</option>
-        <option value="1.7">Zeer actief, 5–6 trainingen per week</option>
-        <option value="1.85">Zwaar fysiek werk én dagelijks training</option>
+        <option value="1.35">${T("Zittend werk, nauwelijks training")}</option>
+        <option value="1.45">${T("Licht actief, 1–2 trainingen per week")}</option>
+        <option value="1.55" selected>${T("Actief, 3–4 trainingen per week")}</option>
+        <option value="1.7">${T("Zeer actief, 5–6 trainingen per week")}</option>
+        <option value="1.85">${T("Zwaar fysiek werk én dagelijks training")}</option>
       </select>
     </label>
     <fieldset>
-      <legend>Training</legend>
-      <p style="margin:0 0 10px;font-size:13px;color:var(--muted)">Op trainingsdagen krijgt u meer koolhydraten en een extra maaltijd rond de training, op rustdagen iets minder. Uw weekgemiddelde blijft gelijk. Geen dagen gekozen: elke dag hetzelfde plan.</p>
+      <legend>${T("Training")}</legend>
+      <p style="margin:0 0 10px;font-size:13px;color:var(--muted)">${T("Op trainingsdagen krijgt u meer koolhydraten en een extra maaltijd rond de training, op rustdagen iets minder. Uw weekgemiddelde blijft gelijk. Geen dagen gekozen: elke dag hetzelfde plan.")}</p>
       <div class="checks" data-trainingsdagen>${DAGEN.map(([d,l])=>`<label class="chip"><input type="checkbox" value="${d}">${l}</label>`).join("")}</div>
-      <label style="margin-top:12px">Wanneer traint u meestal?
-        <select name="trainingsmoment"><option value="ochtend">'s Ochtends (na het ontbijt)</option><option value="middag" selected>'s Middags (na de lunch)</option><option value="avond">'s Avonds (voor het avondeten)</option></select>
+      <label style="margin-top:12px">${T("Wanneer traint u meestal?")}
+        <select name="trainingsmoment"><option value="ochtend">${T("'s Ochtends (na het ontbijt)")}</option><option value="middag" selected>${T("'s Middags (na de lunch)")}</option><option value="avond">${T("'s Avonds (voor het avondeten)")}</option></select>
       </label>
     </fieldset>
-    <label>Doel
+    <label>${T("Doel")}
       <select name="doel">
-        <option value="-0.2">Vetmassa verbranden</option>
-        <option value="-0.1">Rustig afvallen</option>
-        <option value="0">Gewicht behouden</option>
-        <option value="0.1">Spiermassa opbouwen</option>
+        <option value="-0.2">${T("Vetmassa verbranden")}</option>
+        <option value="-0.1">${T("Rustig afvallen")}</option>
+        <option value="0">${T("Gewicht behouden")}</option>
+        <option value="0.1">${T("Spiermassa opbouwen")}</option>
       </select>
     </label>
     <fieldset>
-      <legend>Voorkeuren</legend>
+      <legend>${T("Voorkeuren")}</legend>
       <div class="checks">
-        <label class="chip"><input type="checkbox" name="geenRood" checked>Geen rood vlees</label>
-        <label class="chip"><input type="checkbox" name="geenVis">Geen vis</label>
-        <label class="chip"><input type="checkbox" name="vega">Vegetarisch</label>
-        <label class="chip"><input type="checkbox" name="geenZuivel">Geen zuivel</label>
+        <label class="chip"><input type="checkbox" name="geenRood" checked>${T("Geen rood vlees")}</label>
+        <label class="chip"><input type="checkbox" name="geenVis">${T("Geen vis")}</label>
+        <label class="chip"><input type="checkbox" name="vega">${T("Vegetarisch")}</label>
+        <label class="chip"><input type="checkbox" name="geenZuivel">${T("Geen zuivel")}</label>
       </div>
     </fieldset>
     <fieldset>
-      <legend>Deze producten liever niet</legend>
+      <legend>${T("Deze producten liever niet")}</legend>
       <div class="checks" data-excl>${Object.keys(FOODS).filter(k=>k!=="groente").map(k=>`<label class="chip"><input type="checkbox" value="${k}">${FOODS[k].n.replace(/ \(.*\)/,"")}</label>`).join("")}</div>
     </fieldset>`;
 }
@@ -654,7 +656,7 @@ function fillProfiel(f,P){
 }
 function readProfiel(f){
   const e=f.elements, l=+e.lengte.value;
-  if(!e.geslacht.value||!e.geboorte.value||!(l>=120&&l<=230)) throw new Error("Vul geslacht, geboortedatum en lengte (120–230 cm) in.");
+  if(!e.geslacht.value||!e.geboorte.value||!(l>=120&&l<=230)) throw new Error(T("Vul geslacht, geboortedatum en lengte (120–230 cm) in."));
   return {geslacht:e.geslacht.value,geboorte:e.geboorte.value,lengte:l,maaltijden:+e.maaltijden.value,activiteit:+e.activiteit.value,doel:+e.doel.value,
     geenRood:e.geenRood.checked,geenVis:e.geenVis.checked,vega:e.vega.checked,geenZuivel:e.geenZuivel.checked,
     excl:[...f.querySelectorAll("[data-excl] input:checked")].map(i=>i.value),
@@ -665,23 +667,23 @@ function metingFieldsHTML(o){
   o=o||{};
   return `
     <div class="row">
-      <label>Datum<input type="date" name="datum" required value="${today()}"></label>
-      <label class="big-input">Gewicht (kg)<input type="number" name="gewicht" step="0.1" min="30" max="300" inputmode="decimal" required placeholder="0,0"></label>
+      <label>${T("Datum")}<input type="date" name="datum" required value="${today()}"></label>
+      <label class="big-input">${T("Gewicht (kg)")}<input type="number" name="gewicht" step="0.1" min="30" max="300" inputmode="decimal" required placeholder="0,0"></label>
     </div>
     <details${o.open?" open":""}>
-      <summary>Uitgebreide meting${o.open?"":" (met uw coach)"}</summary>
+      <summary>${o.open?T("Uitgebreide meting"):T("Uitgebreide meting (met uw coach)")}</summary>
       <div style="display:grid;gap:14px;margin-top:10px">
         <div class="row">
-          <label>Taille, smalste omtrek <small>cm</small><input type="number" name="taille" step="0.5" inputmode="decimal"></label>
-          <label>Heupomvang <small>cm</small><input type="number" name="heup" step="0.5" inputmode="decimal"></label>
+          <label>${T("Taille, smalste omtrek")} <small>cm</small><input type="number" name="taille" step="0.5" inputmode="decimal"></label>
+          <label>${T("Heupomvang")} <small>cm</small><input type="number" name="heup" step="0.5" inputmode="decimal"></label>
         </div>
         <fieldset>
-          <legend>Huidplooien (mm) — alle vier invullen</legend>
+          <legend>${T("Huidplooien (mm) — alle vier invullen")}</legend>
           <div class="row">
             <label>Biceps<input type="number" name="p1" step="0.1" inputmode="decimal"></label>
             <label>Triceps<input type="number" name="p2" step="0.1" inputmode="decimal"></label>
-            <label>Onder schouderblad<input type="number" name="p3" step="0.1" inputmode="decimal"></label>
-            <label>Boven heupbeen<input type="number" name="p4" step="0.1" inputmode="decimal"></label>
+            <label>${T("Onder schouderblad")}<input type="number" name="p3" step="0.1" inputmode="decimal"></label>
+            <label>${T("Boven heupbeen")}<input type="number" name="p4" step="0.1" inputmode="decimal"></label>
           </div>
         </fieldset>
       </div>
@@ -690,19 +692,19 @@ function metingFieldsHTML(o){
 function readMeting(f){
   const n=k=>{const v=parseFloat(String(f.elements[k].value).replace(",","."));return v>0?v:null};
   const d=f.elements.datum.value, w=n("gewicht");
-  if(!d||!(w>=30&&w<=300)) throw new Error("Vul een datum en een gewicht tussen 30 en 300 kg in.");
+  if(!d||!(w>=30&&w<=300)) throw new Error(T("Vul een datum en een gewicht tussen 30 en 300 kg in."));
   const m={datum:d,gewicht:w,taille:n("taille"),heup:n("heup"),p1:n("p1"),p2:n("p2"),p3:n("p3"),p4:n("p4")};
   const pl=[m.p1,m.p2,m.p3,m.p4].filter(x=>x!=null).length;
-  if(pl&&pl<4) throw new Error("Vul alle vier huidplooien in, of geen.");
+  if(pl&&pl<4) throw new Error(T("Vul alle vier huidplooien in, of geen."));
   return m;
 }
 
 // ---------- api & ui helpers ----------
 async function api(path,method,body){
   const r=await fetch(path,{method:method||"GET",credentials:"same-origin",
-    headers:body!==undefined?{"content-type":"application/json"}:{},body:body!==undefined?JSON.stringify(body):undefined});
+    headers:Object.assign({"x-taal":I18N.lang},body!==undefined?{"content-type":"application/json"}:{}),body:body!==undefined?JSON.stringify(body):undefined});
   let data=null; try{data=await r.json()}catch(e){}
-  if(!r.ok){const e=new Error((data&&data.error)||"Er ging iets mis ("+r.status+"). Controleer uw internetverbinding.");e.status=r.status;throw e}
+  if(!r.ok){const e=new Error((data&&data.error)||T("Er ging iets mis ({x}). Controleer uw internetverbinding.",{x:r.status}));e.status=r.status;throw e}
   return data;
 }
 // runs an async form handler with the submit button disabled and errors shown in the form's [data-msg]

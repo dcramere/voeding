@@ -39,6 +39,7 @@
         <div class="flash" data-msg role="status"></div>
       </form>
       <p class="auth-foot"><button class="linkbtn" type="button" data-v="vergeten">Wachtwoord vergeten of nog geen account?</button></p>
+      <p class="auth-foot"><span data-lang-switch></span></p>
     </div>
   </section>
 
@@ -193,6 +194,10 @@
       <div class="err" id="aboMsg2" role="status"></div>
     </div>
 
+    <h2>Taal</h2>
+    <p class="sub">De taal van de app en van uw meldingen.</p>
+    <div class="actions" style="margin-top:0"><span data-lang-switch></span></div>
+
     <h2>Meldingen</h2>
     <p class="sub" id="pushText">Ontvang een melding als uw coach reageert en als het tijd is voor uw check-in.</p>
     <div class="actions" style="margin-top:0"><button class="btn ghost" type="button" id="pushBtn">Meldingen aanzetten</button></div>
@@ -247,10 +252,6 @@
 
 <div id="print" aria-hidden="true"></div>
 
-<script src="/core.js"></script>
-<script src="/training.js"></script>
-<script src="/voeding.js"></script>
-<script src="/chat.js"></script>
-<script src="/app.js"></script>
+<script src="/i18n.js" data-load="/core.js /training.js /voeding.js /chat.js /app.js"></script>
 </body>
 </html>

@@ -57,55 +57,57 @@ const EX={
   smith_calf_raise:{n:"Smith Calf Raise",eq:"Smith",m:["calves"],s:[],rust:60,cue:"Voorvoeten op een verhoging. Volledige rek onderin en 1 tel pauze bovenin."}
 };
 
+// exercise names stay in English (gym terminology); equipment and cues are translated
+for(const e of Object.values(EX)) e.cue=T(e.cue); // equipment is translated where shown (coach-built exercises store the Dutch key)
 const TIPS={
-  push:["Warm op met 5 minuten cardio en 2 lichte sets van de eerste oefening.","Schouderbladen naar achteren en omlaag bij alle drukoefeningen; dat beschermt de schouders.","Zijwaartse raises: liever lichter en strikt dan zwaar met zwaai."],
-  pull:["Trek met de ellebogen, niet met de handen; zo train je de rug in plaats van de biceps.","Houd bij roeien de rug neutraal en het bovenlichaam stil.","Gebruik lifting straps bij de zware sets als je grip eerder opgeeft dan je rug."],
-  algemeen:["Warm op met 5–10 minuten lichte cardio en 1–2 lichte sets van de eerste oefening.","Techniek gaat voor gewicht: stop een set als de uitvoering slordig wordt.","Houd de rusttijden aan; noteer elke set, zodat u volgende keer weet wat u moet verslaan."],
-  legs:["Warm op met 5–10 minuten fietsen en een paar lichte sets beenstrekken.","Diepte gaat voor gewicht: werk met een bereik dat u technisch goed beheerst.","Neem bij squats en RDL's 2–3 minuten rust; bij kuiten en isolatie is 60 seconden genoeg."]
+  push:[T("Warm op met 5 minuten cardio en 2 lichte sets van de eerste oefening."),T("Schouderbladen naar achteren en omlaag bij alle drukoefeningen; dat beschermt de schouders."),T("Zijwaartse raises: liever lichter en strikt dan zwaar met zwaai.")],
+  pull:[T("Trek met de ellebogen, niet met de handen; zo train je de rug in plaats van de biceps."),T("Houd bij roeien de rug neutraal en het bovenlichaam stil."),T("Gebruik lifting straps bij de zware sets als je grip eerder opgeeft dan je rug.")],
+  algemeen:[T("Warm op met 5–10 minuten lichte cardio en 1–2 lichte sets van de eerste oefening."),T("Techniek gaat voor gewicht: stop een set als de uitvoering slordig wordt."),T("Houd de rusttijden aan; noteer elke set, zodat u volgende keer weet wat u moet verslaan.")],
+  legs:[T("Warm op met 5–10 minuten fietsen en een paar lichte sets beenstrekken."),T("Diepte gaat voor gewicht: werk met een bereik dat u technisch goed beheerst."),T("Neem bij squats en RDL's 2–3 minuten rust; bij kuiten en isolatie is 60 seconden genoeg.")]
 };
 
 // ---------- programs ----------
 const d=(key,naam,type,focus,list)=>({key,naam,type,focus,ex:list.map(([id,reps])=>({id,reps}))});
 const PROGRAMS={
   ppl12:{
-    id:"ppl12",naam:"Push · Pull · Legs",sub:"12 weken, 6 trainingen per week",weken:12,
+    id:"ppl12",naam:"Push · Pull · Legs",sub:T("12 weken, 6 trainingen per week"),weken:12,
     dagen:[
-      d("pushA","Push A","push","Borst, schouders en triceps",[["incline_db_press",[10,8,8,6]],["flat_db_press",[10,8,6]],["smith_incline_press",[10,8,8,6]],["incline_db_lateral",[20,10,10,10]],["cable_lateral_single",[15,15,10,10]],["seated_db_press_hammer",[12,10,8,6]],["straight_bar_ext",[10,10,10,10,10,10]],["skull_crushers",[20,10,10,8,8]]]),
-      d("pullA","Pull A","pull","Rug, achterkant schouders en biceps",[["wide_pulldown",[10,8,6,6]],["bb_pullover",[10,8,8,6]],["seated_row_vbar",[10,8,6,6]],["bent_bb_row",[8,6]],["incline_db_high_elbow_row",[10,8,6]],["incline_db_rear_delt",[15,15,10,10]],["cable_rear_delt_close",[15]],["cable_straight_curl",[10,10,10,8,8]],["ez_curl",[10,10,10,8,8]]]),
-      d("legsA","Legs A","legs","Quadriceps, hamstrings, billen en kuiten",[["leg_ext",[10,10,10,10,20,30]],["seated_leg_curl",[10,10,8,8,20]],["he_smith_squat",[10,8,8,6]],["leg_press_low",[20]],["glute_rdl",[10,8,8]],["walking_lunges",[30,40,50]],["seated_calf_partials",[10,10,10,30,30,30]]]),
-      d("pushB","Push B","push","Borst, schouders en triceps",[["flat_db_press",[10,8,6,6]],["incline_bb_press",[10,8,6]],["db_barrel_press",[10,8,8]],["seated_db_lateral",[15,10,10,8]],["machine_lateral",[20]],["standing_bb_ohp",[20,15,10]],["rope_ext",[10]],["incline_skull",[20,10,10,8,8]]]),
-      d("pullB","Pull B","pull","Rug, achterkant schouders en biceps",[["vbar_pulldown",[8,8,8,6]],["seated_lat_row",[15]],["tbar_row",[10,10,8,8,6]],["meadows_row",[10]],["rear_delt_btb",[15]],["cable_rear_delt_partials",[10]],["seated_row_high_elbow",[20]],["db_preacher_curl",[10,10,8,8,8]],["incline_cable_curl",[10]]]),
-      d("legsB","Legs B","legs","Hamstrings, quadriceps, billen en kuiten",[["smith_stiff_leg",[15,15,15,10]],["db_split_squat",[15,15,15,10]],["he_highbar_squat",[10,8,8]],["hack_squat",[10,8,6,6]],["seated_leg_curl",[10,10,8,8]],["sumo_deads",[10,8,8]],["smith_calf_raise",[20]]])
+      d("pushA","Push A","push",T("Borst, schouders en triceps"),[["incline_db_press",[10,8,8,6]],["flat_db_press",[10,8,6]],["smith_incline_press",[10,8,8,6]],["incline_db_lateral",[20,10,10,10]],["cable_lateral_single",[15,15,10,10]],["seated_db_press_hammer",[12,10,8,6]],["straight_bar_ext",[10,10,10,10,10,10]],["skull_crushers",[20,10,10,8,8]]]),
+      d("pullA","Pull A","pull",T("Rug, achterkant schouders en biceps"),[["wide_pulldown",[10,8,6,6]],["bb_pullover",[10,8,8,6]],["seated_row_vbar",[10,8,6,6]],["bent_bb_row",[8,6]],["incline_db_high_elbow_row",[10,8,6]],["incline_db_rear_delt",[15,15,10,10]],["cable_rear_delt_close",[15]],["cable_straight_curl",[10,10,10,8,8]],["ez_curl",[10,10,10,8,8]]]),
+      d("legsA","Legs A","legs",T("Quadriceps, hamstrings, billen en kuiten"),[["leg_ext",[10,10,10,10,20,30]],["seated_leg_curl",[10,10,8,8,20]],["he_smith_squat",[10,8,8,6]],["leg_press_low",[20]],["glute_rdl",[10,8,8]],["walking_lunges",[30,40,50]],["seated_calf_partials",[10,10,10,30,30,30]]]),
+      d("pushB","Push B","push",T("Borst, schouders en triceps"),[["flat_db_press",[10,8,6,6]],["incline_bb_press",[10,8,6]],["db_barrel_press",[10,8,8]],["seated_db_lateral",[15,10,10,8]],["machine_lateral",[20]],["standing_bb_ohp",[20,15,10]],["rope_ext",[10]],["incline_skull",[20,10,10,8,8]]]),
+      d("pullB","Pull B","pull",T("Rug, achterkant schouders en biceps"),[["vbar_pulldown",[8,8,8,6]],["seated_lat_row",[15]],["tbar_row",[10,10,8,8,6]],["meadows_row",[10]],["rear_delt_btb",[15]],["cable_rear_delt_partials",[10]],["seated_row_high_elbow",[20]],["db_preacher_curl",[10,10,8,8,8]],["incline_cable_curl",[10]]]),
+      d("legsB","Legs B","legs",T("Hamstrings, quadriceps, billen en kuiten"),[["smith_stiff_leg",[15,15,15,10]],["db_split_squat",[15,15,15,10]],["he_highbar_squat",[10,8,8]],["hack_squat",[10,8,6,6]],["seated_leg_curl",[10,10,8,8]],["sumo_deads",[10,8,8]],["smith_calf_raise",[20]]])
     ]
   }
 };
 const PHASES=[
-  {van:1,tot:4,naam:"Fundament",rir:"2–3 herhalingen in reserve",tekst:"Kies per set een gewicht waarmee u alle herhalingen haalt met nog 2–3 in de tank. Focus op techniek en het vastleggen van uw startgewichten."},
-  {van:5,tot:8,naam:"Opbouw",rir:"1–2 herhalingen in reserve",tekst:"Verhoog het gewicht zodra u alle herhalingen van een oefening haalt. Streef elke week naar iets meer gewicht of een herhaling extra."},
-  {van:9,tot:11,naam:"Intensiteit",rir:"0–1 herhaling in reserve",tekst:"De laatste set van elke oefening gaat tot (technisch) falen. Houd de rusttijden aan en eet op trainingsdagen volgens uw trainingsdagmenu."},
-  {van:12,tot:12,naam:"Deload",rir:"3 herhalingen in reserve",tekst:"Herstelweek: ongeveer 60% van de sets met 10–20% minder gewicht. Zo komt u uitgerust uit het programma en kunt u daarna sterker verder."}
+  {van:1,tot:4,naam:T("Fundament"),rir:T("2–3 herhalingen in reserve"),tekst:T("Kies per set een gewicht waarmee u alle herhalingen haalt met nog 2–3 in de tank. Focus op techniek en het vastleggen van uw startgewichten.")},
+  {van:5,tot:8,naam:T("Opbouw"),rir:T("1–2 herhalingen in reserve"),tekst:T("Verhoog het gewicht zodra u alle herhalingen van een oefening haalt. Streef elke week naar iets meer gewicht of een herhaling extra.")},
+  {van:9,tot:11,naam:T("Intensiteit"),rir:T("0–1 herhaling in reserve"),tekst:T("De laatste set van elke oefening gaat tot (technisch) falen. Houd de rusttijden aan en eet op trainingsdagen volgens uw trainingsdagmenu.")},
+  {van:12,tot:12,deload:true,naam:T("Deload"),rir:T("3 herhalingen in reserve"),tekst:T("Herstelweek: ongeveer 60% van de sets met 10–20% minder gewicht. Zo komt u uitgerust uit het programma en kunt u daarna sterker verder.")}
 ];
 // phases: the built-in 12-week program has four; coach-built programs progress weekly with an optional final deload
-const CUSTOM_PHASE={naam:"Progressie",rir:"1–2 herhalingen in reserve",tekst:"Haal alle herhalingen met goede techniek. Lukt dat bij alle sets, verhoog dan de volgende keer het gewicht of doe een herhaling meer."};
-const DELOAD_PHASE={naam:"Deload",rir:"3 herhalingen in reserve",tekst:"Herstelweek: ongeveer 60% van de sets met 10–20% minder gewicht, zodat u uitgerust aan het volgende blok begint."};
+const CUSTOM_PHASE={naam:T("Progressie"),rir:T("1–2 herhalingen in reserve"),tekst:T("Haal alle herhalingen met goede techniek. Lukt dat bij alle sets, verhoog dan de volgende keer het gewicht of doe een herhaling meer.")};
+const DELOAD_PHASE={deload:true,naam:T("Deload"),rir:T("3 herhalingen in reserve"),tekst:T("Herstelweek: ongeveer 60% van de sets met 10–20% minder gewicht, zodat u uitgerust aan het volgende blok begint.")};
 function phaseOf(w,progId){
   const prog=progId&&PROGRAMS[progId];
   if(prog&&prog.custom) return prog.deload&&w===prog.weken?DELOAD_PHASE:CUSTOM_PHASE;
   return PHASES.find(p=>w>=p.van&&w<=p.tot)||PHASES[0];
 }
 // the deload week keeps the first ~60% of each exercise's sets
-const setsFor=(reps,week,progId)=>phaseOf(week,progId).naam==="Deload"?reps.slice(0,Math.ceil(reps.length*0.6)):reps;
+const setsFor=(reps,week,progId)=>phaseOf(week,progId).deload?reps.slice(0,Math.ceil(reps.length*0.6)):reps;
 const weekOf=(start,progId)=>Math.min((PROGRAMS[progId]||PROGRAMS.ppl12).weken,Math.max(1,Math.floor(DC.daysSince(start)/7)+1));
 // coach-built program from the API → registry (its own exercises are added to the library)
 function registerProgram(def){
   if(!def) return;
   Object.entries(def.oefeningen||{}).forEach(([k,e])=>{EX[k]={...e,custom:true}});
-  PROGRAMS[def.id]={id:def.id,naam:def.naam,sub:`${def.weken} ${def.weken===1?"week":"weken"}, ${def.dagen.length} ${def.dagen.length===1?"training":"trainingen"} per week`,
+  PROGRAMS[def.id]={id:def.id,naam:def.naam,sub:`${Tn(def.weken,"1 week","{n} weken")}, ${Tn(def.dagen.length,"1 training per week","{n} trainingen per week")}`,
     weken:def.weken,deload:!!def.deload,custom:true,dagen:def.dagen.map(d=>({...d,focus:d.focus||""}))};
 }
 const dayOf=(prog,key)=>PROGRAMS[prog].dagen.find(x=>x.key===key);
 const e1rm=(kg,reps)=>kg>0&&reps>0?kg*(1+reps/30):0; // Epley
-const repsLabel=(e,reps)=>reps.join(" · ")+" "+(e.unit||"reps")+(e.side?" per kant":"");
+const repsLabel=(e,reps)=>reps.join(" · ")+" "+(e.unit==="stappen"?T("stappen"):e.unit||"reps")+(e.side?" "+T("per kant"):"");
 const kgFmt=kg=>kg==null||kg===""?"–":fmt(kg,Number.isInteger(+kg)?0:1);
 function minutes(day,week,progId){
   const s=day.ex.reduce((t,x)=>t+setsFor(x.reps,week,progId).length*(45+EX[x.id].rust),0);
@@ -144,10 +146,10 @@ function bodyMap(e){
   const lvl={};
   const mark=(list,v)=>list.forEach(k=>(ALIAS[k]||[k]).forEach(x=>{lvl[x]=Math.max(lvl[x]||0,v)}));
   mark(e.s,1); mark(e.m,2);
-  return `<svg class="bodymap" viewBox="0 0 120 104" role="img" aria-label="Spieren: ${e.m.map(k=>MUSCLE_NL[k]).join(", ")}">${SHAPES.map(([k,g])=>
+  return `<svg class="bodymap" viewBox="0 0 120 104" role="img" aria-label="${T("Spieren")}: ${e.m.map(k=>MUSCLE_NL[k]).join(", ")}">${SHAPES.map(([k,g])=>
     `<g class="${k==="base"?"bm-base":lvl[k]===2?"bm-p":lvl[k]===1?"bm-s":"bm-o"}">${g}</g>`).join("")}</svg>`;
 }
-const MUSCLE_NL={chest:"borst",fdelt:"voorkant schouders",sdelt:"zijkant schouders",rdelt:"achterkant schouders",triceps:"triceps",biceps:"biceps",forearms:"onderarmen",lats:"lats",upperback:"bovenrug",traps:"trapezius",lowerback:"onderrug",abs:"buik",quads:"quadriceps",hams:"hamstrings",glutes:"billen",calves:"kuiten",adductors:"adductoren"};
+const MUSCLE_NL={chest:T("borst"),fdelt:T("voorkant schouders"),sdelt:T("zijkant schouders"),rdelt:T("achterkant schouders"),triceps:T("triceps"),biceps:T("biceps"),forearms:T("onderarmen"),lats:T("lats"),upperback:T("bovenrug"),traps:T("trapezius"),lowerback:T("onderrug"),abs:T("buik"),quads:T("quadriceps"),hams:T("hamstrings"),glutes:T("billen"),calves:T("kuiten"),adductors:T("adductoren")};
 
 // ---------- log analysis ----------
 // workouts: [{week,dag,datum,sets:{exId:[{kg,reps,ok}]},afgerond,updated}]
@@ -160,7 +162,7 @@ function bestSet(sets){let b=null;(sets||[]).forEach(s=>{if(s.ok&&s.kg>0&&s.reps
 function suggestion(prev,targets){
   if(!prev||!prev.sets.length) return "";
   const hitAll=targets.every((t,i)=>prev.sets[i]&&prev.sets[i].reps>=t);
-  return hitAll?"Alle herhalingen gehaald: probeer 2,5 kg (of één stap) zwaarder.":"";
+  return hitAll?T("Alle herhalingen gehaald: probeer 2,5 kg (of één stap) zwaarder."):"";
 }
 function stats(prog,workouts){
   const done=(workouts||[]).filter(w=>w.afgerond);
@@ -191,27 +193,27 @@ function overviewHTML(P,workouts,week,o){
   const next=prog.dagen.find(x=>!(byKey(x.key)||{}).afgerond);
   return `
     <p class="kicker">${prog.naam} · ${prog.sub}</p>
-    <h1>${o.coach?"Trainingsprogramma":"Training"}</h1>
+    <h1>${o.coach?T("Trainingsprogramma"):T("Training")}</h1>
     <div class="weekbar">
-      <button class="btn small ghost" type="button" data-tr-week="${week-1}" ${week<=1?"disabled":""} aria-label="Vorige week">‹</button>
-      <div><b>Week ${week}</b> <span>van ${prog.weken}${week===cur?" · deze week":""}</span></div>
-      <button class="btn small ghost" type="button" data-tr-week="${week+1}" ${week>=prog.weken?"disabled":""} aria-label="Volgende week">›</button>
+      <button class="btn small ghost" type="button" data-tr-week="${week-1}" ${week<=1?"disabled":""} aria-label="${T("Vorige week")}">‹</button>
+      <div><b>${T("Week {n}",{n:week})}</b> <span>${T("van {n}",{n:prog.weken})}${week===cur?" · "+T("deze week"):""}</span></div>
+      <button class="btn small ghost" type="button" data-tr-week="${week+1}" ${week>=prog.weken?"disabled":""} aria-label="${T("Volgende week")}">›</button>
     </div>
-    <div class="phase"><b>Fase: ${ph.naam}</b><span>${ph.rir}</span><p>${ph.tekst}</p></div>
+    <div class="phase"><b>${T("Fase: {x}",{x:ph.naam})}</b><span>${ph.rir}</span><p>${ph.tekst}</p></div>
     <div class="days">${prog.dagen.map((x,i)=>{
       const w=byKey(x.key), done=w&&w.afgerond, started=w&&!done&&Object.values(w.sets||{}).some(a=>a.some(s=>s.ok));
       return `<button type="button" class="day${done?" done":""}${next===x&&!o.coach?" next":""}" data-tr-day="${x.key}">
-        <span class="day-n">Dag ${i+1}</span><b>${x.naam}</b><small>${x.focus}</small>
-        <span class="day-meta">${x.ex.length} oefeningen · ±${minutes(x,week,P.id)} min</span>
-        <span class="day-status">${done?`✓ Afgerond ${DC.dateNL(w.datum,{day:"numeric",month:"short"})}`:started?"Bezig":next===x&&!o.coach?"Volgende training":""}</span>
+        <span class="day-n">${T("Dag {n}",{n:i+1})}</span><b>${x.naam}</b><small>${x.focus}</small>
+        <span class="day-meta">${Tn(x.ex.length,"1 oefening","{n} oefeningen")} · ±${minutes(x,week,P.id)} min</span>
+        <span class="day-status">${done?`✓ ${T("Afgerond {d}",{d:DC.dateNL(w.datum,{day:"numeric",month:"short"})})}`:started?T("Bezig"):next===x&&!o.coach?T("Volgende training"):""}</span>
       </button>`}).join("")}
-      ${prog.dagen.length<7?`<div class="day rest"><span class="day-n">${7-prog.dagen.length===1?"Dag 7":`Overige ${7-prog.dagen.length} dagen`}</span><b>Rust${7-prog.dagen.length===1?"dag":"dagen"}</b><small>Herstel, wandelen of lichte mobiliteit</small></div>`:""}
+      ${prog.dagen.length<7?`<div class="day rest"><span class="day-n">${7-prog.dagen.length===1?T("Dag {n}",{n:7}):T("Overige {n} dagen",{n:7-prog.dagen.length})}</span><b>${7-prog.dagen.length===1?T("Rustdag"):T("Rustdagen")}</b><small>${T("Herstel, wandelen of lichte mobiliteit")}</small></div>`:""}
     </div>
     <div class="stats tr-stats">
-      <div><small>Trainingen afgerond</small><b>${st.klaar}<span class="unit">/ ${st.totaal}</span></b></div>
-      <div><small>Sets gelogd</small><b>${fmt(st.sets)}</b></div>
-      <div><small>Totaal volume</small><b>${fmt(Math.round(st.vol/1000),0)}<span class="unit">ton</span></b></div>
-      <div><small>Laatste training</small><b style="font-size:18px">${st.laatste?DC.dateNL(st.laatste,{day:"numeric",month:"short"}):"–"}</b></div>
+      <div><small>${T("Trainingen afgerond")}</small><b>${st.klaar}<span class="unit">/ ${st.totaal}</span></b></div>
+      <div><small>${T("Sets gelogd")}</small><b>${fmt(st.sets)}</b></div>
+      <div><small>${T("Totaal volume")}</small><b>${fmt(Math.round(st.vol/1000),0)}<span class="unit">${T("ton")}</span></b></div>
+      <div><small>${T("Laatste training")}</small><b style="font-size:18px">${st.laatste?DC.dateNL(st.laatste,{day:"numeric",month:"short"}):"–"}</b></div>
     </div>`;
 }
 
@@ -222,37 +224,37 @@ function workoutHTML(P,workouts,wo,o){
   const total=day.ex.reduce((t,x)=>t+setsFor(x.reps,wo.week,P.id).length,0);
   const done=Object.values(wo.sets||{}).reduce((t,a)=>t+a.filter(s=>s.ok).length,0);
   return `
-    ${ro?"":`<button class="linkbtn" type="button" data-tr-back>← Training</button>`}
-    <p class="kicker" style="margin-top:14px">Week ${wo.week} · Fase ${ph.naam} · ${ph.rir}</p>
+    ${ro?"":`<button class="linkbtn" type="button" data-tr-back>← ${T("Training")}</button>`}
+    <p class="kicker" style="margin-top:14px">${T("Week {n}",{n:wo.week})} · ${T("Fase {x}",{x:ph.naam})} · ${ph.rir}</p>
     <h1>${day.naam}</h1>
-    <p class="sub">${day.focus?day.focus+" · ":""}${day.ex.length} oefeningen · ±${minutes(day,wo.week,P.id)} min</p>
-    ${ro?"":`<div class="wo-progress" aria-hidden="true"><i style="width:${total?done/total*100:0}%"></i></div><p class="wo-status"><span data-wo-count>${done} van ${total} sets</span><span data-wo-saved></span></p>`}
-    ${wo.afgerond&&!ro?`<div class="banner"><span><b>Afgerond op ${DC.dateNL(wo.datum,{day:"numeric",month:"long"})}.</b> U kunt uw sets nog aanpassen.</span></div>`:""}
-    ${ro?"":`<details class="tips"><summary>${TIPS[day.type]?`Tips voor ${day.type==="push"?"push":day.type==="pull"?"pull":"benen"}-dagen`:"Tips voor deze training"}</summary><ul>${(TIPS[day.type]||TIPS.algemeen).map(t=>`<li>${t}</li>`).join("")}</ul></details>`}
+    <p class="sub">${day.focus?day.focus+" · ":""}${Tn(day.ex.length,"1 oefening","{n} oefeningen")} · ±${minutes(day,wo.week,P.id)} min</p>
+    ${ro?"":`<div class="wo-progress" aria-hidden="true"><i style="width:${total?done/total*100:0}%"></i></div><p class="wo-status"><span data-wo-count>${T("{a} van {b} sets",{a:done,b:total})}</span><span data-wo-saved></span></p>`}
+    ${wo.afgerond&&!ro?`<div class="banner"><span><b>${T("Afgerond op {d}.",{d:DC.dateNL(wo.datum,{day:"numeric",month:"long"})})}</b> ${T("U kunt uw sets nog aanpassen.")}</span></div>`:""}
+    ${ro?"":`<details class="tips"><summary>${TIPS[day.type]?(day.type==="push"?T("Tips voor push-dagen"):day.type==="pull"?T("Tips voor pull-dagen"):T("Tips voor benen-dagen")):T("Tips voor deze training")}</summary><ul>${(TIPS[day.type]||TIPS.algemeen).map(t=>`<li>${t}</li>`).join("")}</ul></details>`}
     ${day.ex.map((x,i)=>{
       const e=EX[x.id], reps=setsFor(x.reps,wo.week,P.id), logged=(wo.sets||{})[x.id]||[];
       const prev=lastPerformance(workouts,x.id,wo), sug=suggestion(prev,reps);
-      const prevTxt=prev?`Vorige keer (week ${prev.w.week}): ${prev.sets.map(s=>`${kgFmt(s.kg)}×${s.reps}`).join(" · ")}`:"";
+      const prevTxt=prev?`${T("Vorige keer (week {n}):",{n:prev.w.week})} ${prev.sets.map(s=>`${kgFmt(s.kg)}×${s.reps}`).join(" · ")}`:"";
       return `<article class="ex" data-ex="${x.id}">
         <div class="ex-h">${bodyMap(e)}<div>
-          <p class="kicker">Oefening ${i+1} · ${e.eq}</p><h3>${e.n}</h3>
+          <p class="kicker">${T("Oefening {n}",{n:i+1})} · ${T(e.eq)}</p><h3>${e.n}</h3>
           <p class="ex-target">${repsLabel(e,reps)}</p></div></div>
         ${ro?"":`<p class="ex-cue">${e.cue}</p>`}
         ${prevTxt&&!ro?`<p class="ex-prev">${prevTxt}${sug?`<br><b>${sug}</b>`:""}</p>`:""}
-        <table class="sets"><thead><tr><th>Set</th><th>Doel</th><th>kg</th><th>${e.unit==="stappen"?"Stappen":"Reps"}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
+        <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>kg</th><th>${e.unit==="stappen"?T("Stappen"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
         ${reps.map((t,si)=>{
           const s=logged[si]||{}, pk=prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null);
           return ro?`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td><td>${s.ok?kgFmt(s.kg):"–"}</td><td>${s.ok?(s.reps??"–"):"–"}</td></tr>`
           :`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td>
-            <td><input type="text" inputmode="decimal" data-set="${x.id}:${si}:kg" value="${s.kg??""}" placeholder="${pk!=null?kgFmt(pk):"kg"}" aria-label="Gewicht set ${si+1}"></td>
-            <td><input type="text" inputmode="numeric" data-set="${x.id}:${si}:reps" value="${s.reps??""}" placeholder="${t}" aria-label="Herhalingen set ${si+1}"></td>
-            <td><button class="set-ok" type="button" data-set-ok="${x.id}:${si}" aria-pressed="${!!s.ok}" aria-label="Set ${si+1} klaar">✓</button></td></tr>`}).join("")}
+            <td><input type="text" inputmode="decimal" data-set="${x.id}:${si}:kg" value="${s.kg??""}" placeholder="${pk!=null?kgFmt(pk):"kg"}" aria-label="${T("Gewicht set {n}",{n:si+1})}"></td>
+            <td><input type="text" inputmode="numeric" data-set="${x.id}:${si}:reps" value="${s.reps??""}" placeholder="${t}" aria-label="${T("Herhalingen set {n}",{n:si+1})}"></td>
+            <td><button class="set-ok" type="button" data-set-ok="${x.id}:${si}" aria-pressed="${!!s.ok}" aria-label="${T("Set {n} klaar",{n:si+1})}">✓</button></td></tr>`}).join("")}
         </tbody></table>
-        ${ro?"":`<a class="ex-howto" href="${howto(e)}" target="_blank" rel="noopener">Bekijk uitleg ↗</a>`}
+        ${ro?"":`<a class="ex-howto" href="${howto(e)}" target="_blank" rel="noopener">${T("Bekijk uitleg")} ↗</a>`}
       </article>`}).join("")}
-    ${ro?(wo.notitie?`<p class="sub"><b>Notitie:</b> ${esc(wo.notitie)}</p>`:""):`
-    <label style="margin-top:22px">Notitie voor uw coach <small>optioneel</small><textarea data-wo-note style="min-height:80px" placeholder="Hoe voelde de training? Pijntjes, records, opmerkingen…">${esc(wo.notitie||"")}</textarea></label>
-    <div class="actions"><button class="btn block" type="button" data-wo-finish>${wo.afgerond?"Wijzigingen opslaan":"Training afronden"}</button></div>`}`;
+    ${ro?(wo.notitie?`<p class="sub"><b>${T("Notitie:")}</b> ${esc(wo.notitie)}</p>`:""):`
+    <label style="margin-top:22px">${T("Notitie voor uw coach")} <small>${T("optioneel")}</small><textarea data-wo-note style="min-height:80px" placeholder="${T("Hoe voelde de training? Pijntjes, records, opmerkingen…")}">${esc(wo.notitie||"")}</textarea></label>
+    <div class="actions"><button class="btn block" type="button" data-wo-finish>${wo.afgerond?T("Wijzigingen opslaan"):T("Training afronden")}</button></div>`}`;
 }
 
 // summary after finishing: sets, volume and new records (best e1RM vs. all earlier sessions)
@@ -265,30 +267,30 @@ function summaryHTML(P,workouts,wo){
     const prevBest=earlier.reduce((m,s)=>Math.max(m,e1rm(s.kg,s.reps)),0);
     if(earlier.length&&e1rm(b.kg,b.reps)>prevBest) prs.push(`${EX[id].n}: ${kgFmt(b.kg)} kg × ${b.reps}`);
   });
-  return `<div class="wo-summary"><p class="kicker">Training afgerond</p><h2>Sterk werk.</h2>
-    <div class="stats"><div><small>Sets</small><b>${sets}</b></div><div><small>Volume</small><b>${fmt(Math.round(vol))}<span class="unit">kg</span></b></div><div><small>Records</small><b>${prs.length}</b></div><div><small>Week</small><b>${wo.week}<span class="unit">/ 12</span></b></div></div>
+  return `<div class="wo-summary"><p class="kicker">${T("Training afgerond")}</p><h2>${T("Sterk werk.")}</h2>
+    <div class="stats"><div><small>${T("Sets")}</small><b>${sets}</b></div><div><small>${T("Volume")}</small><b>${fmt(Math.round(vol))}<span class="unit">kg</span></b></div><div><small>${T("Records")}</small><b>${prs.length}</b></div><div><small>${T("Week")}</small><b>${wo.week}<span class="unit">/ ${(PROGRAMS[P.id]||PROGRAMS.ppl12).weken}</span></b></div></div>
     ${prs.length?`<ul class="prs">${prs.map(p=>`<li>🏆 ${p}</li>`).join("")}</ul>`:""}
-    <div class="actions"><button class="btn" type="button" data-tr-back>Terug naar overzicht</button></div></div>`;
+    <div class="actions"><button class="btn" type="button" data-tr-back>${T("Terug naar overzicht")}</button></div></div>`;
 }
 
 // ---------- render: coach ----------
 function coachGridHTML(P,workouts,sel){
   const prog=PROGRAMS[P.id], cur=weekOf(P.start,P.id);
   const cell=(w,k)=>(workouts||[]).find(x=>x.week===w&&x.dag===k);
-  return `<div class="table-scroll"><table class="trgrid"><thead><tr><th>Week</th>${prog.dagen.map(x=>`<th>${x.naam}</th>`).join("")}</tr></thead><tbody>
+  return `<div class="table-scroll"><table class="trgrid"><thead><tr><th>${T("Week")}</th>${prog.dagen.map(x=>`<th>${x.naam}</th>`).join("")}</tr></thead><tbody>
     ${Array.from({length:prog.weken},(_,i)=>i+1).map(w=>`<tr class="${w===cur?"cur":""}"><td>${w}<small>${phaseOf(w,P.id).naam}</small></td>${prog.dagen.map(x=>{
       const c=cell(w,x.key), n=c?Object.values(c.sets||{}).reduce((t,a)=>t+a.filter(s=>s.ok).length,0):0;
-      return `<td>${c?`<button type="button" class="cellbtn${c.afgerond?" ok":""}${sel&&sel.week===w&&sel.dag===x.key?" sel":""}" data-tr-cell="${w}:${x.key}">${c.afgerond?"✓":n+" sets"}<small>${c.datum?DC.dateNL(c.datum,{day:"numeric",month:"short"}):""}</small></button>`:(w<cur?'<span class="miss">–</span>':"")}</td>`}).join("")}</tr>`).join("")}
+      return `<td>${c?`<button type="button" class="cellbtn${c.afgerond?" ok":""}${sel&&sel.week===w&&sel.dag===x.key?" sel":""}" data-tr-cell="${w}:${x.key}">${c.afgerond?"✓":T("{n} sets",{n})}<small>${c.datum?DC.dateNL(c.datum,{day:"numeric",month:"short"}):""}</small></button>`:(w<cur?'<span class="miss">–</span>':"")}</td>`}).join("")}</tr>`).join("")}
   </tbody></table></div>`;
 }
 function progressionHTML(P,workouts){
   const rows=progression(P.id,workouts).filter(r=>r.laatste);
-  if(!rows.length) return '<p class="empty">Nog geen gelogde sets.</p>';
-  return `<div class="table-scroll"><table class="hist"><thead><tr><th>Oefening</th><th>Eerste</th><th>Beste</th><th>Laatste</th><th>Geschatte 1RM</th></tr></thead><tbody>${rows.map(r=>{
+  if(!rows.length) return `<p class="empty">${T("Nog geen gelogde sets.")}</p>`;
+  return `<div class="table-scroll"><table class="hist"><thead><tr><th>${T("Oefening")}</th><th>${T("Eerste")}</th><th>${T("Beste")}</th><th>${T("Laatste")}</th><th>${T("Geschatte 1RM")}</th></tr></thead><tbody>${rows.map(r=>{
     const a=e1rm(r.eerste.kg,r.eerste.reps), b=e1rm(r.beste.kg,r.beste.reps), ch=a?Math.round((b/a-1)*100):0;
-    const f=s=>`${kgFmt(s.kg)}×${s.reps}<small> wk ${s.week}</small>`;
+    const f=s=>`${kgFmt(s.kg)}×${s.reps}<small> ${T("wk {n}",{n:s.week})}</small>`;
     return `<tr><td>${EX[r.id].n}</td><td>${f(r.eerste)}</td><td>${f(r.beste)}</td><td>${f(r.laatste)}</td><td>${fmt(Math.round(b))} kg <span class="${ch>0?"up":""}">${ch>0?"+":""}${ch}%</span></td></tr>`}).join("")}</tbody></table></div>
-    <p class="sub" style="font-size:13px;margin-top:8px">Geschatte 1RM via de Epley-formule op de beste set per training.</p>`;
+    <p class="sub" style="font-size:13px;margin-top:8px">${T("Geschatte 1RM via de Epley-formule op de beste set per training.")}</p>`;
 }
 
 window.TR={EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,

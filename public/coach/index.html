@@ -24,6 +24,7 @@
       <a class="linkbtn" href="#/instellingen">Instellingen</a>
       <a class="linkbtn" href="#/coaches" id="navCoaches" hidden>Coaches</a>
       <button class="linkbtn" type="button" id="navBilling" hidden>Abonnement</button>
+      <span data-lang-switch></span>
       <span id="coachNaam"></span>
       <button class="linkbtn" type="button" id="logout">Uitloggen</button>
     </div>
@@ -166,6 +167,7 @@
         <div class="flash" data-msg role="status"></div>
       </form>
       <p class="auth-foot">Nog geen account? <a href="/coach/?aanmelden">Start als coach</a></p>
+      <p class="auth-foot"><span data-lang-switch></span></p>
     </div>
   </section>
 
@@ -295,10 +297,6 @@
 
 <div id="print" aria-hidden="true"></div>
 
-<script src="/core.js"></script>
-<script src="/training.js"></script>
-<script src="/voeding.js"></script>
-<script src="/chat.js"></script>
-<script src="/coach.js"></script>
+<script src="/i18n.js" data-load="/core.js /training.js /voeding.js /chat.js /coach.js"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 // DCRAMERE Voeding — API (/api/*) + static assets (public/)
+import { tr, pickLang, valid as validLang } from "./i18n.js";
 
 const DAY = 86400;
 const SESSION_TTL = 30 * DAY;
@@ -36,17 +37,18 @@ export default {
       if (url.searchParams.has("invite")) return Response.redirect(`${url.origin}/app/?invite=${encodeURIComponent(url.searchParams.get("invite"))}`, 302);
     }
     if (url.pathname.startsWith("/c/") && req.method === "GET") {
-      try { return await storefrontPage(env, url); }
-      catch (e) { console.error(e); ctx.waitUntil(logFout(env, url.pathname, e)); return new Response("Er ging iets mis.", { status: 500 }); }
+      try { return await storefrontPage(env, url, pickLang(req, url)); }
+      catch (e) { console.error(e); ctx.waitUntil(logFout(env, url.pathname, e)); return new Response(tr(pickLang(req, url), "Er ging iets mis."), { status: 500 }); }
     }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
       return await route(req, env, url, ctx);
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, e.status);
+      const lang = pickLang(req, url);
+      if (e instanceof HttpError) return json({ error: tr(lang, e.message, e.vars), ...(e.code ? { code: e.code } : {}) }, e.status);
       console.error(e);
       ctx.waitUntil(logFout(env, url.pathname, e));
-      return json({ error: "Er ging iets mis op de server. Probeer het later opnieuw." }, 500);
+      return json({ error: tr(lang, "Er ging iets mis op de server. Probeer het later opnieuw.") }, 500);
     }
   },
 
@@ -100,10 +102,12 @@ async function backupIfDue(env, now) {
 }
 
 // ---------- http helpers ----------
+const stripeLocale = (c) => ({ nl: "nl", en: "en", pt: "pt-BR", es: "es" }[pickLang(c.req, c.url)]);
+// messages are Dutch source text; {placeholders} are filled from vars after translation (see src/i18n.js)
 class HttpError extends Error {
-  constructor(status, message, code) { super(message); this.status = status; this.code = code; }
+  constructor(status, message, code, vars) { super(message); this.status = status; this.code = code; this.vars = vars; }
 }
-const fail = (status, msg, code) => { throw new HttpError(status, msg, code); };
+const fail = (status, msg, code, vars) => { throw new HttpError(status, msg, code, vars); };
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -170,7 +174,7 @@ async function verifyPassword(password, stored) {
 // ---------- validation ----------
 function str(v, max, field) {
   const s = typeof v === "string" ? v.trim() : "";
-  if (s.length > max) fail(400, `${field} is te lang.`);
+  if (s.length > max) fail(400, "{f} is te lang.", undefined, { f: field });
   return s;
 }
 function email(v) {
@@ -188,11 +192,11 @@ const isDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && 
 
 function num(v, min, max, field, required = false) {
   if (v === null || v === undefined || v === "") {
-    if (required) fail(400, `${field} ontbreekt.`);
+    if (required) fail(400, "{f} ontbreekt.", undefined, { f: field });
     return null;
   }
   const n = Number(v);
-  if (!Number.isFinite(n) || n < min || n > max) fail(400, `${field} moet tussen ${min} en ${max} liggen.`);
+  if (!Number.isFinite(n) || n < min || n > max) fail(400, "{f} moet tussen {a} en {b} liggen.", undefined, { f: field, a: min, b: max });
   return Math.round(n * 10) / 10;
 }
 
@@ -263,7 +267,7 @@ function cleanCheckin(b) {
   if (!isDate(b.datum)) fail(400, "Vul een geldige datum in.");
   const score = (k, label) => {
     const v = Number(b[k]);
-    if (!Number.isInteger(v) || v < 1 || v > 5) fail(400, `Kies een score voor ${label}.`);
+    if (!Number.isInteger(v) || v < 1 || v > 5) fail(400, "Kies een score voor {x}.", undefined, { x: label });
     return v;
   };
   const training = b.training === null || b.training === undefined || b.training === "" ? null : Number(b.training);
@@ -330,7 +334,7 @@ const withClient = (fn, opts = {}) => async (c) => {
 const withCoach = (fn, opts = {}) => async (c) => {
   const id = await sessionSubject(c, "coach");
   if (!id) fail(401, "Log opnieuw in.");
-  const coach = await c.env.DB.prepare("SELECT id, naam, email, is_owner, status, stripe_customer, abo_status, abo_einde, merk, slug, avatar_key, avatar_v FROM coaches WHERE id = ?").bind(id).first();
+  const coach = await c.env.DB.prepare("SELECT id, naam, email, taal, is_owner, status, stripe_customer, abo_status, abo_einde, merk, slug, avatar_key, avatar_v FROM coaches WHERE id = ?").bind(id).first();
   if (!coach) fail(401, "Log opnieuw in.");
   if (!opts.billing && !coach.is_owner && coach.status !== "actief")
     fail(402, "Uw platformabonnement is niet actief.", "abonnement");
@@ -346,6 +350,7 @@ const ROUTES = [
   ["GET", "/invite", inviteInfo],
   ["POST", "/invite", inviteAccept],
   ["GET", "/me", withClient(clientMe)],
+  ["PUT", "/taal", withClient(async (c) => { await setTaal(c, "clients", c.client.id); return json({ ok: true }); }, { billing: true })],
   ["PUT", "/profiel", withClient(clientPutProfiel)],
   ["PUT", "/menu", withClient(clientPutMenu)],
   ["POST", "/metingen", withClient(clientAddMeting)],
@@ -391,6 +396,7 @@ const ROUTES = [
   ["POST", "/coach/login", coachLogin],
   ["POST", "/coach/logout", logout("coach")],
   ["GET", "/coach/me", withCoach(coachMeInfo, { billing: true })],
+  ["PUT", "/coach/taal", withCoach(async (c) => { await setTaal(c, "coaches", c.coach.id); return json({ ok: true }); }, { billing: true })],
   ["POST", "/coach/signup", coachSignup],
   ["POST", "/coach/checkout", withCoach(coachCheckout, { billing: true })],
   ["GET", "/coach/checkout", withCoach(coachCheckoutStatus, { billing: true })],
@@ -558,6 +564,11 @@ async function inviteAccept(c) {
   return json({ ok: true }, 200, { "set-cookie": await startSession(c, "client", row.id) });
 }
 
+async function setTaal(c, table, id) {
+  const l = validLang(c.body.taal);
+  if (!l) fail(400, "Onbekende taal.");
+  await c.env.DB.prepare(`UPDATE ${table} SET taal = ? WHERE id = ?`).bind(l, id).run();
+}
 async function clientMe(c) {
   const { client: cl, env } = c;
   const [coach, metingen, checkins, fotos, workouts, producten] = await Promise.all([
@@ -570,7 +581,7 @@ async function clientMe(c) {
     env.DB.prepare("UPDATE clients SET last_seen = ? WHERE id = ?").bind(c.now, cl.id).run(),
   ]);
   return json({
-    naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "", merk: coach ? merkOut(coach) : null,
+    naam: cl.naam, email: cl.email, taal: cl.taal || null, coach: coach ? coach.naam : "", merk: coach ? merkOut(coach) : null,
     avatar: avatarUrl("client", cl), coachAvatar: coach ? avatarUrl("coach", coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
@@ -622,8 +633,8 @@ async function clientAddCheckin(c) {
        energie = excluded.energie, honger = excluded.honger, slaap = excluded.slaap, stress = excluded.stress,
        naleving = excluded.naleving, training = excluded.training, opmerking = excluded.opmerking`,
   ).bind(c.client.id, k.datum, k.energie, k.honger, k.slaap, k.stress, k.naleving, k.training, k.opmerking, c.now).run();
-  c.ctx?.waitUntil(notify(c.env, "coach", c.client.coach_id, { titel: `Check-in van ${c.client.naam}`,
-    tekst: k.opmerking ? k.opmerking.slice(0, 120) : "Er staat een nieuwe weekcheck-in klaar.", url: `/coach/#/client/${c.client.id}/checkins` }, c.now));
+  c.ctx?.waitUntil(notify(c.env, "coach", c.client.coach_id, { titel: "Check-in van {naam}", v: { naam: c.client.naam },
+    tekst: k.opmerking ? k.opmerking.slice(0, 120) : "Er staat een nieuwe weekcheck-in klaar.", raw: !!k.opmerking, url: `/coach/#/client/${c.client.id}/checkins` }, c.now));
   return json({ checkins: await checkinsOf(c.env, c.client.id, 12) });
 }
 
@@ -968,7 +979,7 @@ function cleanProgramDef(b) {
     const n = str(e && e.n, 60, "Naam oefening");
     if (!n) fail(400, "Geef elke eigen oefening een naam.");
     const m = (Array.isArray(e.m) ? e.m : []).filter((x) => MUSCLES.includes(x)).slice(0, 3);
-    if (!m.length) fail(400, `Kies de spiergroep van "${n}".`);
+    if (!m.length) fail(400, 'Kies de spiergroep van "{x}".', undefined, { x: n });
     oefeningen[k] = { n, eq: EQUIP.includes(e.eq) ? e.eq : "Overig", m, s: (Array.isArray(e.s) ? e.s : []).filter((x) => MUSCLES.includes(x) && !m.includes(x)).slice(0, 3),
       rust: Math.min(300, Math.max(30, Math.round(Number(e.rust) || 90))), cue: str(e.cue, 300, "Uitleg") || "Voer de oefening gecontroleerd uit over de volledige bewegingsbaan." };
   }
@@ -978,12 +989,12 @@ function cleanProgramDef(b) {
     const dn = str(day && day.naam, 40, "Naam dag") || `Dag ${i + 1}`;
     const ex = (Array.isArray(day.ex) ? day.ex : []).map((x) => {
       const id = String(x && x.id || "");
-      if (!BASE_EX.has(id) && !oefeningen[id]) fail(400, `Onbekende oefening op ${dn}.`);
+      if (!BASE_EX.has(id) && !oefeningen[id]) fail(400, "Onbekende oefening op {x}.", undefined, { x: dn });
       const reps = (Array.isArray(x.reps) ? x.reps : []).map(Number);
-      if (!reps.length || reps.length > 10 || reps.some((r) => !Number.isInteger(r) || r < 1 || r > 100)) fail(400, `Controleer de herhalingen op ${dn} (1 tot 10 sets van 1–100).`);
+      if (!reps.length || reps.length > 10 || reps.some((r) => !Number.isInteger(r) || r < 1 || r > 100)) fail(400, "Controleer de herhalingen op {x} (1 tot 10 sets van 1–100).", undefined, { x: dn });
       return { id, reps };
     });
-    if (!ex.length || ex.length > 15) fail(400, `${dn} heeft 1 tot 15 oefeningen nodig.`);
+    if (!ex.length || ex.length > 15) fail(400, "{x} heeft 1 tot 15 oefeningen nodig.", undefined, { x: dn });
     return { key: `d${i + 1}`, naam: dn, focus: str(day.focus, 80, "Focus"), type: DAYTYPES.includes(day.type) ? day.type : "other", ex };
   });
   return { naam, data: { weken, deload: !!d.deload && weken > 1, dagen, oefeningen } };
@@ -1324,7 +1335,7 @@ async function clientCheckout(c) {
   if (!owner) fail(503, "Aanmelden is nog niet mogelijk.");
   const s = await stripe(c.env, "POST", "/checkout/sessions", {
     mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_CLIENT, quantity: 1 }],
-    customer_email: addr, locale: "nl", allow_promotion_codes: "true",
+    customer_email: addr, locale: stripeLocale(c), allow_promotion_codes: "true",
     metadata: { type: "client", naam, email: addr, coach_id: String(owner.id) },
     subscription_data: { metadata: { type: "client", email: addr } },
     success_url: `${c.url.origin}/app/?betaald={CHECKOUT_SESSION_ID}`, cancel_url: `${c.url.origin}/#prijzen`,
@@ -1362,7 +1373,7 @@ async function clientCheckoutStatus(c) {
 }
 async function clientPortal(c) {
   if (!c.client.stripe_customer) fail(400, "Uw abonnement loopt via uw coach. Neem contact op met uw coach.");
-  const p = await stripe(c.env, "POST", "/billing_portal/sessions", { customer: c.client.stripe_customer, return_url: `${c.url.origin}/app/`, locale: "nl", configuration: c.env.STRIPE_PORTAL_CONFIG || undefined });
+  const p = await stripe(c.env, "POST", "/billing_portal/sessions", { customer: c.client.stripe_customer, return_url: `${c.url.origin}/app/`, locale: stripeLocale(c), configuration: c.env.STRIPE_PORTAL_CONFIG || undefined });
   return json({ url: p.url });
 }
 async function clientResubscribe(c) {
@@ -1370,7 +1381,7 @@ async function clientResubscribe(c) {
   if (c.client.abo_status && ACTIVE_SUB.includes(c.client.abo_status)) fail(409, "Uw abonnement is al actief.");
   if (!c.client.abo_status) fail(400, "Uw toegang loopt via uw coach.");
   const s = await stripe(c.env, "POST", "/checkout/sessions", {
-    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_CLIENT, quantity: 1 }], locale: "nl",
+    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_CLIENT, quantity: 1 }], locale: stripeLocale(c),
     ...(c.client.stripe_customer ? { customer: c.client.stripe_customer } : { customer_email: c.client.email }),
     metadata: { type: "client", naam: c.client.naam, email: c.client.email, coach_id: String(c.client.coach_id) },
     subscription_data: { metadata: { type: "client", email: c.client.email } },
@@ -1382,14 +1393,14 @@ async function clientResubscribe(c) {
 // --- coaches: platform subscription
 async function coachMeInfo(c) {
   const k = c.coach;
-  return json({ id: k.id, naam: k.naam, email: k.email, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
+  return json({ id: k.id, naam: k.naam, email: k.email, taal: k.taal || null, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
     aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k),
     avatar: avatarUrl("coach", k), slug: k.slug,
     nieuweAanvragen: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM aanvragen WHERE coach_id = ? AND status = 'nieuw'").bind(k.id).first()).n });
 }
 async function coachSessionFor(c, coachId, customer, mail) {
   return stripe(c.env, "POST", "/checkout/sessions", {
-    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_COACH, quantity: 1 }], locale: "nl", allow_promotion_codes: "true",
+    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_COACH, quantity: 1 }], locale: stripeLocale(c), allow_promotion_codes: "true",
     ...(customer ? { customer } : { customer_email: mail }),
     client_reference_id: String(coachId),
     metadata: { type: "coach", coach_id: String(coachId) }, subscription_data: { metadata: { type: "coach", coach_id: String(coachId) } },
@@ -1435,7 +1446,7 @@ async function coachCheckoutStatus(c) {
 }
 async function coachPortal(c) {
   if (!c.coach.stripe_customer) fail(400, "Er is nog geen abonnement om te beheren.");
-  const p = await stripe(c.env, "POST", "/billing_portal/sessions", { customer: c.coach.stripe_customer, return_url: `${c.url.origin}/coach/`, locale: "nl", configuration: c.env.STRIPE_PORTAL_CONFIG || undefined });
+  const p = await stripe(c.env, "POST", "/billing_portal/sessions", { customer: c.coach.stripe_customer, return_url: `${c.url.origin}/coach/`, locale: stripeLocale(c), configuration: c.env.STRIPE_PORTAL_CONFIG || undefined });
   return json({ url: p.url });
 }
 async function ownerCoaches(c) {
@@ -1509,8 +1520,8 @@ async function addBericht(c, clientId, van, tekst, extra = {}) {
   const cl = await c.env.DB.prepare("SELECT id, naam, coach_id FROM clients WHERE id = ?").bind(clientId).first();
   const preview = tekst ? tekst.slice(0, 120) : "📷 Foto";
   const n = van === "coach"
-    ? ["client", cl.id, { titel: extra.checkin_id ? "Uw coach reageerde op uw check-in" : "Nieuw bericht van uw coach", tekst: preview, url: "/app/?v=coach" }]
-    : ["coach", cl.coach_id, { titel: `Bericht van ${cl.naam}`, tekst: preview, url: `/coach/#/client/${cl.id}/berichten` }];
+    ? ["client", cl.id, { titel: extra.checkin_id ? "Uw coach reageerde op uw check-in" : "Nieuw bericht van uw coach", tekst: preview, raw: !!tekst, url: "/app/?v=coach" }]
+    : ["coach", cl.coach_id, { titel: "Bericht van {naam}", v: { naam: cl.naam }, tekst: preview, raw: !!tekst, url: `/coach/#/client/${cl.id}/berichten` }];
   c.ctx?.waitUntil(notify(c.env, n[0], n[1], n[2], c.now));
   return meta.last_row_id;
 }
@@ -1582,10 +1593,14 @@ async function sendPush(env, endpoint, now) {
   if (r.status === 404 || r.status === 410) await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?").bind(endpoint).run();
   else if (!r.ok) console.error("push failed", r.status, await r.text().catch(() => ""));
 }
+// n.titel / n.tekst are Dutch source text with {placeholders} from n.v; n.raw = tekst is user content (not translated)
 async function notify(env, role, subjectId, n, now) {
   try {
+    const who = await env.DB.prepare(`SELECT taal FROM ${role === "coach" ? "coaches" : "clients"} WHERE id = ?`).bind(subjectId).first();
+    const lang = (who && who.taal) || "nl";
+    const titel = tr(lang, n.titel, n.v), tekst = n.raw ? n.tekst : tr(lang, n.tekst, n.v);
     await env.DB.prepare("INSERT INTO notificaties (role, subject_id, titel, tekst, url, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(role, subjectId, n.titel, n.tekst, n.url, now).run();
+      .bind(role, subjectId, titel, tekst, n.url, now).run();
     if (!env.VAPID_PRIVATE_JWK || !env.VAPID_PUBLIC) return;
     const { results } = await env.DB.prepare("SELECT endpoint FROM push_subs WHERE role = ? AND subject_id = ?").bind(role, subjectId).all();
     await Promise.all(results.map((s) => sendPush(env, s.endpoint, now).catch((e) => console.error("push", e))));
@@ -1700,7 +1715,7 @@ async function updateProgramma(c) {
 async function deleteProgramma(c) {
   const r = await ownProgramma(c);
   const used = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM clients WHERE coach_id = ? AND json_extract(programma, '$.id') = ?").bind(c.coach.id, `c${r.id}`).first();
-  if (used.n) fail(409, `Dit programma is toegewezen aan ${used.n} cliënt(en). Wijs eerst een ander programma toe.`);
+  if (used.n) fail(409, "Dit programma is toegewezen aan {n} cliënt(en). Wijs eerst een ander programma toe.", undefined, { n: used.n });
   await c.env.DB.prepare("DELETE FROM programmas WHERE id = ?").bind(r.id).run();
   return json({ ok: true });
 }
@@ -1768,26 +1783,27 @@ async function createDemo(c) {
   const exists = await c.env.DB.prepare("SELECT id FROM clients WHERE coach_id = ? AND demo = 1").bind(c.coach.id).first();
   if (exists) fail(409, "U heeft al een voorbeeldcliënt.");
   const iso = (d) => new Date((c.now - d * DAY) * 1000).toISOString().slice(0, 10);
+  const lang = c.coach.taal || pickLang(c.req, c.url), t = (nl) => tr(lang, nl); // sample content in the coach's language
   const profiel = { geslacht: "v", geboorte: "1994-05-12", lengte: 168, maaltijden: 4, activiteit: 1.55, doel: -0.1,
     geenRood: true, geenVis: false, vega: false, geenZuivel: false, excl: [], trainingsdagen: [1, 2, 3, 4, 5, 6], trainingsmoment: "avond" };
-  const intake = { doel: "5 kg vetmassa kwijt en sterker worden. Ik wil me weer fit voelen na mijn zwangerschap.", streefgewicht: 66,
-    medisch: "", blessures: "Soms lage rugpijn bij zwaar tillen", allergieen: "", werk: "zittend", slaap: 7, ervaring: "beginner", sport: "Fitness 3–4x per week", lastig: "Snacken in de avond", alcohol: "soms" };
+  const intake = { doel: t("5 kg vetmassa kwijt en sterker worden. Ik wil me weer fit voelen na mijn zwangerschap."), streefgewicht: 66,
+    medisch: "", blessures: t("Soms lage rugpijn bij zwaar tillen"), allergieen: "", werk: "zittend", slaap: 7, ervaring: "beginner", sport: t("Fitness 3–4x per week"), lastig: t("Snacken in de avond"), alcohol: "soms" };
   const { meta } = await c.env.DB.prepare(
     "INSERT INTO clients (coach_id, naam, email, created_at, profiel, intake, demo, privacy_akkoord, programma, notities) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
-  ).bind(c.coach.id, "Voorbeeld: Maya Jansen", `voorbeeld-${c.coach.id}@demo.invalid`, c.now - 43 * DAY, JSON.stringify(profiel), JSON.stringify(intake),
-    c.now - 43 * DAY, JSON.stringify({ id: "ppl12", start: iso(42) }), "Voorbeeldcliënt: verken hier alle tabbladen. Verwijder haar gerust als u klaar bent.").run();
+  ).bind(c.coach.id, t("Voorbeeld: Maya Jansen"), `voorbeeld-${c.coach.id}@demo.invalid`, c.now - 43 * DAY, JSON.stringify(profiel), JSON.stringify(intake),
+    c.now - 43 * DAY, JSON.stringify({ id: "ppl12", start: iso(42) }), t("Voorbeeldcliënt: verken hier alle tabbladen. Verwijder haar gerust als u klaar bent.")).run();
   const id = meta.last_row_id, q = [];
   const kg = [72.4, 71.9, 71.3, 71.0, 70.4, 70.1, 69.6];
   kg.forEach((w, i) => q.push(c.env.DB.prepare("INSERT INTO metingen (client_id, datum, gewicht, taille, created_at, door) VALUES (?, ?, ?, ?, ?, 'client')")
     .bind(id, iso(42 - i * 7), w, 82 - i * 0.7, c.now)));
   [[3, 3, 3, 3, 4], [3, 4, 3, 3, 3], [4, 3, 4, 2, 4], [2, 4, 3, 4, 3], [4, 2, 4, 3, 5], [4, 3, 4, 2, 4]].forEach((k, i) =>
     q.push(c.env.DB.prepare("INSERT INTO checkins (client_id, datum, energie, honger, slaap, stress, naleving, training, opmerking, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(id, iso(35 - i * 7), ...k, 4 + (i % 3), i === 3 ? "Drukke week op werk, 's avonds veel trek." : "", c.now)));
+      .bind(id, iso(35 - i * 7), ...k, 4 + (i % 3), i === 3 ? t("Drukke week op werk, 's avonds veel trek.") : "", c.now)));
   const sets = { incline_db_press: [{ kg: 12, reps: 10, ok: true }, { kg: 14, reps: 8, ok: true }, { kg: 14, reps: 8, ok: true }, { kg: 16, reps: 6, ok: true }] };
   for (let w = 1; w <= 5; w++) q.push(c.env.DB.prepare("INSERT INTO workouts (client_id, programma, week, dag, datum, sets, notitie, afgerond, updated_at) VALUES (?, 'ppl12', ?, 'pushA', ?, ?, '', ?, ?)")
     .bind(id, w, iso(42 - (w - 1) * 7), JSON.stringify({ incline_db_press: sets.incline_db_press.map((s) => ({ ...s, kg: s.kg + (w - 1) * 1 })) }), c.now, c.now));
-  q.push(c.env.DB.prepare("INSERT INTO berichten (client_id, van, tekst, created_at, gelezen) VALUES (?, 'client', ?, ?, NULL)").bind(id, "Hoi coach! Mag ik de rijst bij de lunch vervangen door cassave?", c.now - 3600));
-  q.push(c.env.DB.prepare("INSERT INTO dagboek (client_id, datum, maaltijd, naam, bron, ref, gram, kcal, eiwit, koolh, vet, created_at) VALUES (?, ?, 'ontbijt', 'Magere kwark', 'basis', 'kwark', 250, 142.5, 25, 10, 0.5, ?)").bind(id, iso(0), c.now));
+  q.push(c.env.DB.prepare("INSERT INTO berichten (client_id, van, tekst, created_at, gelezen) VALUES (?, 'client', ?, ?, NULL)").bind(id, t("Hoi coach! Mag ik de rijst bij de lunch vervangen door cassave?"), c.now - 3600));
+  q.push(c.env.DB.prepare("INSERT INTO dagboek (client_id, datum, maaltijd, naam, bron, ref, gram, kcal, eiwit, koolh, vet, created_at) VALUES (?, ?, 'ontbijt', ?, 'basis', 'kwark', 250, 142.5, 25, 10, 0.5, ?)").bind(id, iso(0), t("Magere kwark"), c.now));
   await c.env.DB.batch(q);
   return json({ id }, 201);
 }
@@ -1806,7 +1822,7 @@ async function clientExport(c) {
     dagboek: await q("SELECT datum, maaltijd, naam, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? ORDER BY datum, id"),
     producten: await q("SELECT naam, merk, barcode, kcal, eiwit, koolh, vet, vezels, portie_naam, portie_g FROM producten WHERE client_id = ?"),
     berichten: await q("SELECT van, tekst, foto_key IS NOT NULL AS foto, datetime(created_at, 'unixepoch') AS tijd FROM berichten WHERE client_id = ? ORDER BY id"),
-    progressiefotos: (await q("SELECT datum, pose FROM fotos WHERE client_id = ? ORDER BY datum")).map((f) => ({ ...f, opmerking: "De foto zelf kunt u bekijken en opslaan in de app (Voortgang)." })),
+    progressiefotos: (await q("SELECT datum, pose FROM fotos WHERE client_id = ? ORDER BY datum")).map((f) => ({ ...f, opmerking: tr(pickLang(c.req, c.url), "De foto zelf kunt u bekijken en opslaan in de app (Voortgang).") })),
   };
   return new Response(JSON.stringify(data, null, 2), { headers: {
     "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
@@ -1815,7 +1831,9 @@ async function clientExport(c) {
 async function clientDeleteAccount(c) {
   const keys = [`ip:${clientIp(c)}`, `client:${c.client.email}`];
   await throttle(c, keys);
-  if (c.body.bevestig !== "VERWIJDEREN") fail(400, "Typ VERWIJDEREN om te bevestigen.");
+  // the confirmation word is shown in the user's language
+  if (!["VERWIJDEREN", ...["en", "pt", "es"].map((l) => tr(l, "VERWIJDEREN"))].includes(String(c.body.bevestig || "").trim().toUpperCase()))
+    fail(400, "Typ {w} om te bevestigen.", undefined, { w: "VERWIJDEREN" });
   if (!c.client.pw_hash || !(await verifyPassword(String(c.body.password || ""), c.client.pw_hash))) {
     await recordFailure(c, keys);
     fail(400, "Uw wachtwoord klopt niet.");
@@ -1826,7 +1844,7 @@ async function clientDeleteAccount(c) {
   }
   const cl = c.client;
   await deleteClientData(c.env, cl.id);
-  c.ctx?.waitUntil(notify(c.env, "coach", cl.coach_id, { titel: `${cl.naam} heeft het account verwijderd`, tekst: "Alle gegevens van deze cliënt zijn gewist.", url: "/coach/#/" }, c.now));
+  c.ctx?.waitUntil(notify(c.env, "coach", cl.coach_id, { titel: "{naam} heeft het account verwijderd", v: { naam: cl.naam }, tekst: "Alle gegevens van deze cliënt zijn gewist.", url: "/coach/#/" }, c.now));
   return json({ ok: true }, 200, { "set-cookie": cookie(COOKIE.client, "", 0) });
 }
 
@@ -1843,7 +1861,7 @@ async function logFout(env, pad, e) {
     const prev = await env.DB.prepare("SELECT COUNT(*) AS n FROM fouten WHERE ts > ? AND ts < ?").bind(now - 3600, now).first();
     const owner = await ownerCoach(env);
     if (owner && prev.n === 0)
-      await notify(env, "coach", owner.id, { titel: "Serverfout in DCRAMERE Coaching", tekst: `${pad}: ${String(e && e.message || e).slice(0, 100)}`, url: "/coach/#/coaches" }, now);
+      await notify(env, "coach", owner.id, { titel: "Serverfout in DCRAMERE Coaching", tekst: `${pad}: ${String(e && e.message || e).slice(0, 100)}`, raw: true, url: "/coach/#/coaches" }, now);
   } catch (err) { console.error("logFout failed", err); }
 }
 async function health(c) {
@@ -1965,7 +1983,7 @@ async function postAanvraag(c) {
   const a = { telefoon: str(c.body.telefoon, 30, "Telefoon"), pakket: str(c.body.pakket, 40, "Pakket"), doel: str(c.body.doel, 1000, "Doel") };
   await c.env.DB.prepare("INSERT INTO aanvragen (coach_id, naam, email, telefoon, pakket, doel, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(k.id, naam, addr, a.telefoon, a.pakket, a.doel, c.now).run();
-  c.ctx?.waitUntil(notify(c.env, "coach", k.id, { titel: `Nieuwe aanvraag van ${naam}`, tekst: a.pakket ? `Pakket: ${a.pakket}` : "Via uw winkelpagina", url: "/coach/#/aanvragen" }, c.now));
+  c.ctx?.waitUntil(notify(c.env, "coach", k.id, { titel: "Nieuwe aanvraag van {naam}", tekst: a.pakket ? "Pakket: {p}" : "Via uw winkelpagina", v: { naam, p: a.pakket }, url: "/coach/#/aanvragen" }, c.now));
   return json({ ok: true }, 201);
 }
 async function listAanvragen(c) {
@@ -1993,21 +2011,22 @@ async function inviteAanvraag(c) {
 }
 
 // server-rendered storefront page (shareable, with Open Graph preview)
-async function storefrontPage(env, url) {
+async function storefrontPage(env, url, lang) {
+  const t = (nl, v) => tr(lang, nl, v);
   const slug = url.pathname.slice(3).replace(/\/$/, "").toLowerCase();
   const k = /^[a-z0-9-]{3,30}$/.test(slug) && await env.DB.prepare(
     "SELECT id, naam, slug, winkel, merk, is_owner, status, avatar_key, avatar_v FROM coaches WHERE slug = ?").bind(slug).first();
   const h = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
   if (!winkelVisible(k)) {
-    return new Response(`<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Coach niet gevonden</title><link rel="stylesheet" href="/style.css"></head><body><div class="wrap" style="padding-top:80px;text-align:center"><h1>Deze coach is niet gevonden</h1><p class="sub" style="margin:0 auto 20px">De pagina bestaat niet (meer) of is nog niet gepubliceerd.</p><a class="btn" href="/">Naar DCRAMERE Coaching</a></div></body></html>`,
+    return new Response(`<!DOCTYPE html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${t("Coach niet gevonden")}</title><link rel="stylesheet" href="/style.css"></head><body><div class="wrap" style="padding-top:80px;text-align:center"><h1>${t("Deze coach is niet gevonden")}</h1><p class="sub" style="margin:0 auto 20px">${t("De pagina bestaat niet (meer) of is nog niet gepubliceerd.")}</p><a class="btn" href="/">${t("Naar DCRAMERE Coaching")}</a></div></body></html>`,
       { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
   }
   const w = JSON.parse(k.winkel), m = merkOut(k), brand = (m && m.naam) || "DCRAMERE Coaching";
   const avatar = avatarUrl("coach", k), kleur = m && m.kleur;
   const direct = k.is_owner && billingReady(env);
-  const wa = w.whatsapp ? `https://wa.me/${w.whatsapp}?text=${encodeURIComponent(`Hallo ${k.naam}, ik zag uw coachingpagina en heb een vraag.`)}` : null;
+  const wa = w.whatsapp ? `https://wa.me/${w.whatsapp}?text=${encodeURIComponent(t("Hallo {naam}, ik zag uw coachingpagina en heb een vraag.", { naam: k.naam }))}` : null;
   const page = `<!DOCTYPE html>
-<html lang="nl"${kleur ? ` style="--gold:${kleur};--c:${kleur}"` : ""}>
+<html lang="${lang}" data-lang="${lang}"${kleur ? ` style="--gold:${kleur};--c:${kleur}"` : ""}>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${h(k.naam)} — ${h(w.titel)}</title>
@@ -2021,10 +2040,10 @@ ${avatar ? `<meta property="og:image" content="${url.origin}${avatar}">` : ""}
 <link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/landing.css"><link rel="stylesheet" href="/storefront.css">
 </head>
-<body class="landing">
+<body class="landing" data-no-t>
 <header class="lnav"><div class="lwrap lnav-in">
   <a class="brand" href="/"><img src="${m && m.logo ? h(m.logo) : "/img/emblem.webp"}" alt=""><span><b>${h(m && m.naam ? m.naam : "DCRAMERE")}</b><small>Coaching</small></span></a>
-  <nav><a href="#pakketten">Pakketten</a>${w.reviews.length ? `<a href="#ervaringen">Ervaringen</a>` : ""}<a href="/app/" class="btn small ghost">Inloggen</a></nav>
+  <nav><a href="#pakketten">${t("Pakketten")}</a>${w.reviews.length ? `<a href="#ervaringen">${t("Ervaringen")}</a>` : ""}<a href="/app/" class="btn small ghost">${t("Inloggen")}</a><span data-lang-switch></span></nav>
 </div></header>
 <main>
   <section class="sf-hero"><div class="lwrap sf-hero-in">
@@ -2034,46 +2053,46 @@ ${avatar ? `<meta property="og:image" content="${url.origin}${avatar}">` : ""}
       <h1>${h(k.naam)}</h1>
       <p class="sf-titel">${h(w.titel)}</p>
       ${w.specialisaties.length ? `<ul class="sf-tags">${w.specialisaties.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : ""}
-      <div class="actions">${direct ? `<a class="btn" href="/?start=client#prijzen">Direct starten</a>` : ""}<a class="btn${direct ? " ghost" : ""}" href="#aanvraag">Plan een kennismaking</a>${wa ? `<a class="btn ghost" href="${h(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
+      <div class="actions">${direct ? `<a class="btn" href="/?start=client#prijzen">${t("Direct starten")}</a>` : ""}<a class="btn${direct ? " ghost" : ""}" href="#aanvraag">${t("Plan een kennismaking")}</a>${wa ? `<a class="btn ghost" href="${h(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
     </div>
   </div></section>
   <section class="lsec"><div class="lwrap narrow-l">
-    <p class="kicker">Over mij</p>
+    <p class="kicker">${t("Over mij")}</p>
     <div class="sf-bio">${h(w.bio).replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>").replace(/^/, "<p>")}</p></div>
-    ${w.instagram ? `<p class="sub"><a href="https://instagram.com/${h(w.instagram)}" target="_blank" rel="noopener">@${h(w.instagram)} op Instagram</a></p>` : ""}
+    ${w.instagram ? `<p class="sub"><a href="https://instagram.com/${h(w.instagram)}" target="_blank" rel="noopener">${t("@{x} op Instagram", { x: h(w.instagram) })}</a></p>` : ""}
   </div></section>
   <section class="lsec alt" id="pakketten"><div class="lwrap">
-    <p class="kicker">Pakketten</p><h2>Kies wat bij u past</h2>
+    <p class="kicker">${t("Pakketten")}</p><h2>${t("Kies wat bij u past")}</h2>
     <div class="plans sf-plans">${w.pakketten.map((p, i) => `<article class="plan${i === 0 ? " featured" : ""}">
       <h3>${h(p.naam)}</h3>
       ${p.prijs ? `<p class="price"><b>${h(p.prijs)}</b><span>${h(p.periode)}</span></p>` : ""}
       ${p.beschrijving ? `<p class="sub" style="margin:0">${h(p.beschrijving)}</p>` : ""}
       ${p.kenmerken.length ? `<ul>${p.kenmerken.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : ""}
-      <a class="btn${i === 0 ? "" : " ghost"} block" href="#aanvraag" data-pakket="${h(p.naam)}">Aanvragen</a>
+      <a class="btn${i === 0 ? "" : " ghost"} block" href="#aanvraag" data-pakket="${h(p.naam)}">${t("Aanvragen")}</a>
     </article>`).join("")}</div>
-    <p class="sub center" style="margin-top:18px">Inclusief de DCRAMERE Coaching-app: voedingsplan op maat, trainingsprogramma, check-ins en chat met uw coach.</p>
+    <p class="sub center" style="margin-top:18px">${t("Inclusief de DCRAMERE Coaching-app: voedingsplan op maat, trainingsprogramma, check-ins en chat met uw coach.")}</p>
   </div></section>
-  ${w.reviews.length ? `<section class="lsec" id="ervaringen"><div class="lwrap"><p class="kicker">Ervaringen</p><h2>Wat cliënten zeggen</h2>
+  ${w.reviews.length ? `<section class="lsec" id="ervaringen"><div class="lwrap"><p class="kicker">${t("Ervaringen")}</p><h2>${t("Wat cliënten zeggen")}</h2>
     <div class="sf-reviews">${w.reviews.map((r) => `<figure><blockquote>“${h(r.tekst)}”</blockquote><figcaption>${h(r.naam)}</figcaption></figure>`).join("")}</div></div></section>` : ""}
   <section class="lsec alt" id="aanvraag"><div class="lwrap narrow-l">
-    <p class="kicker">Kennismaken</p><h2>Vraag een plek aan bij ${h(k.naam)}</h2>
+    <p class="kicker">${t("Kennismaken")}</p><h2>${t("Vraag een plek aan bij {naam}", { naam: h(k.naam) })}</h2>
     <form id="fLead" class="sf-form" novalidate data-slug="${h(k.slug)}">
-      <div class="row"><label>Naam<input name="naam" autocomplete="name" required></label><label>E-mailadres<input type="email" name="email" autocomplete="email" required></label></div>
-      <div class="row"><label>Telefoon / WhatsApp <small>optioneel</small><input name="telefoon" autocomplete="tel"></label>
-        <label>Pakket<select name="pakket"><option value="">Nog niet zeker</option>${w.pakketten.map((p) => `<option>${h(p.naam)}</option>`).join("")}</select></label></div>
-      <label>Wat wilt u bereiken? <small>optioneel</small><textarea name="doel" style="min-height:90px"></textarea></label>
+      <div class="row"><label>${t("Naam")}<input name="naam" autocomplete="name" required></label><label>${t("E-mailadres")}<input type="email" name="email" autocomplete="email" required></label></div>
+      <div class="row"><label>${t("Telefoon / WhatsApp")} <small>${t("optioneel")}</small><input name="telefoon" autocomplete="tel"></label>
+        <label>${t("Pakket")}<select name="pakket"><option value="">${t("Nog niet zeker")}</option>${w.pakketten.map((p) => `<option>${h(p.naam)}</option>`).join("")}</select></label></div>
+      <label>${t("Wat wilt u bereiken?")} <small>${t("optioneel")}</small><textarea name="doel" style="min-height:90px"></textarea></label>
       <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
-      <p class="sub" style="font-size:13px;margin:0">Uw gegevens gaan alleen naar ${h(k.naam)}. Zie de <a href="/privacy.html">privacyverklaring</a>.</p>
-      <div><button class="btn" type="submit">Aanvraag versturen</button></div>
+      <p class="sub" style="font-size:13px;margin:0">${t("Uw gegevens gaan alleen naar {naam}.", { naam: h(k.naam) })} <a href="/privacy.html">${t("Privacyverklaring")}</a></p>
+      <div><button class="btn" type="submit">${t("Aanvraag versturen")}</button></div>
       <div class="flash" data-msg role="status"></div>
     </form>
   </div></section>
 </main>
-<footer class="lfoot"><div class="lwrap lfoot-in"><div><p>${h(brand)}<br><span>Aangedreven door DCRAMERE Coaching</span></p></div>
-  <nav><a href="/">Meer coaches</a><a href="/privacy.html">Privacy</a><a href="/voorwaarden.html">Voorwaarden</a></nav></div></footer>
-<script src="/core.js"></script><script src="/storefront.js"></script>
+<footer class="lfoot"><div class="lwrap lfoot-in"><div><p>${h(brand)}<br><span>${t("Aangedreven door DCRAMERE Coaching")}</span></p></div>
+  <nav><a href="/">${t("Meer coaches")}</a><a href="/privacy.html">${t("Privacy")}</a><a href="/voorwaarden.html">${t("Voorwaarden")}</a></nav></div></footer>
+<script src="/i18n.js" data-load="/core.js /storefront.js"></script>
 </body></html>`;
-  return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60",
+  return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", vary: "cookie, accept-language",
     "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     "x-content-type-options": "nosniff", "referrer-policy": "strict-origin-when-cross-origin" } });
 }

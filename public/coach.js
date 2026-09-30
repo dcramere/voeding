@@ -9,7 +9,9 @@ const fotoSrc=id=>"/api/coach/fotos/"+id;
 $("fMeting").querySelector("[data-fields]").innerHTML=DC.metingFieldsHTML({open:true});
 $("fProfiel").querySelector("[data-fields]").innerHTML=DC.profielFieldsHTML();
 
+const HELP={lijst:"coach-clienten",client:"coach-plan",programmas:"coach-training",programma:"coach-training",instellingen:"coach-betalingen",winkel:"coach-winkel",aanvragen:"coach-winkel"};
 function show(v){
+  $("helpLink").href="/help.html#"+(HELP[v]||"coach-start");
   document.querySelectorAll("section.view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
   $("topbar").hidden=!coach;
   window.scrollTo(0,0);

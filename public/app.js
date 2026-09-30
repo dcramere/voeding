@@ -30,6 +30,9 @@ function show(v){
   document.querySelectorAll("#tabs button").forEach(b=>{if(b.dataset.v===tab)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
   if(v!=="workout") stopRest();
   if(v==="boodschappen") renderShop();
+  // help link points to the section for this screen
+  const HELP={plan:"client-plan",boodschappen:"client-plan",dagboek:"client-dagboek",producten:"client-dagboek",training:"client-training",workout:"client-training",checkin:"client-checkin",voortgang:"client-checkin",coach:"client-coach",profiel:"client-account"};
+  $("helpLink").href="/help.html#"+(HELP[v]||"client-start");
   window.scrollTo(0,0);
 }
 // first-run: intake → profiel → first weight

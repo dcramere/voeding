@@ -167,7 +167,7 @@ function htmlKeys(file) {
   if (body) walk(body);
   return out;
 }
-export const HTML = ["public/index.html", "public/app/index.html", "public/coach/index.html", "public/privacy.html", "public/voorwaarden.html"];
+export const HTML = ["public/index.html", "public/app/index.html", "public/coach/index.html", "public/privacy.html", "public/voorwaarden.html", "public/help.html"];
 
 // ---------- all keys ----------
 const junk = (k) => !/\p{L}{2}/u.test(k) || /^(https?:|\/|#|[a-z]+_[a-z_]+$)/.test(k);

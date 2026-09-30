@@ -2238,7 +2238,7 @@ ${plan ? `<div class="sheet-wrap" id="startSheet" hidden><div class="sheet" role
     <div class="flash" data-msg role="status"></div>
   </form></div></div>` : ""}
 <footer class="lfoot"><div class="lwrap lfoot-in"><div><p>${h(brand)}<br><span>${t("Aangedreven door DCRAMERE Coaching")}</span></p></div>
-  <nav><a href="/">${t("Meer coaches")}</a><a href="/privacy.html">${t("Privacy")}</a><a href="/voorwaarden.html">${t("Voorwaarden")}</a></nav></div></footer>
+  <nav><a href="/">${t("Meer coaches")}</a><a href="/help.html">${t("Handleiding")}</a><a href="/privacy.html">${t("Privacy")}</a><a href="/voorwaarden.html">${t("Voorwaarden")}</a></nav></div></footer>
 <script src="/i18n.js" data-load="/core.js /storefront.js"></script>
 </body></html>`;
   return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", vary: "cookie, accept-language",

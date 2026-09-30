@@ -562,6 +562,80 @@ test("platform: coach signup → payment → isolated dashboard; owner overview"
   assert.match((await k("/api/coach/billing/portal", "POST", {})).data.url, /billing/);
 });
 
+test("avatars: client and coach photos, validation, access control", async () => {
+  const jpg = new Uint8Array(400).fill(7); jpg.set([0xff, 0xd8, 0xff, 0xe0]);
+  const zoe = client(), other = client();
+  const inv = await coach("/api/coach/clients", "POST", { naam: "Zoë Avatar", email: "zoe@t.nl" });
+  await zoe("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "zoe-pass-123", privacy: true });
+  assert.equal((await zoe("/api/avatar", "POST", new Uint8Array(400).fill(1), { "content-type": "image/jpeg" })).status, 415);
+  const up = await zoe("/api/avatar", "POST", jpg, { "content-type": "image/jpeg" });
+  assert.equal(up.status, 200); assert.match(up.data.avatar, new RegExp(`^/api/avatar/client/${inv.data.id}\\?v=`));
+  assert.equal((await zoe("/api/me")).data.avatar, up.data.avatar);
+  assert.equal((await zoe(up.data.avatar)).status, 200, "own photo");
+  assert.equal((await coach(up.data.avatar)).status, 200, "own coach");
+  assert.ok([401, 404].includes((await anon(up.data.avatar)).status), "not public");
+  const oinv = await coach("/api/coach/clients", "POST", { naam: "Other", email: "other-av@t.nl" });
+  await other("/api/invite", "POST", { token: tokenOf(oinv.data.link), password: "other-pass-1", privacy: true });
+  assert.equal((await other(up.data.avatar)).status, 404, "other clients cannot see it");
+  assert.equal((await coach("/api/coach/clients")).data.find((c) => c.id === inv.data.id).avatar, up.data.avatar);
+  // coach photo is public and shown to the coach's clients
+  const cu = await coach("/api/coach/avatar", "POST", jpg, { "content-type": "image/jpeg" });
+  assert.equal(cu.status, 200);
+  assert.equal((await zoe("/api/me")).data.coachAvatar, cu.data.avatar);
+  const pub = await fetch(BASE + cu.data.avatar);
+  assert.equal(pub.status, 200); assert.equal(pub.headers.get("content-type"), "image/jpeg");
+  assert.equal((await zoe("/api/avatar", "DELETE")).data.avatar, null);
+  assert.equal((await coach(up.data.avatar)).status, 404);
+});
+
+test("storefront: slug, publishing rules, public page, directory, requests → invite", async () => {
+  const base = { titel: "Voedingscoach", bio: "Ik help u sterker en fitter te worden.", specialisaties: ["Vetverlies", "Spieropbouw"],
+    pakketten: [{ naam: "Online", prijs: "$49", periode: "per maand", beschrijving: "Alles online", kenmerken: ["Plan", "Chat"] }],
+    reviews: [{ naam: "Maya", tekst: "Top!" }], whatsapp: "+597 851-4920", instagram: "@fitlab" };
+  assert.equal((await coach("/api/coach/winkel", "PUT", { slug: "A", winkel: base })).status, 400, "slug too short / uppercase");
+  assert.equal((await coach("/api/coach/winkel", "PUT", { slug: "coach", winkel: base })).status, 409, "reserved");
+  const draft = await coach("/api/coach/winkel", "PUT", { slug: "fit-lab", winkel: base });
+  assert.equal(draft.status, 200, JSON.stringify(draft.data)); assert.equal(draft.data.winkel.gepubliceerd, false); assert.equal(draft.data.winkel.whatsapp, "5978514920");
+  assert.equal((await fetch(`${BASE}/c/fit-lab`)).status, 404, "drafts are not public");
+  assert.equal((await coach("/api/coach/winkel", "PUT", { slug: "fit-lab", winkel: { ...base, pakketten: [], gepubliceerd: true } })).status, 400, "needs a package");
+  const pubd = await coach("/api/coach/winkel", "PUT", { slug: "fit-lab", winkel: { ...base, gepubliceerd: true, bio: "<script>x</script> sterk" } });
+  assert.equal(pubd.status, 200); assert.match(pubd.data.url, /\/c\/fit-lab$/);
+  const page = await fetch(`${BASE}/c/fit-lab`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /Voedingscoach/); assert.match(html, /og:title/); assert.ok(!html.includes("<script>x</script>"), "escaped");
+  assert.match(page.headers.get("content-security-policy") || "", /script-src 'self'/);
+  assert.equal((await fetch(`${BASE}/c/does-not-exist`)).status, 404);
+  const dir = (await anon("/api/winkels")).data;
+  assert.equal(dir.find((k) => k.slug === "fit-lab").titel, "Voedingscoach");
+  // a lapsed coach's storefront is hidden even when published
+  const two = client();
+  await two("/api/coach/login", "POST", { email: "two@t.nl", password: "coach-two-pass" }, { "cf-connecting-ip": "10.7.7.1" });
+  assert.equal((await two("/api/coach/winkel", "PUT", { slug: "fit-lab", winkel: base })).status, 402, "lapsed coach cannot edit");
+  // prospects send a request
+  const ip = { "cf-connecting-ip": "10.7.7.2" };
+  assert.equal((await anon("/api/winkel/fit-lab/aanvraag", "POST", { naam: "", email: "x@t.nl" }, ip)).status, 400);
+  assert.equal((await anon("/api/winkel/nope-nope/aanvraag", "POST", { naam: "Lead", email: "lead@t.nl" }, ip)).status, 404);
+  assert.equal((await anon("/api/winkel/fit-lab/aanvraag", "POST", { naam: "Bot", email: "bot@t.nl", website: "http://spam" }, ip)).status, 200, "honeypot: silently ignored");
+  const ok = await anon("/api/winkel/fit-lab/aanvraag", "POST", { naam: "Lotte Lead", email: "lotte@t.nl", telefoon: "+597 123", pakket: "Online", doel: "5 kg kwijt" }, ip);
+  assert.equal(ok.status, 201);
+  assert.equal((await coach("/api/coach/me")).data.nieuweAanvragen, 1);
+  const list = (await coach("/api/coach/aanvragen")).data;
+  assert.equal(list.length, 1, "bot request not stored"); assert.equal(list[0].naam, "Lotte Lead");
+  assert.deepEqual((await two("/api/coach/aanvragen")).status, 402);
+  const inv = await coach(`/api/coach/aanvragen/${list[0].id}/uitnodigen`, "POST", {});
+  assert.equal(inv.status, 201); assert.match(inv.data.link, /invite=/);
+  assert.equal((await coach(`/api/coach/aanvragen/${list[0].id}/uitnodigen`, "POST", {})).status, 409);
+  const cl = (await coach(`/api/coach/clients/${inv.data.id}`)).data;
+  assert.equal(cl.email, "lotte@t.nl"); assert.match(cl.notities, /Pakket: Online/);
+  assert.equal((await coach("/api/coach/aanvragen")).data[0].status, "uitgenodigd");
+  assert.equal((await coach("/api/coach/me")).data.nieuweAanvragen, 0);
+  // throttle: max 8 submissions per 15 minutes per IP
+  const flood = { "cf-connecting-ip": "10.7.7.3" }; let last;
+  for (let i = 0; i < 9; i++) last = await anon("/api/winkel/fit-lab/aanvraag", "POST", { naam: "F" + i, email: `f${i}@t.nl` }, flood);
+  assert.equal(last.status, 429);
+});
+
 test("root: old invite links go to /app/, landing page always reachable", async () => {
   const r1 = await fetch(`${BASE}/?invite=abc123`, { redirect: "manual" });
   assert.equal(r1.status, 302); assert.equal(new URL(r1.headers.get("location")).pathname + new URL(r1.headers.get("location")).search, "/app/?invite=abc123");

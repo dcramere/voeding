@@ -1,0 +1,17 @@
+/* coach storefront (/c/<slug>) — builds on landing.css */
+.sf-hero{padding:60px 0 50px;background:radial-gradient(ellipse at 30% 30%,var(--gold-soft),transparent 60%)}
+.sf-hero-in{display:grid;grid-template-columns:260px minmax(0,1fr);gap:44px;align-items:center}
+.sf-avatar{width:260px;height:260px;border-radius:50%;object-fit:cover;border:3px solid var(--gold);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.sf-hero h1{font-size:clamp(34px,5vw,54px);margin:4px 0 6px}
+.sf-titel{font-size:20px;color:#d6d6d6;margin:0 0 16px}
+.sf-tags{list-style:none;padding:0;margin:0 0 22px;display:flex;flex-wrap:wrap;gap:8px}
+.sf-tags li{border:1px solid var(--gold-dim);color:var(--gold);border-radius:20px;padding:4px 12px;font-size:13px;font-weight:600}
+.sf-bio p{font-size:17px;color:#d6d6d6;line-height:1.7;margin:0 0 14px}
+.sf-plans{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));max-width:none}
+.sf-reviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+.sf-reviews figure{margin:0;border:1px solid var(--line);border-radius:12px;padding:20px;background:var(--surface)}
+.sf-reviews blockquote{margin:0 0 12px;font-size:16px;color:#d6d6d6;line-height:1.6}
+.sf-reviews figcaption{color:var(--gold);font-weight:700;font-size:14px}
+.sf-form{max-width:none}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+@media (max-width:760px){.sf-hero-in{grid-template-columns:1fr;text-align:center;justify-items:center}.sf-avatar{width:180px;height:180px}.sf-tags{justify-content:center}.sf-hero .actions{justify-content:center}}

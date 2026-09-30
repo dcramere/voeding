@@ -151,7 +151,7 @@ function renderList(){
       const why=attentionReasons(c);
       const k=c.checkin, kd=k?DC.daysSince(k.datum):null, flags=DC.checkinFlags(k);
       return `<tr data-id="${c.id}" tabindex="0">
-        <td class="who"><b>${esc(c.naam)}${c.ongelezen?` <span class="badge inline" title="Ongelezen berichten">${c.ongelezen}</span>`:""}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</td>
+        <td class="who"><div class="who-row">${DC.avatarHTML(c.avatar,c.naam,36)}<div><b>${esc(c.naam)}${c.ongelezen?` <span class="badge inline" title="Ongelezen berichten">${c.ongelezen}</span>`:""}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</div></div></td>
         <td>${c.demo?'<span class="pill">Voorbeeld</span>':pill(c)}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
         <td>${l?`${DC.dateNL(l.datum,{day:"numeric",month:"short",year:"numeric"})}<br><small class="${d>STALE_DAYS&&c.actief?"stale":""}" style="${d>STALE_DAYS&&c.actief?"":"color:var(--muted)"}">${ago(d)}</small>`:'<span style="color:var(--muted)">nog geen</span>'}</td>
         <td class="hide-sm">${k?`${ago(kd)}<br><small class="${flags.length?"stale":""}" style="${flags.length?"":"color:var(--muted)"}">${flags.length?flags.join(", "):"geen bijzonderheden"}</small>`:'<span style="color:var(--muted)">–</span>'}</td>
@@ -183,7 +183,7 @@ function renderClient(){
   const c=cur, [st]=status(c);
   DC.setCustomFoods(c.producten); // the client's own products can appear in their menu
   TR.registerProgram(c.programmaDef);
-  $("clientHead").innerHTML=`<h1 style="margin-top:14px">${esc(c.naam)}</h1>
+  $("clientHead").innerHTML=`<div class="client-head-row">${DC.avatarHTML(c.avatar,c.naam,56)}<h1>${esc(c.naam)}</h1></div>
     <p class="sub">${esc(c.email)}<span class="sep">·</span>${pill(c)}<span class="sep">·</span>cliënt sinds ${new Date(c.aangemaakt*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",year:"numeric"})}${c.laatstGezien?`<span class="sep">·</span>laatst actief ${ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))}`:""}${c.privacyAkkoord?`<span class="sep">·</span>privacy akkoord ${new Date(c.privacyAkkoord*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"short",year:"numeric"})}`:""}</p>
     <div class="actions" style="margin-top:0">
       ${c.actief?`<button class="btn small ghost" type="button" data-act="invite">${c.geactiveerd?"Nieuwe inloglink (wachtwoord vergeten)":st==="Link verlopen"?"Nieuwe uitnodigingslink":"Uitnodigingslink opnieuw maken"}</button>`:""}
@@ -291,7 +291,7 @@ async function loadCChat(scroll){
   if(!cur||cur.id!==id) return;
   cchat=r.berichten; cur.ongelezen=0; $("paneBadge").hidden=true;
   const el=$("cChat"), atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80;
-  el.innerHTML=CHAT.messagesHTML(cchat,"coach",cFoto,cur.checkins);
+  el.innerHTML=CHAT.messagesHTML(cchat,"coach",cFoto,cur.checkins,{avatar:cur.avatar,naam:cur.naam});
   if(scroll||atBottom) el.scrollTop=el.scrollHeight;
 }
 function initCCompose(){
@@ -489,6 +489,7 @@ function brandPreview(naam,kleur,logo){
   const k=kleur||"#f4d03f"; $("bpKcal").style.color=k; $("bpBtn").style.background=k; $("bpNaam").style.color=k;
 }
 function renderInstellingen(){
+  $("cAv").innerHTML=DC.avatarHTML(coach.avatar,coach.naam,88); $("cAvDel").hidden=!coach.avatar;
   const m=coach.merk||{}, f=$("fMerk");
   f.elements.naam.value=m.naam||""; f.elements.kleur.value=m.kleur||"#f4d03f"; f.elements.kleurHex.value=m.kleur||""; f.elements.logo.value="";
   $("logoDel").hidden=!m.logo; brandPreview(m.naam,m.kleur,m.logo);
@@ -514,7 +515,111 @@ DC.handleForm($("fMerk"),async f=>{
   coach.merk=r.merk; renderInstellingen();
   return "Opgeslagen. Uw cliënten zien de nieuwe stijl bij hun volgende bezoek.";
 });
+$("cAvInput").addEventListener("change",async e=>{
+  const file=e.target.files[0]; if(!file) return; $("cAvMsg").textContent="";
+  try{
+    const blob=await DC.prepareAvatar(file);
+    const r=await fetch("/api/coach/avatar",{method:"POST",credentials:"same-origin",headers:{"content-type":"image/jpeg"},body:blob});
+    const d=await r.json().catch(()=>null); if(!r.ok) throw new Error((d&&d.error)||"Uploaden mislukt.");
+    coach.avatar=d.avatar; renderInstellingen();
+  }catch(x){$("cAvMsg").textContent=x.message}
+  e.target.value="";
+});
+$("cAvDel").addEventListener("click",async()=>{try{coach.avatar=(await call("/api/coach/avatar","DELETE")).avatar;renderInstellingen()}catch(x){alert(x.message)}});
 $("logoDel").addEventListener("click",async()=>{try{coach.merk=(await call("/api/coach/merk/logo","DELETE")).merk;renderInstellingen()}catch(x){alert(x.message)}});
+
+// ---------- storefront editor ----------
+let wk=null;
+const leeg=()=>({gepubliceerd:false,titel:"",bio:"",specialisaties:[],pakketten:[{naam:"Online coaching",prijs:"$49",periode:"per maand",beschrijving:"",kenmerken:["Voedingsplan op maat","Trainingsprogramma","Wekelijkse check-in en chat"]}],reviews:[],whatsapp:"",instagram:""});
+const slugify=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,30);
+async function renderWinkel(){
+  const r=await call("/api/coach/winkel");
+  wk={slug:r.slug||slugify(coach.naam),winkel:r.winkel||leeg(),url:r.url};
+  drawWinkel();
+}
+function drawWinkel(){
+  const w=wk.winkel, base=location.origin+"/c/";
+  $("winkelEditor").innerHTML=`
+    <div class="wk-status ${w.gepubliceerd?"on":""}"><b>${w.gepubliceerd?"Gepubliceerd":"Concept"}</b>
+      <span>${w.gepubliceerd&&wk.url?`<a href="${esc(wk.url)}" target="_blank" rel="noopener">${esc(wk.url)}</a>`:"Nog niet zichtbaar voor bezoekers."}</span>
+      ${w.gepubliceerd&&wk.url?`<button class="btn small ghost" type="button" data-wk="copy">Link kopiëren</button><a class="btn small ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent("Bekijk mijn coachingpakketten: "+wk.url)}">Delen via WhatsApp</a>`:""}</div>
+    ${coach.avatar?"":`<p class="note">Voeg eerst een profielfoto toe onder <a href="#/instellingen">Instellingen</a>; die staat bovenaan uw winkel.</p>`}
+    <div class="row"><label>Webadres<span class="slug-row"><span>${esc(base)}</span><input data-wk-f="slug" value="${esc(wk.slug)}" maxlength="30"></span></label>
+      <label>Titel <small>bijv. "Online voedings- en krachtcoach"</small><input data-wk-f="titel" value="${esc(w.titel)}" maxlength="80"></label></div>
+    <label>Over mij<textarea data-wk-f="bio" maxlength="1500" style="min-height:140px" placeholder="Wie bent u, voor wie is uw coaching en wat maakt uw aanpak anders?">${esc(w.bio)}</textarea></label>
+    <div class="row"><label>Specialisaties <small>komma-gescheiden, max. 8</small><input data-wk-f="specialisaties" value="${esc(w.specialisaties.join(", "))}" placeholder="Vetverlies, Spieropbouw, Na zwangerschap"></label>
+      <div class="row"><label>WhatsApp <small>met landcode</small><input data-wk-f="whatsapp" value="${esc(w.whatsapp)}" inputmode="tel" placeholder="5978514920"></label>
+      <label>Instagram<input data-wk-f="instagram" value="${esc(w.instagram)}" placeholder="dcramere"></label></div></div>
+    <h2>Pakketten</h2>
+    <div class="wk-grid">${w.pakketten.map((p,i)=>`<article class="wk-card">
+      <div class="row"><label>Naam<input data-pk="${i}" data-f="naam" value="${esc(p.naam)}" maxlength="40"></label>
+        <div class="row"><label>Prijs<input data-pk="${i}" data-f="prijs" value="${esc(p.prijs)}" maxlength="20" placeholder="$49"></label><label>Periode<input data-pk="${i}" data-f="periode" value="${esc(p.periode)}" maxlength="20" placeholder="per maand"></label></div></div>
+      <label>Korte beschrijving<input data-pk="${i}" data-f="beschrijving" value="${esc(p.beschrijving)}" maxlength="200"></label>
+      <label>Wat zit erin <small>één per regel, max. 6</small><textarea data-pk="${i}" data-f="kenmerken" style="min-height:90px">${esc(p.kenmerken.join("\n"))}</textarea></label>
+      <button class="linkbtn danger-t" type="button" data-wk="pk-del" data-i="${i}">Pakket verwijderen</button></article>`).join("")}</div>
+    ${w.pakketten.length<4?`<button class="btn small ghost" type="button" data-wk="pk-add">+ Pakket</button>`:""}
+    <h2>Ervaringen van cliënten <small class="sub" style="font-size:13px">optioneel, alleen met toestemming van de cliënt</small></h2>
+    <div class="wk-grid">${w.reviews.map((r,i)=>`<article class="wk-card"><label>Naam <small>bijv. "Maya, 34"</small><input data-rv="${i}" data-f="naam" value="${esc(r.naam)}" maxlength="40"></label>
+      <label>Ervaring<textarea data-rv="${i}" data-f="tekst" maxlength="300" style="min-height:80px">${esc(r.tekst)}</textarea></label>
+      <button class="linkbtn danger-t" type="button" data-wk="rv-del" data-i="${i}">Verwijderen</button></article>`).join("")}</div>
+    ${w.reviews.length<6?`<button class="btn small ghost" type="button" data-wk="rv-add">+ Ervaring</button>`:""}
+    <div class="pe-save"><label class="consent" style="margin-right:auto"><input type="checkbox" data-wk-f="gepubliceerd" ${w.gepubliceerd?"checked":""}><span>Publiceren: zichtbaar voor iedereen met de link en in de coachlijst op de homepage</span></label>
+      <button class="btn" type="button" data-wk="save">Opslaan</button><span class="err" id="wkMsg" role="status"></span></div>`;
+}
+$("winkelEditor").addEventListener("input",e=>{
+  const t=e.target, w=wk.winkel;
+  if(t.dataset.wkF){const f=t.dataset.wkF;
+    if(f==="slug") wk.slug=t.value; else if(f==="gepubliceerd") w.gepubliceerd=t.checked;
+    else if(f==="specialisaties") w.specialisaties=t.value.split(",").map(x=>x.trim()).filter(Boolean); else w[f]=t.value;}
+  if(t.dataset.pk){const p=w.pakketten[+t.dataset.pk];p[t.dataset.f]=t.dataset.f==="kenmerken"?t.value.split("\n").map(x=>x.trim()).filter(Boolean):t.value}
+  if(t.dataset.rv) w.reviews[+t.dataset.rv][t.dataset.f]=t.value;
+});
+$("winkelEditor").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-wk]"); if(!b) return; const w=wk.winkel, i=+b.dataset.i;
+  switch(b.dataset.wk){
+    case "pk-add": w.pakketten.push({naam:"",prijs:"",periode:"per maand",beschrijving:"",kenmerken:[]}); break;
+    case "pk-del": w.pakketten.splice(i,1); break;
+    case "rv-add": w.reviews.push({naam:"",tekst:""}); break;
+    case "rv-del": w.reviews.splice(i,1); break;
+    case "copy": try{await navigator.clipboard.writeText(wk.url);b.textContent="Gekopieerd"}catch(x){prompt("Kopieer de link:",wk.url)} return;
+    case "save":
+      $("wkMsg").textContent=""; b.disabled=true;
+      try{const r=await call("/api/coach/winkel","PUT",{slug:wk.slug,winkel:w});wk={slug:r.slug,winkel:r.winkel,url:r.url};coach.slug=r.slug;drawWinkel();
+        $("wkMsg").className="flash";$("wkMsg").textContent=r.winkel.gepubliceerd?"Opgeslagen en gepubliceerd.":"Opgeslagen als concept."}
+      catch(x){$("wkMsg").className="err";$("wkMsg").textContent=x.message}
+      b.disabled=false; return;
+  }
+  drawWinkel();
+});
+// ---------- requests from the storefront ----------
+async function renderAanvragen(){
+  const list=await call("/api/coach/aanvragen");
+  coach.nieuweAanvragen=list.filter(a=>a.status==="nieuw").length; setAanvraagBadge();
+  $("aanvraagLijst").innerHTML=list.length?list.map(a=>`<article class="aanvraag ${a.status}">
+    <div class="aanvraag-h"><div><b>${esc(a.naam)}</b><small>${esc(a.email)}${a.telefoon?` · ${esc(a.telefoon)}`:""}</small></div>
+      <span class="pill ${a.status==="nieuw"?"gold":a.status==="uitgenodigd"?"ok":""}">${a.status==="nieuw"?"Nieuw":a.status==="uitgenodigd"?"Uitgenodigd":"Afgewezen"}</span></div>
+    <p class="sub" style="margin:6px 0">${a.pakket?`<b>Pakket:</b> ${esc(a.pakket)} · `:""}${new Date(a.created_at*1000).toLocaleDateString("nl-NL",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})}</p>
+    ${a.doel?`<p style="margin:0 0 8px">“${esc(a.doel)}”</p>`:""}
+    <div class="actions" style="margin:0">
+      ${a.status==="nieuw"?`<button class="btn small" type="button" data-av="invite" data-id="${a.id}">Uitnodigen als cliënt</button>`:""}
+      ${a.status==="uitgenodigd"&&a.client_id?`<a class="btn small ghost" href="#/client/${a.client_id}">Naar cliënt</a>`:""}
+      ${a.telefoon?`<a class="btn small ghost" target="_blank" rel="noopener" href="https://wa.me/${esc(a.telefoon.replace(/\D/g,""))}?text=${encodeURIComponent(`Hallo ${a.naam.split(" ")[0]}, bedankt voor uw aanvraag!`)}">WhatsApp</a>`:""}
+      <a class="btn small ghost" href="mailto:${esc(a.email)}">E-mail</a>
+      ${a.status==="nieuw"?`<button class="linkbtn" type="button" data-av="afwijzen" data-id="${a.id}">Afwijzen</button>`:a.status==="afgewezen"?`<button class="linkbtn" type="button" data-av="herstel" data-id="${a.id}">Terugzetten</button>`:""}
+    </div><div data-av-link="${a.id}"></div></article>`).join("")
+    :`<p class="empty">Nog geen aanvragen. Deel de link naar uw <a href="#/winkel">winkel</a> om aanvragen te ontvangen.</p>`;
+}
+function setAanvraagBadge(){const n=coach.nieuweAanvragen||0,b=$("navAanvragenBadge");b.hidden=!n;b.textContent=n>9?"9+":n}
+$("aanvraagLijst").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-av]"); if(!b) return; b.disabled=true;
+  try{
+    if(b.dataset.av==="invite"){
+      const r=await call(`/api/coach/aanvragen/${b.dataset.id}/uitnodigen`,"POST",{});
+      await renderAanvragen();
+      document.querySelector(`[data-av-link="${b.dataset.id}"]`).innerHTML=inviteHTML(document.querySelector(`[data-av-link="${b.dataset.id}"]`).closest("article").querySelector("b").textContent,r.link);
+    }else{await call(`/api/coach/aanvragen/${b.dataset.id}`,"PUT",{status:b.dataset.av==="afwijzen"?"afgewezen":"nieuw"});await renderAanvragen()}
+  }catch(x){alert(x.message);b.disabled=false}
+});
 
 function setPane(p){
   pane=p;
@@ -626,6 +731,8 @@ async function route(){
     if(location.hash==="#/coaches"&&coach.isOwner){cur=null;show("coaches");await loadCoaches();return}
     if(location.hash==="#/programmas"){cur=null;show("programmas");await renderProgrammas();return}
     if(location.hash==="#/instellingen"){cur=null;show("instellingen");renderInstellingen();return}
+    if(location.hash==="#/winkel"){cur=null;show("winkel");await renderWinkel();return}
+    if(location.hash==="#/aanvragen"){cur=null;show("aanvragen");await renderAanvragen();return}
     const pm=location.hash.match(/^#\/programmas\/(\w+)/);
     if(pm){cur=null;show("programma");await openEditor(pm[1]);return}
     if(m){
@@ -668,6 +775,7 @@ async function boot(){
     coach=await DC.api("/api/coach/me");
     $("coachNaam").textContent=coach.naam;
     $("navCoaches").hidden=!coach.isOwner;
+    setAanvraagBadge();
     loadMijnProgrammas().catch(()=>{});
     renderNavPush();
     $("navBilling").hidden=coach.isOwner||!coach.portaal;

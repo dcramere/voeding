@@ -63,7 +63,7 @@ function renderProgress(){
   if(me.checkins&&me.checkins.length){
     h+=`<h2>Uw check-ins</h2>${DC.checkinsHTML(me.checkins)}`;
     const fb=me.feedback||[];
-    if(fb.length) h+=`<h2>Reacties van uw coach</h2><div class="chat">${CHAT.messagesHTML(fb.slice(-5),"client",chatFoto,me.checkins)}</div>`;
+    if(fb.length) h+=`<h2>Reacties van uw coach</h2><div class="chat">${CHAT.messagesHTML(fb.slice(-5),"client",chatFoto,me.checkins,{avatar:me.coachAvatar,naam:me.coach})}</div>`;
   }
   $("prog").innerHTML=h;
 }
@@ -95,7 +95,7 @@ let chat=[], chatPoll=null;
 const chatFoto=id=>"/api/berichten/foto/"+id;
 function renderChat(scroll){
   const el=$("chat"), atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80;
-  el.innerHTML=CHAT.messagesHTML(chat,"client",chatFoto,me.checkins);
+  el.innerHTML=CHAT.messagesHTML(chat,"client",chatFoto,me.checkins,{avatar:me.coachAvatar,naam:me.coach});
   if(scroll||atBottom) window.scrollTo(0,document.body.scrollHeight);
 }
 async function loadChat(){
@@ -211,7 +211,8 @@ document.addEventListener("input",e=>{
 });
 
 function renderAll(){
-  $("hello").textContent=me.naam?me.naam.split(" ")[0]:"";
+  $("hello").innerHTML=me.naam?`${DC.esc(me.naam.split(" ")[0])} ${DC.avatarHTML(me.avatar,me.naam,28)}`:"";
+  $("avMine").innerHTML=DC.avatarHTML(me.avatar,me.naam,72); $("avDel").hidden=!me.avatar;
   renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining();
   const fp=$("fProfiel");
   fp.elements.naam.value=me.naam||"";
@@ -313,6 +314,17 @@ document.addEventListener("click",async e=>{
   catch(err){if(msg)msg.textContent=err.message;b.disabled=false}
 });
 $("aboLogout").addEventListener("click",async()=>{try{await DC.api("/api/logout","POST",{})}catch(e){}me=null;show("login")});
+$("avInput").addEventListener("change",async e=>{
+  const file=e.target.files[0]; if(!file) return; $("avMsg").textContent="";
+  try{
+    const blob=await DC.prepareAvatar(file);
+    const r=await fetch("/api/avatar",{method:"POST",credentials:"same-origin",headers:{"content-type":"image/jpeg"},body:blob});
+    const d=await r.json().catch(()=>null); if(!r.ok) throw new Error((d&&d.error)||"Uploaden mislukt.");
+    me.avatar=d.avatar; renderAll();
+  }catch(x){$("avMsg").textContent=x.message}
+  e.target.value="";
+});
+$("avDel").addEventListener("click",async()=>{try{await DC.api("/api/avatar","DELETE");me.avatar=null;renderAll()}catch(x){$("avMsg").textContent=x.message}});
 $("delOpen").addEventListener("click",()=>{$("fDelete").hidden=false;$("fDelete").elements.password.focus()});
 DC.handleForm($("fDelete"),async f=>{
   await DC.api("/api/account/verwijderen","POST",{password:f.elements.password.value,bevestig:f.elements.bevestig.value.trim()});

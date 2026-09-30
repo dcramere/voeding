@@ -172,6 +172,9 @@
   <section class="view" id="v-profiel" aria-labelledby="t-prof">
     <p class="kicker" id="profStep" hidden>Stap 2 van 3</p>
     <h1 id="t-prof">Uw profiel</h1>
+    <div class="avatar-edit"><span id="avMine"></span>
+      <div><div class="actions"><label class="btn small ghost"><input type="file" accept="image/*" id="avInput" hidden>Profielfoto kiezen</label><button class="linkbtn" type="button" id="avDel" hidden>Verwijderen</button></div>
+      <div class="err" id="avMsg" role="status"></div></div></div>
     <p class="sub">Deze gegevens bepalen uw energiebehoefte en uw menu.</p>
     <form id="fProfiel" novalidate>
       <label>Naam<input name="naam" autocomplete="name" required></label>

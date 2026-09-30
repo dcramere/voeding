@@ -507,6 +507,21 @@ async function prepareFoto(file){
   cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
   return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error("Verwerken van de foto is mislukt.")),"image/jpeg",0.85));
 }
+// profile picture: centre square crop to 400×400 JPEG (also strips EXIF/GPS)
+async function prepareAvatar(file){
+  if(!file||!/^image\//.test(file.type)) throw new Error("Kies een foto.");
+  let img; try{img=await createImageBitmap(file,{imageOrientation:"from-image"})}catch(e){throw new Error("Deze foto kan niet worden gelezen.")}
+  const side=Math.min(img.width,img.height), cv=document.createElement("canvas"); cv.width=cv.height=400;
+  cv.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,400,400);
+  return await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error("Verwerken van de foto is mislukt.")),"image/jpeg",0.88));
+}
+// round avatar: photo, or initials on a gold ring
+function avatarHTML(url,naam,size){
+  size=size||40;
+  const ini=String(naam||"?").trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
+  return url?`<img class="avatar" src="${esc(url)}" alt="" width="${size}" height="${size}" style="width:${size}px;height:${size}px">`
+    :`<span class="avatar ini" style="width:${size}px;height:${size}px;font-size:${Math.round(size*0.38)}px" aria-hidden="true">${esc(ini)}</span>`;
+}
 async function uploadFoto(url,blob){
   const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"content-type":"image/jpeg"},body:blob});
   let data=null; try{data=await r.json()}catch(e){}
@@ -726,7 +741,7 @@ function printPlan(P,m,menu,o){
   if(img&&!img.complete){img.onload=go;img.onerror=go}else go();
 }
 
-window.DC={applyBrand,FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
+window.DC={applyBrand,prepareAvatar,avatarHTML,FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
   shoppingList,shoppingHTML,printHTML,printPlan,POSES,FOTO_EVERY,FOTO_TIPS,fotoSets,lastFotoDate,fotosDue,prepareFoto,uploadFoto,fotoUploadHTML,fotoCompareHTML,checkinFieldsHTML,readCheckin,checkinsHTML,checkinFlags,intakeFieldsHTML,fillIntake,readIntake,intakeSummaryHTML,
   profielFieldsHTML,fillProfiel,readProfiel,metingFieldsHTML,readMeting,api,handleForm};
 })();

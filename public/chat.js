@@ -10,7 +10,7 @@ const time=ts=>{const d=new Date(ts*1000),today=new Date();
     :d.toLocaleDateString("nl-NL",{day:"numeric",month:"short"})+" "+d.toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"})};
 
 // me: "client" | "coach"; fotoUrl(id) → image URL; checkins: [{id,datum}] to label feedback
-function messagesHTML(list,me,fotoUrl,checkins){
+function messagesHTML(list,me,fotoUrl,checkins,other){
   if(!list.length) return `<p class="empty chat-empty">${me==="client"?"Stel hier uw vragen aan uw coach. U krijgt een melding zodra er een antwoord is.":"Nog geen berichten. Stuur een eerste bericht of reageer op een check-in."}</p>`;
   let lastDay="";
   return list.map(b=>{
@@ -18,11 +18,12 @@ function messagesHTML(list,me,fotoUrl,checkins){
     lastDay=day;
     const k=b.checkin_id&&(checkins||[]).find(x=>x.id===b.checkin_id);
     const mine=b.van===me;
-    return `${sep}<div class="msg ${mine?"mine":"theirs"}${b.checkin_id?" fb":""}">
+    const av=!mine&&other?`<span class="msg-av">${DC.avatarHTML(other.avatar,other.naam,28)}</span>`:"";
+    return `${sep}<div class="msg-row ${mine?"mine":"theirs"}">${av}<div class="msg ${mine?"mine":"theirs"}${b.checkin_id?" fb":""}">
       ${b.checkin_id?`<span class="msg-tag">Reactie op check-in${k?" van "+DC.dateNL(k.datum,{day:"numeric",month:"short"}):""}</span>`:""}
       ${b.foto?`<a href="${fotoUrl(b.id)}" target="_blank" rel="noopener"><img src="${fotoUrl(b.id)}" alt="Foto" loading="lazy"></a>`:""}
       ${b.tekst?`<div class="msg-t">${linkify(b.tekst)}</div>`:""}
-      <span class="msg-m">${time(b.created_at)}${mine&&b.gelezen?" · gelezen":""}</span></div>`;
+      <span class="msg-m">${time(b.created_at)}${mine&&b.gelezen?" · gelezen":""}</span></div></div>`;
   }).join("");
 }
 function composerHTML(){

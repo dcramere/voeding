@@ -12,7 +12,17 @@ DC.api("/api/prijzen").then(p=>{
     el.querySelector("b").textContent=x?money(x):"Binnenkort";
     el.querySelector("span").textContent=x?(x.interval==="year"?"per jaar":"per maand"):"";
   });
+  if(p.beschikbaar&&new URLSearchParams(location.search).get("start")==="client") openStart();
   if(!p.beschikbaar) $("prijsNoot").textContent="Online aanmelden opent binnenkort. Wilt u nu al starten? Neem contact op via WhatsApp; de knoppen hierboven openen een bericht.";
+}).catch(()=>{});
+
+DC.api("/api/winkels").then(list=>{
+  if(!list.length) return;
+  const esc=DC.esc;
+  $("coachDir").innerHTML=list.map(k=>`<a class="coach-card" href="/c/${esc(k.slug)}">${DC.avatarHTML(k.avatar,k.naam,72)}
+    <span><b>${esc(k.merk||k.naam)}</b><small>${esc(k.titel||"")}</small>
+    ${k.specialisaties&&k.specialisaties.length?`<span class="tags">${k.specialisaties.slice(0,3).map(t=>`<i>${esc(t)}</i>`).join("")}</span>`:""}</span></a>`).join("");
+  $("vind-coach").hidden=false;
 }).catch(()=>{});
 
 function openStart(){

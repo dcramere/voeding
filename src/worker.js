@@ -35,6 +35,10 @@ export default {
       // the app moved to /app/: keep old invite links working (the landing page stays reachable for everyone)
       if (url.searchParams.has("invite")) return Response.redirect(`${url.origin}/app/?invite=${encodeURIComponent(url.searchParams.get("invite"))}`, 302);
     }
+    if (url.pathname.startsWith("/c/") && req.method === "GET") {
+      try { return await storefrontPage(env, url); }
+      catch (e) { console.error(e); ctx.waitUntil(logFout(env, url.pathname, e)); return new Response("Er ging iets mis.", { status: 500 }); }
+    }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
       return await route(req, env, url, ctx);
@@ -326,7 +330,7 @@ const withClient = (fn, opts = {}) => async (c) => {
 const withCoach = (fn, opts = {}) => async (c) => {
   const id = await sessionSubject(c, "coach");
   if (!id) fail(401, "Log opnieuw in.");
-  const coach = await c.env.DB.prepare("SELECT id, naam, email, is_owner, status, stripe_customer, abo_status, abo_einde, merk FROM coaches WHERE id = ?").bind(id).first();
+  const coach = await c.env.DB.prepare("SELECT id, naam, email, is_owner, status, stripe_customer, abo_status, abo_einde, merk, slug, avatar_key, avatar_v FROM coaches WHERE id = ?").bind(id).first();
   if (!coach) fail(401, "Log opnieuw in.");
   if (!opts.billing && !coach.is_owner && coach.status !== "actief")
     fail(402, "Uw platformabonnement is niet actief.", "abonnement");
@@ -353,6 +357,12 @@ const ROUTES = [
   ["GET", "/account/export", withClient(clientExport, { billing: true })],
   ["POST", "/account/verwijderen", withClient(clientDeleteAccount, { billing: true })],
   ["GET", "/health", health],
+  ["POST", "/avatar", withClient((c) => putAvatar(c, "client", c.client.id), { billing: true }), RAW],
+  ["DELETE", "/avatar", withClient((c) => delAvatar(c, "client", c.client.id), { billing: true })],
+  ["GET", /^\/avatar\/client\/(\d+)$/, getClientAvatar],
+  ["GET", /^\/avatar\/coach\/(\d+)$/, getCoachAvatar],
+  ["GET", "/winkels", listWinkels],
+  ["POST", /^\/winkel\/([a-z0-9-]{3,30})\/aanvraag$/, postAanvraag],
   ["GET", "/berichten", withClient(clientGetBerichten)],
   ["GET", "/berichten/ongelezen", withClient(async (c) => json({ n: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL").bind(c.client.id).first()).n }))],
   ["POST", "/berichten", withClient(clientPostBericht)],
@@ -409,6 +419,13 @@ const ROUTES = [
   ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
   ["GET", "/coach/programmas", withCoach(listProgrammas)],
   ["PUT", "/coach/merk", withCoach(putMerk)],
+  ["POST", "/coach/avatar", withCoach((c) => putAvatar(c, "coach", c.coach.id), { billing: true }), RAW],
+  ["DELETE", "/coach/avatar", withCoach((c) => delAvatar(c, "coach", c.coach.id), { billing: true })],
+  ["GET", "/coach/winkel", withCoach(getWinkel)],
+  ["PUT", "/coach/winkel", withCoach(putWinkel)],
+  ["GET", "/coach/aanvragen", withCoach(listAanvragen)],
+  ["PUT", /^\/coach\/aanvragen\/(\d+)$/, withCoach(putAanvraag)],
+  ["POST", /^\/coach\/aanvragen\/(\d+)\/uitnodigen$/, withCoach(inviteAanvraag)],
   ["POST", "/coach/merk/logo", withCoach(putMerkLogo), RAW],
   ["DELETE", "/coach/merk/logo", withCoach(delMerkLogo)],
   ["GET", /^\/merk\/(\d+)\/logo$/, getMerkLogo],
@@ -433,7 +450,7 @@ async function route(req, env, url, ctx) {
     if (m !== method) continue;
     let params = [];
     if (typeof pattern === "string") { if (pattern !== path) continue; }
-    else { const hit = path.match(pattern); if (!hit) continue; params = hit.slice(1).map(Number); }
+    else { const hit = path.match(pattern); if (!hit) continue; params = hit.slice(1).map((x) => (/^\d+$/.test(x) ? Number(x) : x)); }
     const body = !raw && (method === "POST" || method === "PUT") ? await readJson(req) : {};
     return handler({ req, env, url, ctx, body, params, now: Math.floor(Date.now() / 1000) });
   }
@@ -544,7 +561,7 @@ async function inviteAccept(c) {
 async function clientMe(c) {
   const { client: cl, env } = c;
   const [coach, metingen, checkins, fotos, workouts, producten] = await Promise.all([
-    env.DB.prepare("SELECT id, naam, merk FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
+    env.DB.prepare("SELECT id, naam, merk, avatar_key, avatar_v FROM coaches WHERE id = ?").bind(cl.coach_id).first(),
     metingenOf(env, cl.id),
     checkinsOf(env, cl.id, 12),
     fotosOf(env, cl.id),
@@ -554,6 +571,7 @@ async function clientMe(c) {
   ]);
   return json({
     naam: cl.naam, email: cl.email, coach: coach ? coach.naam : "", merk: coach ? merkOut(coach) : null,
+    avatar: avatarUrl("client", cl), coachAvatar: coach ? avatarUrl("coach", coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
@@ -675,7 +693,7 @@ function cleanDoelen(b) {
 }
 function publicClient(r) {
   return {
-    id: r.id, naam: r.naam, email: r.email, actief: !!r.actief, geactiveerd: !!r.pw_hash,
+    id: r.id, naam: r.naam, email: r.email, actief: !!r.actief, geactiveerd: !!r.pw_hash, avatar: avatarUrl("client", r),
     uitnodigingVerloopt: r.invite_expires, notities: r.notities, privacyAkkoord: r.privacy_akkoord,
     profiel: profielOut(r), doelen: r.doelen ? JSON.parse(r.doelen) : null, intake: r.intake ? JSON.parse(r.intake) : null,
     programma: r.programma ? JSON.parse(r.programma) : null, menu: JSON.parse(r.menu),
@@ -806,6 +824,7 @@ async function deleteClientData(env, id) {
     c.env.DB.prepare("DELETE FROM checkins WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM sessions WHERE role = 'client' AND subject_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM herinneringen WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("UPDATE aanvragen SET client_id = NULL WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM clients WHERE id = ?").bind(row.id),
   ]);
 }
@@ -887,7 +906,7 @@ async function removeFoto(c, clientId, fotoId) {
 }
 
 async function deleteAllFotos(env, clientId) {
-  for (const prefix of [`c/${clientId}/`, `m/${clientId}/`]) await deletePrefix(env, prefix);
+  for (const prefix of [`c/${clientId}/`, `m/${clientId}/`, `avatar/client/${clientId}/`]) await deletePrefix(env, prefix);
 }
 async function deletePrefix(env, prefix) {
   let cursor;
@@ -1364,7 +1383,9 @@ async function clientResubscribe(c) {
 async function coachMeInfo(c) {
   const k = c.coach;
   return json({ id: k.id, naam: k.naam, email: k.email, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
-    aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k) });
+    aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k),
+    avatar: avatarUrl("coach", k), slug: k.slug,
+    nieuweAanvragen: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM aanvragen WHERE coach_id = ? AND status = 'nieuw'").bind(k.id).first()).n });
 }
 async function coachSessionFor(c, coachId, customer, mail) {
   return stripe(c.env, "POST", "/checkout/sessions", {
@@ -1841,4 +1862,218 @@ async function ownerSysteem(c) {
   const { results } = await c.env.DB.prepare("SELECT ts, pad, melding FROM fouten ORDER BY id DESC LIMIT 30").all();
   return json({ fouten24: f24.n, fouten7: f7.n, clienten: clients.n, actief7: actief.n, pushApparaten: push.n,
     laatsteBackup: backup ? Number(backup) : null, betalingen: billingReady(c.env), fouten: results });
+}
+
+// ---------- profile pictures ----------
+const avatarUrl = (role, r) => (r && r.avatar_key ? `/api/avatar/${role}/${r.id}?v=${r.avatar_v || 0}` : null);
+async function putAvatar(c, role, id) {
+  const buf = new Uint8Array(await c.req.arrayBuffer());
+  if (buf.length > 1024 * 1024) fail(413, "De foto is te groot (max. 1 MB).");
+  const type = buf.length > 12 ? imageType(buf) : null;
+  if (!type) fail(415, "Upload een JPEG-, PNG- of WebP-foto.");
+  const table = role === "coach" ? "coaches" : "clients";
+  const old = await c.env.DB.prepare(`SELECT avatar_key FROM ${table} WHERE id = ?`).bind(id).first();
+  const key = `avatar/${role}/${id}/${randomToken(9)}`;
+  await c.env.FOTOS.put(key, buf, { httpMetadata: { contentType: type } });
+  await c.env.DB.prepare(`UPDATE ${table} SET avatar_key = ?, avatar_v = ? WHERE id = ?`).bind(key, c.now, id).run();
+  if (old && old.avatar_key) await c.env.FOTOS.delete(old.avatar_key);
+  return json({ avatar: avatarUrl(role, { id, avatar_key: key, avatar_v: c.now }) });
+}
+async function delAvatar(c, role, id) {
+  const table = role === "coach" ? "coaches" : "clients";
+  const old = await c.env.DB.prepare(`SELECT avatar_key FROM ${table} WHERE id = ?`).bind(id).first();
+  if (old && old.avatar_key) await c.env.FOTOS.delete(old.avatar_key);
+  await c.env.DB.prepare(`UPDATE ${table} SET avatar_key = NULL, avatar_v = NULL WHERE id = ?`).bind(id).run();
+  return json({ avatar: null });
+}
+async function serveAvatar(env, key, cache) {
+  const obj = key && await env.FOTOS.get(key);
+  if (!obj) fail(404, "Geen foto.");
+  return new Response(obj.body, { headers: { "content-type": obj.httpMetadata.contentType || "image/jpeg", "cache-control": cache, "x-content-type-options": "nosniff" } });
+}
+// client photos: only the client and their own coach
+async function getClientAvatar(c) {
+  const id = c.params[0];
+  const row = await c.env.DB.prepare("SELECT avatar_key, coach_id FROM clients WHERE id = ?").bind(id).first();
+  if (!row) fail(404, "Geen foto.");
+  const [asClient, asCoach] = await Promise.all([sessionSubject(c, "client"), sessionSubject(c, "coach")]);
+  if (asClient !== id && asCoach !== row.coach_id) fail(404, "Geen foto.");
+  return serveAvatar(c.env, row.avatar_key, "private, max-age=86400");
+}
+// coach photos are public: they appear on the storefront
+async function getCoachAvatar(c) {
+  const row = await c.env.DB.prepare("SELECT avatar_key FROM coaches WHERE id = ?").bind(c.params[0]).first();
+  return serveAvatar(c.env, row && row.avatar_key, "public, max-age=86400");
+}
+
+// ---------- storefronts ----------
+const RESERVED_SLUGS = new Set(["app", "api", "coach", "coaches", "admin", "dcramere-coaching", "login", "privacy", "voorwaarden", "help", "support", "www", "winkel"]);
+function cleanWinkel(b) {
+  const list = (a, max) => (Array.isArray(a) ? a.slice(0, max) : []);
+  const w = {
+    gepubliceerd: !!b.gepubliceerd,
+    titel: str(b.titel, 80, "Titel"),
+    bio: str(b.bio, 1500, "Over mij"),
+    specialisaties: list(b.specialisaties, 8).map((x) => str(x, 30, "Specialisatie")).filter(Boolean),
+    pakketten: list(b.pakketten, 4).map((p) => ({
+      naam: str(p && p.naam, 40, "Pakketnaam"), prijs: str(p && p.prijs, 20, "Prijs"), periode: str(p && p.periode, 20, "Periode"),
+      beschrijving: str(p && p.beschrijving, 200, "Beschrijving"),
+      kenmerken: list(p && p.kenmerken, 6).map((x) => str(x, 60, "Kenmerk")).filter(Boolean),
+    })).filter((p) => p.naam),
+    reviews: list(b.reviews, 6).map((r) => ({ naam: str(r && r.naam, 40, "Naam"), tekst: str(r && r.tekst, 300, "Review") })).filter((r) => r.naam && r.tekst),
+    whatsapp: String(b.whatsapp || "").replace(/\D/g, "").slice(0, 15),
+    instagram: String(b.instagram || "").replace(/^@/, "").trim(),
+  };
+  if (w.whatsapp && w.whatsapp.length < 7) fail(400, "Vul een volledig WhatsApp-nummer in, met landcode (bijv. 597…).");
+  if (w.instagram && !/^[A-Za-z0-9._]{1,30}$/.test(w.instagram)) fail(400, "Ongeldige Instagram-naam.");
+  if (w.gepubliceerd && (!w.titel || !w.bio || !w.pakketten.length)) fail(400, "Vul een titel, een tekst over uzelf en minstens één pakket in om de winkel te publiceren.");
+  return w;
+}
+async function getWinkel(c) {
+  const r = await c.env.DB.prepare("SELECT slug, winkel FROM coaches WHERE id = ?").bind(c.coach.id).first();
+  return json({ slug: r.slug, winkel: r.winkel ? JSON.parse(r.winkel) : null, url: r.slug ? `${c.url.origin}/c/${r.slug}` : null });
+}
+async function putWinkel(c) {
+  const slug = String(c.body.slug || "").toLowerCase().trim();
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/.test(slug)) fail(400, "Kies een webadres van 3–30 tekens: kleine letters, cijfers en streepjes.");
+  if (RESERVED_SLUGS.has(slug)) fail(409, "Dit webadres is niet beschikbaar.");
+  if (await c.env.DB.prepare("SELECT 1 FROM coaches WHERE slug = ? AND id != ?").bind(slug, c.coach.id).first()) fail(409, "Dit webadres is al in gebruik. Kies een ander.");
+  const w = cleanWinkel(c.body.winkel || {});
+  if (w.gepubliceerd && !c.coach.avatar_key) fail(400, "Voeg eerst een profielfoto toe (Instellingen) voordat u de winkel publiceert.");
+  await c.env.DB.prepare("UPDATE coaches SET slug = ?, winkel = ? WHERE id = ?").bind(slug, JSON.stringify(w), c.coach.id).run();
+  return json({ slug, winkel: w, url: `${c.url.origin}/c/${slug}` });
+}
+const winkelVisible = (k) => k && k.winkel && JSON.parse(k.winkel).gepubliceerd && (k.is_owner || k.status === "actief");
+async function listWinkels(c) {
+  const { results } = await c.env.DB.prepare("SELECT id, naam, slug, winkel, merk, is_owner, status, avatar_key, avatar_v FROM coaches WHERE slug IS NOT NULL AND winkel IS NOT NULL").all();
+  const out = results.filter(winkelVisible).map((k) => {
+    const w = JSON.parse(k.winkel), m = merkOut(k);
+    return { slug: k.slug, naam: k.naam, merk: m && m.naam, titel: w.titel, specialisaties: w.specialisaties, avatar: avatarUrl("coach", k), eigenaar: !!k.is_owner };
+  }).sort((a, b) => b.eigenaar - a.eigenaar || a.naam.localeCompare(b.naam));
+  return json(out, 200, { "cache-control": "public, max-age=300" });
+}
+async function postAanvraag(c) {
+  const keys = [`lead:${clientIp(c)}`];
+  await throttle(c, keys);
+  await recordFailure(c, keys); // counts submissions: max 8 per 15 min per IP
+  const k = await c.env.DB.prepare("SELECT id, naam, is_owner, status, winkel FROM coaches WHERE slug = ?").bind(c.params[0]).first();
+  if (!winkelVisible(k)) fail(404, "Deze coach is niet gevonden.");
+  if (c.body.website) return json({ ok: true }); // honeypot: bots fill every field
+  const naam = str(c.body.naam, 100, "Naam");
+  if (!naam) fail(400, "Vul uw naam in.");
+  const addr = email(c.body.email);
+  const a = { telefoon: str(c.body.telefoon, 30, "Telefoon"), pakket: str(c.body.pakket, 40, "Pakket"), doel: str(c.body.doel, 1000, "Doel") };
+  await c.env.DB.prepare("INSERT INTO aanvragen (coach_id, naam, email, telefoon, pakket, doel, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(k.id, naam, addr, a.telefoon, a.pakket, a.doel, c.now).run();
+  c.ctx?.waitUntil(notify(c.env, "coach", k.id, { titel: `Nieuwe aanvraag van ${naam}`, tekst: a.pakket ? `Pakket: ${a.pakket}` : "Via uw winkelpagina", url: "/coach/#/aanvragen" }, c.now));
+  return json({ ok: true }, 201);
+}
+async function listAanvragen(c) {
+  const { results } = await c.env.DB.prepare("SELECT * FROM aanvragen WHERE coach_id = ? ORDER BY id DESC LIMIT 200").bind(c.coach.id).all();
+  return json(results);
+}
+async function ownAanvraag(c) {
+  const a = await c.env.DB.prepare("SELECT * FROM aanvragen WHERE id = ? AND coach_id = ?").bind(c.params[0], c.coach.id).first();
+  if (!a) fail(404, "Aanvraag niet gevonden.");
+  return a;
+}
+async function putAanvraag(c) {
+  const a = await ownAanvraag(c);
+  if (!["nieuw", "afgewezen"].includes(c.body.status)) fail(400, "Ongeldige status.");
+  await c.env.DB.prepare("UPDATE aanvragen SET status = ? WHERE id = ?").bind(c.body.status, a.id).run();
+  return json({ ok: true });
+}
+async function inviteAanvraag(c) {
+  const a = await ownAanvraag(c);
+  if (await c.env.DB.prepare("SELECT 1 FROM clients WHERE email = ?").bind(a.email).first()) fail(409, "Er bestaat al een cliënt met dit e-mailadres.");
+  const { meta } = await c.env.DB.prepare("INSERT INTO clients (coach_id, naam, email, created_at, notities) VALUES (?, ?, ?, ?, ?)")
+    .bind(c.coach.id, a.naam, a.email, c.now, [a.pakket && `Pakket: ${a.pakket}`, a.telefoon && `Telefoon: ${a.telefoon}`, a.doel && `Doel: ${a.doel}`].filter(Boolean).join("\n")).run();
+  await c.env.DB.prepare("UPDATE aanvragen SET status = 'uitgenodigd', client_id = ? WHERE id = ?").bind(meta.last_row_id, a.id).run();
+  return json({ id: meta.last_row_id, link: await issueInvite(c, meta.last_row_id), telefoon: a.telefoon }, 201);
+}
+
+// server-rendered storefront page (shareable, with Open Graph preview)
+async function storefrontPage(env, url) {
+  const slug = url.pathname.slice(3).replace(/\/$/, "").toLowerCase();
+  const k = /^[a-z0-9-]{3,30}$/.test(slug) && await env.DB.prepare(
+    "SELECT id, naam, slug, winkel, merk, is_owner, status, avatar_key, avatar_v FROM coaches WHERE slug = ?").bind(slug).first();
+  const h = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  if (!winkelVisible(k)) {
+    return new Response(`<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Coach niet gevonden</title><link rel="stylesheet" href="/style.css"></head><body><div class="wrap" style="padding-top:80px;text-align:center"><h1>Deze coach is niet gevonden</h1><p class="sub" style="margin:0 auto 20px">De pagina bestaat niet (meer) of is nog niet gepubliceerd.</p><a class="btn" href="/">Naar DCRAMERE Coaching</a></div></body></html>`,
+      { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+  }
+  const w = JSON.parse(k.winkel), m = merkOut(k), brand = (m && m.naam) || "DCRAMERE Coaching";
+  const avatar = avatarUrl("coach", k), kleur = m && m.kleur;
+  const direct = k.is_owner && billingReady(env);
+  const wa = w.whatsapp ? `https://wa.me/${w.whatsapp}?text=${encodeURIComponent(`Hallo ${k.naam}, ik zag uw coachingpagina en heb een vraag.`)}` : null;
+  const page = `<!DOCTYPE html>
+<html lang="nl"${kleur ? ` style="--gold:${kleur};--c:${kleur}"` : ""}>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${h(k.naam)} — ${h(w.titel)}</title>
+<meta name="description" content="${h(w.bio.slice(0, 160))}">
+<meta property="og:type" content="profile"><meta property="og:title" content="${h(k.naam)} — ${h(w.titel)}">
+<meta property="og:description" content="${h(w.bio.slice(0, 200))}">
+${avatar ? `<meta property="og:image" content="${url.origin}${avatar}">` : ""}
+<meta name="theme-color" content="#0a0a0a">
+<link rel="icon" href="/img/icon-48.png" type="image/png">
+<link rel="preload" href="/fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/landing.css"><link rel="stylesheet" href="/storefront.css">
+</head>
+<body class="landing">
+<header class="lnav"><div class="lwrap lnav-in">
+  <a class="brand" href="/"><img src="${m && m.logo ? h(m.logo) : "/img/emblem.webp"}" alt=""><span><b>${h(m && m.naam ? m.naam : "DCRAMERE")}</b><small>Coaching</small></span></a>
+  <nav><a href="#pakketten">Pakketten</a>${w.reviews.length ? `<a href="#ervaringen">Ervaringen</a>` : ""}<a href="/app/" class="btn small ghost">Inloggen</a></nav>
+</div></header>
+<main>
+  <section class="sf-hero"><div class="lwrap sf-hero-in">
+    ${avatar ? `<img class="sf-avatar" src="${h(avatar)}" alt="${h(k.naam)}" width="400" height="400">` : ""}
+    <div>
+      <p class="kicker">${h(brand)}</p>
+      <h1>${h(k.naam)}</h1>
+      <p class="sf-titel">${h(w.titel)}</p>
+      ${w.specialisaties.length ? `<ul class="sf-tags">${w.specialisaties.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : ""}
+      <div class="actions">${direct ? `<a class="btn" href="/?start=client#prijzen">Direct starten</a>` : ""}<a class="btn${direct ? " ghost" : ""}" href="#aanvraag">Plan een kennismaking</a>${wa ? `<a class="btn ghost" href="${h(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
+    </div>
+  </div></section>
+  <section class="lsec"><div class="lwrap narrow-l">
+    <p class="kicker">Over mij</p>
+    <div class="sf-bio">${h(w.bio).replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>").replace(/^/, "<p>")}</p></div>
+    ${w.instagram ? `<p class="sub"><a href="https://instagram.com/${h(w.instagram)}" target="_blank" rel="noopener">@${h(w.instagram)} op Instagram</a></p>` : ""}
+  </div></section>
+  <section class="lsec alt" id="pakketten"><div class="lwrap">
+    <p class="kicker">Pakketten</p><h2>Kies wat bij u past</h2>
+    <div class="plans sf-plans">${w.pakketten.map((p, i) => `<article class="plan${i === 0 ? " featured" : ""}">
+      <h3>${h(p.naam)}</h3>
+      ${p.prijs ? `<p class="price"><b>${h(p.prijs)}</b><span>${h(p.periode)}</span></p>` : ""}
+      ${p.beschrijving ? `<p class="sub" style="margin:0">${h(p.beschrijving)}</p>` : ""}
+      ${p.kenmerken.length ? `<ul>${p.kenmerken.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : ""}
+      <a class="btn${i === 0 ? "" : " ghost"} block" href="#aanvraag" data-pakket="${h(p.naam)}">Aanvragen</a>
+    </article>`).join("")}</div>
+    <p class="sub center" style="margin-top:18px">Inclusief de DCRAMERE Coaching-app: voedingsplan op maat, trainingsprogramma, check-ins en chat met uw coach.</p>
+  </div></section>
+  ${w.reviews.length ? `<section class="lsec" id="ervaringen"><div class="lwrap"><p class="kicker">Ervaringen</p><h2>Wat cliënten zeggen</h2>
+    <div class="sf-reviews">${w.reviews.map((r) => `<figure><blockquote>“${h(r.tekst)}”</blockquote><figcaption>${h(r.naam)}</figcaption></figure>`).join("")}</div></div></section>` : ""}
+  <section class="lsec alt" id="aanvraag"><div class="lwrap narrow-l">
+    <p class="kicker">Kennismaken</p><h2>Vraag een plek aan bij ${h(k.naam)}</h2>
+    <form id="fLead" class="sf-form" novalidate data-slug="${h(k.slug)}">
+      <div class="row"><label>Naam<input name="naam" autocomplete="name" required></label><label>E-mailadres<input type="email" name="email" autocomplete="email" required></label></div>
+      <div class="row"><label>Telefoon / WhatsApp <small>optioneel</small><input name="telefoon" autocomplete="tel"></label>
+        <label>Pakket<select name="pakket"><option value="">Nog niet zeker</option>${w.pakketten.map((p) => `<option>${h(p.naam)}</option>`).join("")}</select></label></div>
+      <label>Wat wilt u bereiken? <small>optioneel</small><textarea name="doel" style="min-height:90px"></textarea></label>
+      <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+      <p class="sub" style="font-size:13px;margin:0">Uw gegevens gaan alleen naar ${h(k.naam)}. Zie de <a href="/privacy.html">privacyverklaring</a>.</p>
+      <div><button class="btn" type="submit">Aanvraag versturen</button></div>
+      <div class="flash" data-msg role="status"></div>
+    </form>
+  </div></section>
+</main>
+<footer class="lfoot"><div class="lwrap lfoot-in"><div><p>${h(brand)}<br><span>Aangedreven door DCRAMERE Coaching</span></p></div>
+  <nav><a href="/">Meer coaches</a><a href="/privacy.html">Privacy</a><a href="/voorwaarden.html">Voorwaarden</a></nav></div></footer>
+<script src="/core.js"></script><script src="/storefront.js"></script>
+</body></html>`;
+  return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60",
+    "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "x-content-type-options": "nosniff", "referrer-policy": "strict-origin-when-cross-origin" } });
 }

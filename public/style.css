@@ -519,3 +519,38 @@ table.pe-ex td:nth-child(3){width:200px}
 #stats.stats{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 #sysStats.stats{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 .err-code{font-size:12px;color:var(--warn);white-space:normal;word-break:break-word}
+
+/* avatars */
+.avatar{border-radius:50%;object-fit:cover;display:inline-block;flex:none;vertical-align:middle;border:1px solid var(--line-strong);background:var(--surface)}
+.avatar.ini{display:inline-grid;place-items:center;color:var(--gold);font-weight:800;border-color:var(--gold-dim);background:var(--gold-soft)}
+.msg-row{display:flex;gap:8px;align-items:flex-end}
+.msg-row.mine{justify-content:flex-end}
+.msg-row .msg{max-width:78%}
+.msg-av{flex:none;margin-bottom:2px}
+.avatar-edit{display:flex;gap:16px;align-items:center;margin:4px 0 18px}
+.avatar-edit .actions{margin:0}
+.hello{display:flex;gap:8px;align-items:center}
+.who-row{display:flex;gap:10px;align-items:center}
+.client-head-row{display:flex;gap:16px;align-items:center;margin-top:14px}
+.client-head-row h1{margin:0}
+
+/* storefront editor & requests */
+.wk-status{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;border:1px solid var(--line-strong);border-radius:10px;padding:12px 16px;margin:6px 0 18px}
+.wk-status.on{border-color:var(--ok)}
+.wk-status b{color:var(--muted)}
+.wk-status.on b{color:var(--ok)}
+.wk-status span{flex:1;min-width:200px;font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.slug-row{display:flex;align-items:center;border:1px solid var(--line-strong);border-radius:4px;background:var(--bg-alt);overflow:hidden}
+.slug-row span{padding:0 0 0 12px;color:var(--faint);font-size:13px;white-space:nowrap;font-weight:400}
+.slug-row input{border:0;padding-left:2px;background:transparent}
+.wk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:12px}
+.wk-card{border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;background:var(--surface)}
+#v-winkel form,#winkelEditor label{max-width:none}
+#winkelEditor{display:grid;gap:14px;max-width:1000px}
+.aanvraag{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--surface)}
+.aanvraag.nieuw{border-color:var(--gold-dim)}
+.aanvraag.afgewezen{opacity:.6}
+.aanvraag-h{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.aanvraag-h b{display:block;font-size:16px}
+.aanvraag-h small{color:var(--muted)}
+.top-actions .badge{margin-left:3px}

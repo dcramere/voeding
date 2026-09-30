@@ -48,10 +48,10 @@
     <div class="hero-auth"><img src="/img/emblem.webp" alt="" width="300" height="300" style="width:120px"></div>
     <div class="auth-card">
       <h1 id="t-abo">Abonnement niet actief</h1>
-      <p class="sub">Uw abonnement is gestopt of de laatste betaling is niet gelukt. Uw plan, metingen en trainingen zijn bewaard; zodra u het abonnement hervat, gaat u verder waar u was.</p>
+      <p class="sub" id="aboSub">Uw abonnement is gestopt of de laatste betaling is niet gelukt. Uw plan, metingen en trainingen zijn bewaard; zodra u het abonnement hervat, gaat u verder waar u was.</p>
       <div style="display:grid;gap:10px">
-        <button class="btn block" type="button" data-billing="checkout">Abonnement hervatten</button>
-        <button class="btn ghost block" type="button" data-billing="portal">Betaalgegevens en facturen</button>
+        <button class="btn block" type="button" data-billing="checkout" id="aboStart">Abonnement hervatten</button>
+        <button class="btn ghost block" type="button" data-billing="portal" id="aboPortal">Betaalgegevens en facturen</button>
         <button class="linkbtn" type="button" id="aboLogout" style="justify-self:center;margin-top:6px">Uitloggen</button>
       </div>
       <div class="err" id="aboMsg" role="status"></div>

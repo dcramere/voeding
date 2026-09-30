@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:Cinzel;src:url(file:///Users/dinocramer/Desktop/dcramere-voeding/public/fonts/cinzel.woff2) format("woff2");font-weight:400 900}
+@font-face{font-family:Overpass;src:url(file:///Users/dinocramer/Desktop/dcramere-voeding/public/fonts/overpass.woff2) format("woff2");font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1080px;height:1350px;background:#0a0a0a;color:#f2efe6;font-family:Overpass,sans-serif;overflow:hidden;position:relative}
+.glow{position:absolute;inset:0;background:radial-gradient(900px 600px at 85% 30%,rgba(244,208,63,.13),transparent 60%)}
+.wrap{position:relative;padding:66px 72px}
+.top{display:flex;align-items:center;gap:18px}
+.top img{width:60px;height:60px}
+.top b{font-family:Cinzel;font-size:32px;letter-spacing:.08em;color:#f4d03f;display:block}
+.top small{font-size:15px;letter-spacing:.35em;color:#9a9588}
+.kicker{margin-top:58px;font-size:20px;letter-spacing:.3em;color:#f4d03f;font-weight:700}
+h1{font-family:Cinzel;font-weight:700;font-size:70px;line-height:1.08;margin-top:16px}
+h1 em{font-style:normal;color:#f4d03f}
+.sub{font-size:26px;line-height:1.45;color:#c9c4b6;margin-top:20px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:56px}
+.col{border:1px solid #2a271f;border-radius:20px;padding:36px 32px 38px;background:#121110}
+.col.on{border:2px solid #f4d03f;background:linear-gradient(180deg,rgba(244,208,63,.08),#121110 60%)}
+.col h2{font-family:Cinzel;font-size:34px;line-height:1.1}
+.col.on h2{color:#f4d03f}
+.col .tag{font-size:15px;letter-spacing:.25em;color:#9a9588;font-weight:700;margin-bottom:10px}
+.col.on .tag{color:#f4d03f}
+.col ul{list-style:none;margin-top:28px;display:grid;gap:24px}
+.col li{display:flex;gap:14px;font-size:25px;line-height:1.3}
+.col li i{flex:none;font-style:normal;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:16px;font-weight:800;margin-top:1px}
+.col li i.x{border:2px solid #5a554a;color:#8a8578}
+.col li i.v{border:2px solid #f4d03f;color:#f4d03f}
+.col:not(.on) li{color:#b9b4a6}
+.bottom{position:absolute;left:72px;right:72px;bottom:60px;display:flex;align-items:flex-end;justify-content:space-between;border-top:1px solid #2a271f;padding-top:30px}
+.price small{font-size:18px;letter-spacing:.25em;color:#9a9588;font-weight:700}
+.price b{display:block;font-family:Cinzel;font-size:58px;color:#f4d03f;line-height:1.1}
+.price b span{font-family:Overpass;font-size:22px;color:#c9c4b6;font-weight:400}
+.price p{font-size:19px;color:#9a9588;margin-top:6px}
+.price p strong{color:#f2efe6}
+.cta{background:#f4d03f;color:#0a0a0a;font-weight:800;font-size:26px;padding:22px 34px;border-radius:12px;white-space:nowrap}
+</style></head><body>
+<div class="glow"></div>
+<div class="wrap">
+  <div class="top"><img src="file:///Users/dinocramer/Desktop/dcramere-voeding/public/img/emblem.webp"><div><b>DCRAMERE</b><small>COACHING</small></div></div>
+  <p class="kicker">ONLINE COACHING vs PERSONAL TRAINING</p>
+  <h1>Een coach die er<br><em>elke dag</em> is.</h1>
+  <p class="sub">Niet één uur per week in de gym, maar begeleiding bij elke maaltijd en elke training.</p>
+  <div class="cols">
+    <div class="col">
+      <p class="tag">KLASSIEK</p><h2>Personal training</h2>
+      <ul>
+        <li><i class="x">–</i>Vaste afspraak, vaste locatie</li>
+        <li><i class="x">–</i>Betalen per sessie</li>
+        <li><i class="x">–</i>Coach ziet u alleen tijdens de les</li>
+        <li><i class="x">–</i>Voeding vaak niet inbegrepen</li>
+        <li><i class="x">–</i>Tussen sessies bent u op uzelf aangewezen</li>
+      </ul>
+    </div>
+    <div class="col on">
+      <p class="tag">DCRAMERE · 100% ONLINE</p><h2>Online coaching</h2>
+      <ul>
+        <li><i class="v">✓</i>Train waar en wanneer u wilt</li>
+        <li><i class="v">✓</i>Eén vast bedrag per maand</li>
+        <li><i class="v">✓</i>Wekelijkse check-in + chat met uw coach</li>
+        <li><i class="v">✓</i>Voedingsplan op maat, met menu</li>
+        <li><i class="v">✓</i>12-weken programma met logboek in de app</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="bottom">
+  <div class="price"><small>ONLINE COACHING</small><b>$99 <span>per maand · maandelijks opzegbaar</span></b><p>Coach? Begeleid uw eigen cliënten online: <strong>$149 p/m</strong></p></div>
+  <div class="cta">Start online →</div>
+</div>
+</body></html>

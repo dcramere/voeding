@@ -390,6 +390,19 @@ DC.handleForm($("fPw"),async f=>{
   return T("Wachtwoord gewijzigd.");
 });
 
+// ---------- subscription needed (402) ----------
+async function showAbonnement(){
+  show("abonnement");
+  const i=await DC.api("/api/billing/info").catch(()=>null); if(!i) return;
+  const prijs=i.prijs?new Intl.NumberFormat(I18N.locale,{style:"currency",currency:i.prijs.valuta,minimumFractionDigits:i.prijs.bedrag%1?2:0}).format(i.prijs.bedrag):null;
+  $("aboPortal").hidden=!i.portaal;
+  if(i.status==="nodig"){ // the coach asks this client to pay via the app: first subscription
+    $("t-abo").textContent=T("Start uw abonnement");
+    $("aboSub").textContent=(prijs?T("{coach} begeleidt u via deze app. Start uw maandabonnement van {x} om te beginnen; u kunt maandelijks opzeggen.",{coach:i.coach,x:prijs}):T("{coach} begeleidt u via deze app. Start uw maandabonnement om te beginnen; u kunt maandelijks opzeggen.",{coach:i.coach}));
+    $("aboStart").textContent=T("Abonnement starten");
+  }
+}
+
 // ---------- boot ----------
 function loginError(msg){show("login");const el=$("fLogin").querySelector("[data-msg]");el.className="err";el.textContent=msg}
 // back from Stripe Checkout: wait until the payment is confirmed, then activate the account right away
@@ -407,6 +420,7 @@ async function afterPayment(sid){
           $("fInvite").elements.email.value=r.email;
           show("uitnodiging"); return;
         }
+        if(await DC.api("/api/me").then(()=>true,()=>false)) return boot(); // already logged in (first payment from inside the app)
         loginError(T("Uw abonnement is actief. Log in met uw e-mailadres en wachtwoord."));
         $("fLogin").querySelector("[data-msg]").className="flash"; $("fLogin").elements.email.value=r.email||""; return;
       }
@@ -447,7 +461,7 @@ async function boot(){
     show(!onboarding()&&want&&TAB_VIEWS.includes(want)?want:nextStep());
     vd.load(DC.today()).then(renderPlan).catch(()=>{}); // marks meals already logged today
   }catch(err){
-    if(err.status===401) show("login"); else if(err.status===402) show("abonnement"); else loginError(err.message);
+    if(err.status===401) show("login"); else if(err.status===402) showAbonnement(); else loginError(err.message);
   }
 }
 I18N.onChange(l=>me?DC.api("/api/taal","PUT",{taal:l}).catch(()=>{}):null);

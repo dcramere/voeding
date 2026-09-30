@@ -103,6 +103,7 @@
     <h1 id="t-inst" style="margin-top:14px">Instellingen</h1>
     <div class="split">
       <div>
+        <div id="connectBox"></div>
         <h2 style="margin-top:0">Uw profielfoto</h2>
         <div class="avatar-edit"><span id="cAv"></span><div><div class="actions"><label class="btn small ghost"><input type="file" accept="image/*" id="cAvInput" hidden>Foto kiezen</label><button class="linkbtn" type="button" id="cAvDel" hidden>Verwijderen</button></div>
           <p class="sub" style="font-size:13px;margin:6px 0 0">Zichtbaar voor uw cliënten (chat) en bovenaan uw winkel.</p><div class="err" id="cAvMsg" role="status"></div></div></div>
@@ -187,6 +188,7 @@
         <label>Naam<input name="naam" autocomplete="off" required></label>
         <label>E-mailadres<input type="email" name="email" autocomplete="off" required></label>
       </div>
+      <label class="consent" id="newPayRow" hidden><input type="checkbox" name="betaalt"><span id="newPayText"></span></label>
       <div class="actions" style="margin-top:0"><button class="btn" type="submit">Toevoegen en link maken</button><button class="btn ghost" type="button" id="cancelNew">Annuleren</button></div>
       <div class="flash" data-msg role="status"></div>
     </form>

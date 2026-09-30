@@ -23,6 +23,7 @@ const pushMock = createServer((req, res) => { let b = ""; req.on("data", (d) => 
 
 // ---- minimal Stripe API mock (only what the worker uses) ----
 const sessions = new Map(); let seq = 0; const cancelled = [];
+const accounts = new Map(), prices = new Map(), deactivated = [];
 const stripeMock = createServer((req, res) => {
   let body = ""; req.on("data", (d) => (body += d)); req.on("end", () => {
     const u = new URL(req.url, "http://x"), p = new URLSearchParams(body);
@@ -30,13 +31,31 @@ const stripeMock = createServer((req, res) => {
     if (req.headers.authorization !== "Bearer sk_test_mock") return send(401, { error: { message: "bad key" } });
     if (req.method === "GET" && u.pathname.startsWith("/v1/prices/")) {
       const id = u.pathname.split("/").pop();
-      return send(200, { id, unit_amount: id === "price_client" ? 7900 : 4900, currency: "usd", recurring: { interval: "month" } });
+      return send(200, prices.get(id) || { id, unit_amount: id === "price_client" ? 7900 : 4900, currency: "usd", recurring: { interval: "month" } });
     }
+    // --- Connect ---
+    if (req.method === "POST" && u.pathname === "/v1/accounts") {
+      const id = "acct_" + String(++seq).padStart(8, "0");
+      accounts.set(id, { id, country: p.get("country"), email: p.get("email"), agreement: p.get("tos_acceptance[service_agreement]"),
+        card: p.get("capabilities[card_payments][requested]"), details_submitted: false, payouts_enabled: false, capabilities: { transfers: "inactive" } });
+      return send(200, accounts.get(id));
+    }
+    const acct = u.pathname.match(/^\/v1\/accounts\/(acct_\w+)(\/login_links)?$/);
+    if (acct && accounts.has(acct[1])) return send(200, acct[2] ? { url: "https://connect.stripe.test/express/" + acct[1] } : accounts.get(acct[1]));
+    if (req.method === "POST" && u.pathname === "/v1/account_links") return send(200, { url: "https://connect.stripe.test/setup/" + p.get("account") + "?type=" + p.get("type") });
+    if (req.method === "POST" && u.pathname === "/v1/products") return send(200, { id: "prod_" + (++seq), name: p.get("name") });
+    if (req.method === "POST" && u.pathname === "/v1/prices") {
+      const id = "price_c" + (++seq);
+      prices.set(id, { id, product: p.get("product"), unit_amount: Number(p.get("unit_amount")), currency: p.get("currency"), recurring: { interval: p.get("recurring[interval]") } });
+      return send(200, prices.get(id));
+    }
+    if (req.method === "POST" && u.pathname.startsWith("/v1/prices/")) { deactivated.push(u.pathname.split("/").pop()); return send(200, {}); }
     if (req.method === "POST" && u.pathname === "/v1/checkout/sessions") {
       const id = "cs_test_" + String(++seq).padStart(10, "0"), metadata = {};
       for (const [k, v] of p) { const m = k.match(/^metadata\[(.+)\]$/); if (m) metadata[m[1]] = v; }
       sessions.set(id, { id, object: "checkout.session", status: "open", mode: "subscription", metadata,
-        customer_email: p.get("customer_email"), customer: p.get("customer"), price: p.get("line_items[0][price]"), success_url: p.get("success_url") });
+        customer_email: p.get("customer_email"), customer: p.get("customer"), price: p.get("line_items[0][price]"), success_url: p.get("success_url"),
+        destination: p.get("subscription_data[transfer_data][destination]"), fee: p.get("subscription_data[application_fee_percent]") });
       return send(200, { id, url: "https://checkout.stripe.test/" + id });
     }
     if (req.method === "GET" && u.pathname.startsWith("/v1/checkout/sessions/")) {
@@ -50,6 +69,7 @@ const stripeMock = createServer((req, res) => {
     send(404, { error: { message: "not mocked: " + req.method + " " + u.pathname } });
   });
 });
+const onboard = (id) => Object.assign(accounts.get(id), { details_submitted: true, payouts_enabled: true, capabilities: { transfers: "active" } });
 const pay = (url) => { const s = sessions.get(url.split("/").pop()); s.status = "complete"; return s.id; };
 function signed(event) {
   const payload = JSON.stringify(event), t = Math.floor(Date.now() / 1000);
@@ -634,6 +654,67 @@ test("storefront: slug, publishing rules, public page, directory, requests → i
   const flood = { "cf-connecting-ip": "10.7.7.3" }; let last;
   for (let i = 0; i < 9; i++) last = await anon("/api/winkel/fit-lab/aanvraag", "POST", { naam: "F" + i, email: `f${i}@t.nl` }, flood);
   assert.equal(last.status, 429);
+});
+
+test("stripe connect: coach onboarding, own price, paying clients, storefront checkout", async () => {
+  const k = client(), ip = { "cf-connecting-ip": "10.5.5.1" };
+  assert.equal((await k("/api/coach/login", "POST", { email: "three@t.nl", password: "coach-three-pass" }, ip)).status, 200);
+  let st = (await k("/api/coach/connect")).data;
+  assert.equal(st.beschikbaar, true); assert.equal(st.status, null); assert.ok(st.landen.includes("BR"));
+  assert.equal((await k("/api/coach/connect/prijs", "PUT", { bedrag: 99 })).status, 409, "connect first");
+  assert.equal((await k("/api/coach/clients", "POST", { naam: "Too Soon", email: "soon@t.nl", betaalt: true })).status, 409, "not ready for payments");
+  assert.equal((await k("/api/coach/connect", "POST", { land: "XX" })).status, 400);
+  const start = await k("/api/coach/connect", "POST", { land: "BR" });
+  assert.equal(start.status, 200); assert.match(start.data.url, /account_onboarding/);
+  const acctId = [...accounts.keys()].pop(), a = accounts.get(acctId);
+  assert.equal(a.country, "BR"); assert.equal(a.agreement, "recipient", "cross-border coach"); assert.equal(a.card, null);
+  assert.equal((await k("/api/coach/connect")).data.status, "onboarding");
+  onboard(acctId);
+  st = (await k("/api/coach/connect")).data;
+  assert.equal(st.status, "actief");
+  assert.equal((await k("/api/coach/connect/prijs", "PUT", { bedrag: 2 })).status, 400);
+  assert.deepEqual((await k("/api/coach/connect/prijs", "PUT", { bedrag: 120 })).data.prijs, { bedrag: 120, valuta: "USD" });
+  const old = (await k("/api/coach/connect/prijs", "PUT", { bedrag: 129.5 })).data;
+  assert.equal(old.prijs.bedrag, 129.5); assert.equal(deactivated.length, 1, "old price archived");
+  assert.match((await k("/api/coach/connect/dashboard", "POST", {})).data.url, /express/);
+  assert.equal((await coach("/api/coach/connect", "POST", { land: "US" })).status, 400, "owner is paid through the platform");
+  // an invited client who pays via the app
+  const inv = await k("/api/coach/clients", "POST", { naam: "Paula Pay", email: "paula@t.nl", betaalt: true });
+  assert.equal(inv.status, 201);
+  const paula = client();
+  await paula("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "paula-pass-12", privacy: true });
+  const locked = await paula("/api/me");
+  assert.equal(locked.status, 402); assert.equal(locked.data.code, "abonnement");
+  const info = (await paula("/api/billing/info")).data;
+  assert.equal(info.status, "nodig"); assert.deepEqual(info.prijs, { bedrag: 129.5, valuta: "USD" }); assert.equal(info.coach, "Coach Three");
+  const co = await paula("/api/billing/checkout", "POST", {});
+  const ses = sessions.get(co.data.url.split("/").pop());
+  assert.equal(ses.destination, acctId, "money goes to the coach"); assert.equal(ses.fee, null, "no platform fee by default");
+  assert.equal(prices.get(ses.price).unit_amount, 12950);
+  const done = await paula(`/api/checkout/client?session_id=${pay(co.data.url)}`);
+  assert.equal(done.data.login, true);
+  assert.equal((await paula("/api/me")).status, 200);
+  const row = (await k("/api/coach/clients")).data.find((c) => c.email === "paula@t.nl");
+  assert.equal(row.abonnement.status, "active");
+  assert.equal((await k(`/api/coach/clients/${row.id}`, "PUT", { betaalt: false })).status, 409, "running subscription");
+  // a free client can be switched to paying and back
+  const free = await k("/api/coach/clients", "POST", { naam: "Free Fred", email: "fred@t.nl" });
+  assert.equal((await k(`/api/coach/clients/${free.data.id}`, "PUT", { betaalt: true })).data.abonnement.status, "nodig");
+  assert.equal((await k(`/api/coach/clients/${free.data.id}`, "PUT", { betaalt: false })).data.abonnement, null);
+  // storefront: visitors subscribe directly at the coach's price
+  const jpg = new Uint8Array(400).fill(7); jpg.set([0xff, 0xd8, 0xff, 0xe0]);
+  await k("/api/coach/avatar", "POST", jpg, { "content-type": "image/jpeg" });
+  await k("/api/coach/winkel", "PUT", { slug: "three-fit", winkel: { gepubliceerd: true, titel: "Coach", bio: "Bio", pakketten: [{ naam: "Online", prijs: "$129", periode: "", beschrijving: "", kenmerken: [] }] } });
+  const page = await (await fetch(`${BASE}/c/three-fit?lang=en`)).text();
+  assert.match(page, /data-sf-start/); assert.match(page, /\$129\.50 per month/);
+  const sf = await anon("/api/winkel/three-fit/checkout", "POST", { naam: "Nina New", email: "nina@t.nl", akkoord: true }, { "cf-connecting-ip": "10.5.5.2" });
+  assert.equal(sf.status, 200);
+  const sfSes = sessions.get(sf.data.url.split("/").pop());
+  assert.equal(sfSes.destination, acctId); assert.equal(sfSes.metadata.coach_id, String((await k("/api/coach/me")).data.id));
+  const nina = await anon(`/api/checkout/client?session_id=${pay(sf.data.url)}`);
+  assert.ok(nina.data.invite, "new client gets to choose a password");
+  assert.ok((await k("/api/coach/clients")).data.some((c) => c.email === "nina@t.nl" && c.abonnement.status === "active"), "client belongs to this coach");
+  assert.equal((await anon("/api/winkel/fit-lab/checkout", "POST", { naam: "X", email: "x@t.nl", akkoord: true }, { "cf-connecting-ip": "10.5.5.3" })).status, 200, "owner storefront uses the platform price");
 });
 
 test("languages: translated errors, account language, notifications and storefront", async () => {

@@ -53,8 +53,8 @@ async function loadCoaches(){
   $("coachStats").innerHTML=`<div><small>${T("Coaches")}</small><b>${list.length}</b></div><div><small>${T("Betalende coaches")}</small><b>${betalend}</b></div>`+
     `<div><small>${T("Cliënten totaal")}</small><b>${list.reduce((t,k)=>t+k.clienten,0)}</b></div><div><small>${T("Betalende cliënten")}</small><b>${list.reduce((t,k)=>t+k.betalend,0)}</b></div>`;
   const st=k=>k.is_owner?`<span class="pill gold">${T("Eigenaar")}</span>`:k.status==="actief"?`<span class="pill ok">${T("Actief")}</span>`:k.status==="betaling"?`<span class="pill">${T("Wacht op betaling")}</span>`:`<span class="pill warn">${T("Verlopen")}</span>`;
-  $("coachLijst").innerHTML=`<table class="clients"><thead><tr><th>Coach</th><th>${T("Status")}</th><th class="n">${T("Cliënten")}</th><th class="n hide-sm">${T("Betalend")}</th><th class="hide-sm">${T("Sinds")}</th><th class="hide-sm">${T("Periode tot")}</th></tr></thead><tbody>${list.map(k=>
-    `<tr style="cursor:default"><td class="who"><b>${esc(k.naam)}</b><small>${esc(k.email)}</small></td><td>${st(k)}</td><td class="n">${k.clienten}</td><td class="n hide-sm">${k.betalend}</td><td class="hide-sm">${new Date(k.created_at*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short",year:"numeric"})}</td><td class="hide-sm">${k.abo_einde?new Date(k.abo_einde*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short",year:"numeric"}):"–"}</td></tr>`).join("")}</tbody></table>`;
+  $("coachLijst").innerHTML=`<table class="clients"><thead><tr><th>Coach</th><th>${T("Status")}</th><th class="n">${T("Cliënten")}</th><th class="n hide-sm">${T("Betalend")}</th><th class="hide-sm">${T("Uitbetalingen")}</th><th class="hide-sm">${T("Sinds")}</th><th class="hide-sm">${T("Periode tot")}</th></tr></thead><tbody>${list.map(k=>
+    `<tr style="cursor:default"><td class="who"><b>${esc(k.naam)}</b><small>${esc(k.email)}</small></td><td>${st(k)}</td><td class="n">${k.clienten}</td><td class="n hide-sm">${k.betalend}</td><td class="hide-sm">${k.is_owner?"–":k.connect_status==="actief"?`<span class="pill ok">${k.client_prijs?money({bedrag:k.client_prijs/100,valuta:"USD"}):T("Gekoppeld")}</span>`:k.connect_status?`<span class="pill gold">${T("Onboarding niet afgerond")}</span>`:"–"}</td><td class="hide-sm">${new Date(k.created_at*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short",year:"numeric"})}</td><td class="hide-sm">${k.abo_einde?new Date(k.abo_einde*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short",year:"numeric"}):"–"}</td></tr>`).join("")}</tbody></table>`;
 }
 
 // ---------- helpers ----------
@@ -62,6 +62,14 @@ function status(c){
   if(!c.actief) return [N_("Gedeactiveerd"),""];
   if(!c.geactiveerd) return c.uitnodigingVerloopt&&c.uitnodigingVerloopt*1000<Date.now()?[N_("Link verlopen"),"warn"]:[N_("Uitgenodigd"),"gold"];
   return [N_("Actief"),"ok"];
+}
+const ABO_LABEL={active:N_("Betaalt"),trialing:N_("Betaalt"),past_due:N_("Betaling mislukt"),canceled:N_("Abonnement gestopt"),unpaid:N_("Betaling mislukt"),incomplete:N_("Betaling niet afgerond"),incomplete_expired:N_("Betaling niet afgerond"),nodig:N_("Wacht op betaling")};
+const aboPill=c=>c.abonnement?`<span class="pill ${["active","trialing"].includes(c.abonnement.status)?"ok":c.abonnement.status==="nodig"?"gold":"warn"}">${T(ABO_LABEL[c.abonnement.status]||c.abonnement.status)}</span>`:"";
+function payToggle(c){
+  const s=c.abonnement&&c.abonnement.status;
+  if(s&&["active","trialing","past_due"].includes(s)) return "";
+  if(!s&&!canCharge()) return "";
+  return `<button class="btn small ghost" type="button" data-act="betaalt">${s?T("Niet laten betalen"):T("Laten betalen via de app")}</button>`;
 }
 const pill=c=>{const [l,k]=status(c);return `<span class="pill ${k}">${T(l)}</span>`};
 const checkinLate=c=>c.laatste&&(!c.checkin||DC.daysSince(c.checkin.datum)>CHECKIN_LATE);
@@ -153,7 +161,7 @@ function renderList(){
       const k=c.checkin, kd=k?DC.daysSince(k.datum):null, flags=DC.checkinFlags(k);
       return `<tr data-id="${c.id}" tabindex="0">
         <td class="who"><div class="who-row">${DC.avatarHTML(c.avatar,c.naam,36)}<div><b>${esc(c.naam)}${c.ongelezen?` <span class="badge inline" title="${T("Ongelezen berichten")}">${c.ongelezen}</span>`:""}</b><small>${esc(c.email)}</small>${why.length?`<small class="stale" style="display:block">${why.join('<span class="sep">·</span>')}</small>`:""}</div></div></td>
-        <td>${c.demo?`<span class="pill">${T("Voorbeeld")}</span>`:pill(c)}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
+        <td>${c.demo?`<span class="pill">${T("Voorbeeld")}</span>`:pill(c)}${c.abonnement?" "+aboPill(c):""}${c.profiel?`<br><small style="color:var(--muted)">${DC.DOEL_LABEL[String(c.profiel.doel)]||""}</small>`:""}</td>
         <td>${l?`${DC.dateNL(l.datum,{day:"numeric",month:"short",year:"numeric"})}<br><small class="${d>STALE_DAYS&&c.actief?"stale":""}" style="${d>STALE_DAYS&&c.actief?"":"color:var(--muted)"}">${ago(d)}</small>`:`<span style="color:var(--muted)">${T("nog geen")}</span>`}</td>
         <td class="hide-sm">${k?`${ago(kd)}<br><small class="${flags.length?"stale":""}" style="${flags.length?"":"color:var(--muted)"}">${flags.length?flags.join(", "):T("geen bijzonderheden")}</small>`:'<span style="color:var(--muted)">–</span>'}</td>
         <td class="n">${l?DC.fmt(l.gewicht,1)+" kg":"–"}</td>
@@ -165,11 +173,16 @@ $("zoek").addEventListener("input",renderList);
 $("filter").addEventListener("change",renderList);
 $("lijst").addEventListener("click",e=>{const tr=e.target.closest("tr[data-id]");if(tr) location.hash="#/client/"+tr.dataset.id});
 $("lijst").addEventListener("keydown",e=>{const tr=e.target.closest("tr[data-id]");if(tr&&e.key==="Enter") location.hash="#/client/"+tr.dataset.id});
-$("toggleNew").addEventListener("click",()=>{$("fNew").hidden=false;$("newInvite").innerHTML="";$("fNew").elements.naam.focus()});
+$("toggleNew").addEventListener("click",()=>{
+  $("fNew").hidden=false;$("newInvite").innerHTML="";
+  const k=coach.connect||{}; $("newPayRow").hidden=!canCharge();
+  $("newPayText").textContent=k.prijs?T("Cliënt betaalt via de app ({x} per maand)",{x:money(k.prijs)}):T("Cliënt betaalt via de app");
+  $("fNew").elements.naam.focus();
+});
 $("cancelNew").addEventListener("click",()=>{$("fNew").hidden=true;$("fNew").reset()});
 DC.handleForm($("fNew"),async f=>{
   const naam=f.elements.naam.value.trim();
-  const res=await call("/api/coach/clients","POST",{naam,email:f.elements.email.value});
+  const res=await call("/api/coach/clients","POST",{naam,email:f.elements.email.value,betaalt:!$("newPayRow").hidden&&f.elements.betaalt.checked});
   f.reset(); f.hidden=true;
   $("newInvite").innerHTML=inviteHTML(naam,res.link);
   await loadList();
@@ -185,9 +198,10 @@ function renderClient(){
   DC.setCustomFoods(c.producten); // the client's own products can appear in their menu
   TR.registerProgram(c.programmaDef);
   $("clientHead").innerHTML=`<div class="client-head-row">${DC.avatarHTML(c.avatar,c.naam,56)}<h1>${esc(c.naam)}</h1></div>
-    <p class="sub">${esc(c.email)}<span class="sep">·</span>${pill(c)}<span class="sep">·</span>${T("cliënt sinds {d}",{d:new Date(c.aangemaakt*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"long",year:"numeric"})})}${c.laatstGezien?`<span class="sep">·</span>${T("laatst actief {x}",{x:ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))})}`:""}${c.privacyAkkoord?`<span class="sep">·</span>${T("privacy akkoord {d}",{d:new Date(c.privacyAkkoord*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short",year:"numeric"})})}`:""}</p>
+    <p class="sub">${esc(c.email)}<span class="sep">·</span>${pill(c)}${c.abonnement?`<span class="sep">·</span>${aboPill(c)}`:""}<span class="sep">·</span>${T("cliënt sinds {d}",{d:new Date(c.aangemaakt*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"long",year:"numeric"})})}${c.laatstGezien?`<span class="sep">·</span>${T("laatst actief {x}",{x:ago(DC.daysSince(new Date(c.laatstGezien*1000).toISOString().slice(0,10)))})}`:""}${c.privacyAkkoord?`<span class="sep">·</span>${T("privacy akkoord {d}",{d:new Date(c.privacyAkkoord*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short",year:"numeric"})})}`:""}</p>
     <div class="actions" style="margin-top:0">
       ${c.actief?`<button class="btn small ghost" type="button" data-act="invite">${c.geactiveerd?T("Nieuwe inloglink (wachtwoord vergeten)"):st==="Link verlopen"?T("Nieuwe uitnodigingslink"):T("Uitnodigingslink opnieuw maken")}</button>`:""}
+      ${payToggle(c)}
       <button class="btn small ghost" type="button" data-act="toggle">${c.actief?T("Deactiveren"):T("Activeren")}</button>
       <button class="btn small danger" type="button" data-act="delete">${T("Verwijderen")}</button>
     </div>`;
@@ -489,7 +503,37 @@ function brandPreview(naam,kleur,logo){
   $("bpNaam").textContent=naam||"DCRAMERE"; $("bpLogo").src=logo||"/img/emblem.webp";
   const k=kleur||"#f4d03f"; $("bpKcal").style.color=k; $("bpBtn").style.background=k; $("bpNaam").style.color=k;
 }
+// ---------- payments from the coach's own clients (Stripe Connect) ----------
+const money=p=>p?new Intl.NumberFormat(I18N.locale,{style:"currency",currency:p.valuta,minimumFractionDigits:p.bedrag%1?2:0}).format(p.bedrag):"";
+const canCharge=()=>{const k=coach.connect||{};return k.eigenaar?coach.betalingen:k.status==="actief"&&!!k.prijs};
+function renderConnect(){
+  const k=coach.connect||{}, el=$("connectBox");
+  if(k.eigenaar||!k.beschikbaar){el.innerHTML="";return}
+  const landen=new Intl.DisplayNames([I18N.locale],{type:"region"});
+  const st=k.status==="actief"?`<span class="pill ok">${T("Gekoppeld")}</span>`:k.status==="beperkt"?`<span class="pill warn">${T("Actie nodig in Stripe")}</span>`:k.status==="onboarding"?`<span class="pill gold">${T("Onboarding niet afgerond")}</span>`:"";
+  el.innerHTML=`<h2 style="margin-top:0">${T("Betalingen van uw cliënten")} ${st}</h2>
+    <p class="sub">${T("Uw cliënten betalen hun maandabonnement in de app. Het geld komt via Stripe op uw eigen rekening, ook vanuit het buitenland.")}${k.fee?" "+T("Het platform houdt {x}% in.",{x:k.fee}):""}</p>
+    ${!k.status?`<div class="row"><label>${T("Land van uw bankrekening")}<select id="cLand">${k.landen.map(l=>`<option value="${l}">${esc(landen.of(l))}</option>`).sort((a,b)=>a.replace(/<[^>]+>/g,"").localeCompare(b.replace(/<[^>]+>/g,""))).join("")}</select></label>
+      <div style="align-self:end"><button class="btn" type="button" data-cn="start">${T("Stripe koppelen")}</button></div></div>`
+    :k.status!=="actief"?`<div class="actions" style="margin-top:0"><button class="btn" type="button" data-cn="start">${k.status==="onboarding"?T("Onboarding afronden"):T("Gegevens aanvullen in Stripe")}</button><button class="btn ghost" type="button" data-cn="refresh">${T("Status vernieuwen")}</button></div>`
+    :`<form id="fPrijs" class="row" novalidate style="align-items:end"><label>${T("Maandprijs voor uw cliënten")} <small>${esc(k.prijs?k.prijs.valuta:"USD")}</small><input name="bedrag" inputmode="decimal" value="${k.prijs?k.prijs.bedrag:""}" placeholder="99"></label>
+        <div><button class="btn" type="submit">${T("Prijs opslaan")}</button></div></form>
+      <p class="sub" style="font-size:13px;margin:6px 0 0">${k.prijs?T("Nieuwe cliënten betalen {x} per maand. Lopende abonnementen houden hun prijs.",{x:money(k.prijs)}):T("Stel een prijs in om betalingen te ontvangen.")}</p>
+      <div class="actions"><button class="btn small ghost" type="button" data-cn="dashboard">${T("Uitbetalingen in Stripe bekijken")}</button></div>`}
+    <div class="err" id="cnMsg" role="status"></div>`;
+  const f=$("fPrijs");
+  if(f) DC.handleForm(f,async()=>{coach.connect=await call("/api/coach/connect/prijs","PUT",{bedrag:parseFloat(String(f.elements.bedrag.value).replace(",","."))});renderConnect();$("cnMsg").className="flash";$("cnMsg").textContent=T("Opgeslagen.")});
+}
+$("connectBox").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-cn]"); if(!b) return; b.disabled=true; $("cnMsg").textContent="";
+  try{
+    if(b.dataset.cn==="start") location.href=(await call("/api/coach/connect","POST",{land:($("cLand")||{}).value})).url;
+    else if(b.dataset.cn==="dashboard") location.href=(await call("/api/coach/connect/dashboard","POST",{})).url;
+    else{coach.connect=await call("/api/coach/connect");renderConnect()}
+  }catch(x){$("cnMsg").className="err";$("cnMsg").textContent=x.message;b.disabled=false}
+});
 function renderInstellingen(){
+  renderConnect();
   $("cAv").innerHTML=DC.avatarHTML(coach.avatar,coach.naam,88); $("cAvDel").hidden=!coach.avatar;
   const m=coach.merk||{}, f=$("fMerk");
   f.elements.naam.value=m.naam||""; f.elements.kleur.value=m.kleur||"#f4d03f"; f.elements.kleurHex.value=m.kleur||""; f.elements.logo.value="";
@@ -682,6 +726,10 @@ document.addEventListener("click",async e=>{
       const res=await call(`/api/coach/clients/${cur.id}/uitnodiging`,"POST",{});
       $("clientInvite").innerHTML=inviteHTML(cur.naam,res.link);
       cur=await call("/api/coach/clients/"+cur.id); renderClient();
+    }else if(act.dataset.act==="betaalt"){
+      const on=!cur.abonnement;
+      if(on&&!confirm(T("{x} betaalt dan het maandabonnement in de app. Tot de betaling rond is, kan de cliënt de app niet gebruiken. Doorgaan?",{x:cur.naam}))) return;
+      cur=await call("/api/coach/clients/"+cur.id,"PUT",{betaalt:on}); renderClient();
     }else if(act.dataset.act==="toggle"){
       if(cur.actief&&!confirm(T("{x} deactiveren? De cliënt wordt direct uitgelogd en kan niet meer inloggen. De gegevens blijven bewaard.",{x:cur.naam}))) return;
       cur=await call("/api/coach/clients/"+cur.id,"PUT",{actief:!cur.actief}); $("clientInvite").innerHTML=""; renderClient();
@@ -787,6 +835,7 @@ async function boot(){
     $("navBilling").hidden=coach.isOwner||!coach.portaal;
     if(q.get("betaald")){show("laden");await afterPayment(q.get("betaald"));history.replaceState(null,"","/coach/");coach=await DC.api("/api/coach/me");$("navBilling").hidden=coach.isOwner||!coach.portaal}
     if(coach.status!=="actief"){showBilling();return}
+    if(q.get("connect")){history.replaceState(null,"","/coach/"+location.hash);try{coach.connect=await call("/api/coach/connect")}catch(e){}}
     await route();
   }catch(err){
     if(err.status===401&&q.has("aanmelden")){coach=null;show("aanmelden");signupInfo();return}

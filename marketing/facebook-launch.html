@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:Cinzel;src:url(file:///Users/dinocramer/Desktop/dcramere-voeding/public/fonts/cinzel.woff2) format("woff2");font-weight:400 900}
+@font-face{font-family:Overpass;src:url(file:///Users/dinocramer/Desktop/dcramere-voeding/public/fonts/overpass.woff2) format("woff2");font-weight:100 900}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1080px;height:1350px;background:#0a0a0a;color:#f2efe6;font-family:Overpass,sans-serif;overflow:hidden;position:relative}
+.glow{position:absolute;inset:0;background:radial-gradient(900px 600px at 80% 18%,rgba(244,208,63,.14),transparent 60%),radial-gradient(700px 500px at 0% 100%,rgba(244,208,63,.08),transparent 60%)}
+.wrap{position:relative;padding:70px 76px}
+.top{display:flex;align-items:center;gap:18px}
+.top img{width:64px;height:64px}
+.top b{font-family:Cinzel;font-size:34px;letter-spacing:.08em;color:#f4d03f;display:block}
+.top small{font-size:16px;letter-spacing:.35em;color:#9a9588}
+.kicker{margin-top:70px;font-size:20px;letter-spacing:.3em;color:#f4d03f;font-weight:700}
+h1{font-family:Cinzel;font-weight:700;font-size:76px;line-height:1.08;margin-top:18px;letter-spacing:.01em}
+h1 em{font-style:normal;color:#f4d03f}
+.sub{font-size:28px;line-height:1.45;color:#c9c4b6;margin-top:26px;max-width:560px}
+.phone{position:absolute;right:66px;top:300px;width:360px;height:720px;border-radius:52px;border:3px solid #3a3526;background:#111;box-shadow:0 30px 90px rgba(0,0,0,.7),0 0 0 10px #161512;padding:34px 22px;overflow:hidden}
+.phone .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:110px;height:24px;border-radius:20px;background:#000}
+.p-k{font-size:12px;letter-spacing:.25em;color:#f4d03f;font-weight:700;margin-top:14px}
+.p-h{font-family:Cinzel;font-size:26px;margin-top:6px}
+.p-kcal{font-family:Cinzel;font-size:64px;color:#f4d03f;margin-top:10px;line-height:1}
+.p-kcal span{font-family:Overpass;font-size:15px;color:#9a9588;margin-left:6px}
+.band{display:flex;height:8px;border-radius:6px;overflow:hidden;margin:16px 0 12px}
+.band i:nth-child(1){width:30%;background:#e07a5f}.band i:nth-child(2){width:48%;background:#f4d03f}.band i:nth-child(3){width:22%;background:#81b29a}
+.mac{display:flex;justify-content:space-between;font-size:14px;color:#c9c4b6}
+.mac b{display:block;font-size:22px;color:#f2efe6}
+.meal{border:1px solid #2a271f;border-radius:14px;padding:13px 14px;margin-top:14px;background:#151410}
+.meal small{font-size:11px;letter-spacing:.2em;color:#f4d03f;font-weight:700}
+.meal p{font-size:15px;margin-top:4px}
+.meal .r{display:flex;justify-content:space-between;font-size:13px;color:#9a9588;margin-top:6px}
+.feat{margin-top:44px;display:grid;gap:22px;max-width:560px}
+.feat div{display:flex;gap:18px;align-items:flex-start;font-size:26px;line-height:1.3}
+.feat i{flex:none;width:40px;height:40px;border-radius:50%;border:2px solid #f4d03f;color:#f4d03f;font-style:normal;display:grid;place-items:center;font-size:20px;font-weight:800}
+.bottom{position:absolute;left:76px;right:76px;bottom:64px;display:flex;align-items:flex-end;justify-content:space-between;border-top:1px solid #2a271f;padding-top:34px}
+.price small{font-size:18px;letter-spacing:.25em;color:#9a9588;font-weight:700}
+.price b{display:block;font-family:Cinzel;font-size:60px;color:#f4d03f;line-height:1.1}
+.price b span{font-family:Overpass;font-size:22px;color:#c9c4b6;font-weight:400}
+.cta{background:#f4d03f;color:#0a0a0a;font-weight:800;font-size:26px;padding:22px 34px;border-radius:12px}
+.coach{font-size:19px;color:#9a9588;margin-top:8px}
+.price .coach b{display:inline;font-family:Overpass;font-size:19px;color:#f2efe6;line-height:1.3}
+</style></head><body>
+<div class="glow"></div>
+<div class="wrap">
+  <div class="top"><img src="file:///Users/dinocramer/Desktop/dcramere-voeding/public/img/emblem.webp"><div><b>DCRAMERE</b><small>COACHING</small></div></div>
+  <p class="kicker">ONLINE COACHING · NIEUW</p>
+  <h1>Uw coach.<br>Uw plan.<br><em>Eén app.</em></h1>
+  <p class="sub">Voeding, training en voortgang op maat, met een coach die elke week met u meekijkt.</p>
+  <div class="feat">
+    <div><i>✓</i>Voedingsplan op uw metingen, met menu &amp; boodschappenlijst</div>
+    <div><i>✓</i>12-weken trainingsprogramma met logboek</div>
+    <div><i>✓</i>Wekelijkse check-in, foto's en chat met uw coach</div>
+    <div><i>✓</i>Scan barcodes of etiketten in uw dagboek</div>
+  </div>
+</div>
+<div class="phone"><div class="notch"></div>
+  <p class="p-k">VANDAAG · TRAININGSDAG</p>
+  <p class="p-h">Uw dagdoel</p>
+  <p class="p-kcal">2.140<span>kcal</span></p>
+  <div class="band"><i></i><i></i><i></i></div>
+  <div class="mac"><div><b>144 g</b>eiwit</div><div><b>238 g</b>koolh.</div><div><b>62 g</b>vet</div></div>
+  <div class="meal"><small>ONTBIJT</small><p>Kwark met havermout en bessen</p><div class="r"><span>445 kcal</span><span>✓ Gegeten</span></div></div>
+  <div class="meal"><small>LUNCH</small><p>Kipfilet met rijst en groente</p><div class="r"><span>610 kcal</span><span>Wissel</span></div></div>
+  <div class="meal"><small>CHECK-IN · WEEK 6</small><p>−4,1 kg sinds de start</p><div class="r"><span>Coach: "Sterke week! 💪"</span><span>1 nieuw</span></div></div>
+  <div class="meal"><small>TRAINING · PUSH A</small><p>Incline Dumbbell Press</p><div class="r"><span>16 kg × 8</span><span>🏆 record</span></div></div>
+</div>
+<div class="bottom">
+  <div class="price"><small>COACHING</small><b>$99 <span>per maand · maandelijks opzegbaar</span></b><p class="coach">Coach? Het platform voor uw eigen cliënten: <b>$149 p/m</b></p></div>
+  <div class="cta">Start nu →</div>
+</div>
+</body></html>

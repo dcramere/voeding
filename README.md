@@ -68,3 +68,9 @@ npm run deploy         # draait eerst de tests
 Nederlands is de brontekst. `public/i18n.js` kiest de taal (`?lang=` → eigen keuze → browsertaal → nl), laadt `public/i18n/<taal>.json`, vertaalt de statische HTML en start pas daarna de paginascripts. Dynamische tekst gaat via `T("Nederlandse tekst", {vars})`, `Tn(n, "1 …", "{n} …")` of `N_("…")` (opslaan als bron, vertalen bij tonen). De Worker gebruikt dezelfde JSON-bestanden (`src/i18n.js`) voor foutmeldingen, de coachwinkel en pushmeldingen (in de taal van het account, `clients.taal` / `coaches.taal`).
 
 Nieuwe tekst toevoegen: schrijf hem in het Nederlands in `T(…)`, draai `node scripts/i18n-keys.mjs --list` voor wat nog ontbreekt, en voeg de vertalingen toe aan de drie JSON-bestanden (of via `python3 scripts/i18n-merge.py batch.json` met `{nl: [en, pt, es]}`). `test/i18n.test.mjs` faalt zolang er iets onvertaald is of placeholders/markup niet kloppen.
+
+## Coaches laten betalen door hun cliënten (Stripe Connect)
+
+Coaches koppelen onder Instellingen hun eigen Stripe-account (Express, ook buitenlandse bankrekeningen) en stellen een maandprijs in. Cliënten betalen dan in de app (coach zet "Laten betalen via de app" aan) of via "Direct starten" op de winkelpagina. Het abonnement staat op het platformaccount; elke betaling wordt doorgestuurd naar de coach (destination charges), min `CONNECT_FEE_PERCENT` (standaard 0) voor het platform. `CONNECT_PLATFORM_COUNTRY` (standaard US) is het land van het platformaccount; coaches in andere landen krijgen de "recipient"-overeenkomst.
+
+Eenmalig in het Stripe-dashboard: **Connect → Get started** (platformprofiel invullen, Express kiezen). Zolang dat niet is gedaan, meldt de app aan coaches dat uitbetalen nog niet is geactiveerd.

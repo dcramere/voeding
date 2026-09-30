@@ -334,7 +334,7 @@ const withClient = (fn, opts = {}) => async (c) => {
 const withCoach = (fn, opts = {}) => async (c) => {
   const id = await sessionSubject(c, "coach");
   if (!id) fail(401, "Log opnieuw in.");
-  const coach = await c.env.DB.prepare("SELECT id, naam, email, taal, is_owner, status, stripe_customer, abo_status, abo_einde, merk, slug, avatar_key, avatar_v FROM coaches WHERE id = ?").bind(id).first();
+  const coach = await c.env.DB.prepare("SELECT id, naam, email, taal, is_owner, status, stripe_customer, abo_status, abo_einde, merk, slug, avatar_key, avatar_v, connect_account, connect_status, connect_land, client_prijs, client_valuta, client_product, client_price FROM coaches WHERE id = ?").bind(id).first();
   if (!coach) fail(401, "Log opnieuw in.");
   if (!opts.billing && !coach.is_owner && coach.status !== "actief")
     fail(402, "Uw platformabonnement is niet actief.", "abonnement");
@@ -409,6 +409,12 @@ const ROUTES = [
   ["POST", "/billing/portal", withClient(clientPortal, { billing: true })],
   ["POST", "/billing/checkout", withClient(clientResubscribe, { billing: true })],
   ["POST", "/stripe/webhook", stripeWebhook, RAW],
+  ["GET", "/billing/info", withClient(clientBillingInfo, { billing: true })],
+  ["POST", /^\/winkel\/([a-z0-9-]{3,30})\/checkout$/, storefrontCheckout],
+  ["GET", "/coach/connect", withCoach(connectStatus)],
+  ["POST", "/coach/connect", withCoach(connectStart)],
+  ["PUT", "/coach/connect/prijs", withCoach(connectSetPrice)],
+  ["POST", "/coach/connect/dashboard", withCoach(connectDashboard)],
   ["GET", "/coach/clients", withCoach(listClients)],
   ["GET", "/coach/export", withCoach(coachExport)],
   ["POST", "/coach/clients", withCoach(createClient)],
@@ -709,6 +715,7 @@ function publicClient(r) {
     profiel: profielOut(r), doelen: r.doelen ? JSON.parse(r.doelen) : null, intake: r.intake ? JSON.parse(r.intake) : null,
     programma: r.programma ? JSON.parse(r.programma) : null, menu: JSON.parse(r.menu),
     aangemaakt: r.created_at, laatstGezien: r.last_seen,
+    abonnement: r.abo_status ? { status: r.abo_status, einde: r.abo_einde } : null,
   };
 }
 
@@ -753,8 +760,9 @@ async function createClient(c) {
   const addr = email(c.body.email);
   if (await c.env.DB.prepare("SELECT 1 FROM clients WHERE email = ?").bind(addr).first())
     fail(409, "Er bestaat al een cliënt met dit e-mailadres.");
-  const { meta } = await c.env.DB.prepare("INSERT INTO clients (coach_id, naam, email, created_at) VALUES (?, ?, ?, ?)")
-    .bind(c.coach.id, naam, addr, c.now).run();
+  if (c.body.betaalt) payPlan(c.env, c.coach); // fails with a clear message when payments aren't set up
+  const { meta } = await c.env.DB.prepare("INSERT INTO clients (coach_id, naam, email, created_at, abo_status) VALUES (?, ?, ?, ?, ?)")
+    .bind(c.coach.id, naam, addr, c.now, c.body.betaalt ? "nodig" : null).run();
   const id = meta.last_row_id;
   return json({ id, link: await issueInvite(c, id) }, 201);
 }
@@ -801,6 +809,16 @@ async function updateClient(c) {
     const p = b.programma === null ? null : cleanProgramma(b.programma);
     if (p && !(await programDef(c.env, p.id, c.coach.id))) fail(404, "Programma niet gevonden.");
     sets.push("programma = ?"); vals.push(p ? JSON.stringify(p) : null);
+  }
+  if ("betaalt" in b) {
+    // the coach decides whether this client pays via the app; a running subscription is only stopped by the client
+    if (b.betaalt) {
+      payPlan(c.env, c.coach);
+      if (!row.abo_status || !ACTIVE_SUB.includes(row.abo_status) && row.abo_status !== "nodig") { sets.push("abo_status = ?"); vals.push("nodig"); }
+    } else {
+      if (row.abo_status && ACTIVE_SUB.includes(row.abo_status)) fail(409, "Deze cliënt heeft een lopend abonnement. De cliënt zegt dat zelf op via het profiel.");
+      sets.push("abo_status = ?"); vals.push(null);
+    }
   }
   if ("actief" in b) {
     sets.push("actief = ?"); vals.push(b.actief ? 1 : 0);
@@ -1380,13 +1398,131 @@ async function clientResubscribe(c) {
   if (!billingReady(c.env)) fail(503, "Betalingen zijn nog niet ingesteld.");
   if (c.client.abo_status && ACTIVE_SUB.includes(c.client.abo_status)) fail(409, "Uw abonnement is al actief.");
   if (!c.client.abo_status) fail(400, "Uw toegang loopt via uw coach.");
-  const s = await stripe(c.env, "POST", "/checkout/sessions", {
-    mode: "subscription", line_items: [{ price: c.env.STRIPE_PRICE_CLIENT, quantity: 1 }], locale: stripeLocale(c),
+  const coach = await c.env.DB.prepare("SELECT * FROM coaches WHERE id = ?").bind(c.client.coach_id).first();
+  const s = await stripe(c.env, "POST", "/checkout/sessions", checkoutParams(c, payPlan(c.env, coach), {
     ...(c.client.stripe_customer ? { customer: c.client.stripe_customer } : { customer_email: c.client.email }),
-    metadata: { type: "client", naam: c.client.naam, email: c.client.email, coach_id: String(c.client.coach_id) },
-    subscription_data: { metadata: { type: "client", email: c.client.email } },
-    success_url: `${c.url.origin}/app/?betaald={CHECKOUT_SESSION_ID}`, cancel_url: `${c.url.origin}/app/`,
+    naam: c.client.naam, email: c.client.email, coachId: coach.id, cancel: `${c.url.origin}/app/`,
+  }));
+  return json({ url: s.url });
+}
+async function clientBillingInfo(c) {
+  const coach = await c.env.DB.prepare("SELECT * FROM coaches WHERE id = ?").bind(c.client.coach_id).first();
+  let prijs = null;
+  try { const p = payPlan(c.env, coach); prijs = p.bedrag != null ? { bedrag: p.bedrag, valuta: p.valuta } : null; } catch (e) { /* not payable right now */ }
+  if (!prijs && coach.is_owner && Number(c.env.PRIJS_CLIENT) > 0) prijs = { bedrag: Number(c.env.PRIJS_CLIENT), valuta: c.env.VALUTA || "USD" };
+  return json({ status: c.client.abo_status, coach: coach.naam, prijs, portaal: !!c.client.stripe_customer, betalingen: billingReady(c.env) });
+}
+
+// ---------- Stripe Connect: coaches get paid by their own clients ----------
+// Destination charges: the subscription lives on the platform account, each payment is transferred to the
+// coach's Express account (minus CONNECT_FEE_PERCENT for the platform). Works for coaches in other countries
+// than the platform (cross-border payouts, "recipient" service agreement).
+const CONNECT_LANDEN = ["US", "CA", "MX", "BR", "GB", "IE", "NL", "BE", "LU", "DE", "AT", "CH", "FR", "ES", "PT", "IT",
+  "DK", "SE", "NO", "FI", "PL", "CZ", "AU", "NZ", "SG", "HK", "JP", "AE"];
+const connectFee = (env) => Math.min(50, Math.max(0, Number(env.CONNECT_FEE_PERCENT) || 0));
+// what a client of this coach pays, and where the money goes
+function payPlan(env, coach) {
+  if (!billingReady(env)) fail(503, "Betalingen zijn nog niet ingesteld.");
+  if (coach.is_owner) return { price: env.STRIPE_PRICE_CLIENT, bedrag: null };
+  if (!coach.connect_account || coach.connect_status !== "actief") fail(409, "Online betalen is voor deze coach nog niet ingesteld.");
+  if (!coach.client_price) fail(409, "Stel eerst uw maandprijs voor cliënten in.");
+  return { price: coach.client_price, destination: coach.connect_account, fee: connectFee(env), bedrag: coach.client_prijs / 100, valuta: coach.client_valuta || "USD" };
+}
+function checkoutParams(c, plan, o) {
+  return {
+    mode: "subscription", line_items: [{ price: plan.price, quantity: 1 }], locale: stripeLocale(c),
+    ...(o.customer ? { customer: o.customer } : { customer_email: o.customer_email }),
+    metadata: { type: "client", naam: o.naam, email: o.email, coach_id: String(o.coachId) },
+    subscription_data: {
+      metadata: { type: "client", email: o.email, coach_id: String(o.coachId) },
+      ...(plan.destination ? { transfer_data: { destination: plan.destination }, ...(plan.fee ? { application_fee_percent: plan.fee } : {}) } : {}),
+    },
+    success_url: `${c.url.origin}/app/?betaald={CHECKOUT_SESSION_ID}`, cancel_url: o.cancel,
+  };
+}
+// Stripe refuses Connect calls until Connect is activated on the platform account (dashboard → Connect)
+async function connectCall(c, method, path, params) {
+  try { return await stripe(c.env, method, path, params); }
+  catch (e) { if (e instanceof HttpError && e.status === 502) fail(503, "Uitbetalen aan coaches is nog niet geactiveerd op het platform. Probeer het later opnieuw."); throw e; }
+}
+async function refreshConnect(c) {
+  const k = c.coach;
+  if (!k.connect_account) return k;
+  const a = await connectCall(c, "GET", `/accounts/${k.connect_account}`);
+  const transfers = a.capabilities && a.capabilities.transfers;
+  const status = transfers === "active" && a.payouts_enabled ? "actief" : a.details_submitted ? "beperkt" : "onboarding";
+  if (status !== k.connect_status) await c.env.DB.prepare("UPDATE coaches SET connect_status = ? WHERE id = ?").bind(status, k.id).run();
+  return { ...k, connect_status: status };
+}
+function connectOut(env, k) {
+  return { beschikbaar: billingReady(env) && !k.is_owner, eigenaar: !!k.is_owner, status: k.connect_account ? k.connect_status : null, land: k.connect_land,
+    prijs: k.client_prijs ? { bedrag: k.client_prijs / 100, valuta: k.client_valuta || "USD" } : null, fee: connectFee(env), landen: CONNECT_LANDEN };
+}
+async function connectStatus(c) {
+  const k = c.coach.connect_account && c.coach.connect_status !== "actief" ? await refreshConnect(c) : c.coach;
+  return json(connectOut(c.env, k));
+}
+async function connectStart(c) {
+  if (c.coach.is_owner) fail(400, "Betalingen van uw eigen cliënten lopen al via het platform.");
+  if (!billingReady(c.env)) fail(503, "Betalingen zijn nog niet ingesteld.");
+  let acct = c.coach.connect_account;
+  if (!acct) {
+    const land = String(c.body.land || "").toUpperCase();
+    if (!CONNECT_LANDEN.includes(land)) fail(400, "Kies het land van uw bankrekening.");
+    const platform = (c.env.CONNECT_PLATFORM_COUNTRY || "US").toUpperCase();
+    const a = await connectCall(c, "POST", "/accounts", {
+      type: "express", country: land, email: c.coach.email,
+      capabilities: { transfers: { requested: "true" }, ...(land === platform ? { card_payments: { requested: "true" } } : {}) },
+      ...(land !== platform ? { tos_acceptance: { service_agreement: "recipient" } } : {}),
+      business_profile: { product_description: "Online nutrition and training coaching", mcc: "7997" },
+      metadata: { coach_id: String(c.coach.id) },
+    });
+    acct = a.id;
+    await c.env.DB.prepare("UPDATE coaches SET connect_account = ?, connect_status = 'onboarding', connect_land = ? WHERE id = ?").bind(acct, land, c.coach.id).run();
+  }
+  const link = await connectCall(c, "POST", "/account_links", {
+    account: acct, type: "account_onboarding",
+    refresh_url: `${c.url.origin}/coach/?connect=opnieuw#/instellingen`, return_url: `${c.url.origin}/coach/?connect=klaar#/instellingen`,
   });
+  return json({ url: link.url });
+}
+async function connectSetPrice(c) {
+  if (c.coach.is_owner) fail(400, "Betalingen van uw eigen cliënten lopen al via het platform.");
+  if (!c.coach.connect_account) fail(409, "Koppel eerst uw Stripe-account.");
+  const bedrag = Number(c.body.bedrag);
+  if (!Number.isFinite(bedrag) || bedrag < 5 || bedrag > 5000) fail(400, "Kies een maandprijs tussen 5 en 5000.");
+  const cents = Math.round(bedrag * 100), valuta = (c.env.VALUTA || "USD").toUpperCase();
+  if (cents === c.coach.client_prijs && c.coach.client_price) return json(connectOut(c.env, c.coach));
+  let product = c.coach.client_product;
+  if (!product) product = (await connectCall(c, "POST", "/products", { name: `Coaching — ${c.coach.naam}`.slice(0, 200), metadata: { coach_id: String(c.coach.id) } })).id;
+  const price = await connectCall(c, "POST", "/prices", { product, unit_amount: cents, currency: valuta.toLowerCase(), recurring: { interval: "month" }, metadata: { coach_id: String(c.coach.id) } });
+  // new sign-ups get the new price; running subscriptions keep theirs
+  if (c.coach.client_price) await connectCall(c, "POST", `/prices/${c.coach.client_price}`, { active: "false" }).catch(() => {});
+  await c.env.DB.prepare("UPDATE coaches SET client_product = ?, client_price = ?, client_prijs = ?, client_valuta = ? WHERE id = ?").bind(product, price.id, cents, valuta, c.coach.id).run();
+  return json(connectOut(c.env, { ...c.coach, client_product: product, client_price: price.id, client_prijs: cents, client_valuta: valuta }));
+}
+async function connectDashboard(c) {
+  if (!c.coach.connect_account) fail(409, "Koppel eerst uw Stripe-account.");
+  const k = await refreshConnect(c);
+  if (k.connect_status === "onboarding") return connectStart(c);
+  return json({ url: (await connectCall(c, "POST", `/accounts/${k.connect_account}/login_links`)).url });
+}
+// storefront "Start now": a prospect subscribes directly to this coach
+async function storefrontCheckout(c) {
+  await checkoutGuard(c);
+  const k = await c.env.DB.prepare("SELECT * FROM coaches WHERE slug = ?").bind(c.params[0]).first();
+  if (!winkelVisible(k)) fail(404, "Deze coach is niet gevonden.");
+  const plan = payPlan(c.env, k);
+  const naam = str(c.body.naam, 100, "Naam");
+  if (!naam) fail(400, "Vul uw naam in.");
+  const addr = email(c.body.email);
+  if (c.body.akkoord !== true) fail(400, "Ga akkoord met de voorwaarden en de privacyverklaring.");
+  const existing = await c.env.DB.prepare("SELECT abo_status FROM clients WHERE email = ?").bind(addr).first();
+  if (existing && !existing.abo_status) fail(409, "Dit e-mailadres heeft al een account via een coach. Log in via de app.");
+  if (existing && ACTIVE_SUB.includes(existing.abo_status)) fail(409, "Er is al een actief abonnement voor dit e-mailadres. Log in via de app.");
+  const s = await stripe(c.env, "POST", "/checkout/sessions", checkoutParams(c, plan, {
+    customer_email: addr, naam, email: addr, coachId: k.id, cancel: `${c.url.origin}/c/${k.slug}`,
+  }));
   return json({ url: s.url });
 }
 
@@ -1395,7 +1531,7 @@ async function coachMeInfo(c) {
   const k = c.coach;
   return json({ id: k.id, naam: k.naam, email: k.email, taal: k.taal || null, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
     aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k),
-    avatar: avatarUrl("coach", k), slug: k.slug,
+    avatar: avatarUrl("coach", k), slug: k.slug, connect: connectOut(c.env, k),
     nieuweAanvragen: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM aanvragen WHERE coach_id = ? AND status = 'nieuw'").bind(k.id).first()).n });
 }
 async function coachSessionFor(c, coachId, customer, mail) {
@@ -1452,7 +1588,7 @@ async function coachPortal(c) {
 async function ownerCoaches(c) {
   if (!c.coach.is_owner) fail(403, "Alleen voor de eigenaar van het platform.");
   const { results } = await c.env.DB.prepare(
-    `SELECT k.id, k.naam, k.email, k.is_owner, k.status, k.abo_status, k.abo_einde, k.created_at,
+    `SELECT k.id, k.naam, k.email, k.is_owner, k.status, k.abo_status, k.abo_einde, k.created_at, k.connect_status, k.client_prijs,
        (SELECT COUNT(*) FROM clients c WHERE c.coach_id = k.id) AS clienten,
        (SELECT COUNT(*) FROM clients c WHERE c.coach_id = k.id AND c.abo_status IN ('active','trialing','past_due')) AS betalend
      FROM coaches k ORDER BY k.is_owner DESC, k.created_at DESC`,
@@ -2015,7 +2151,7 @@ async function storefrontPage(env, url, lang) {
   const t = (nl, v) => tr(lang, nl, v);
   const slug = url.pathname.slice(3).replace(/\/$/, "").toLowerCase();
   const k = /^[a-z0-9-]{3,30}$/.test(slug) && await env.DB.prepare(
-    "SELECT id, naam, slug, winkel, merk, is_owner, status, avatar_key, avatar_v FROM coaches WHERE slug = ?").bind(slug).first();
+    "SELECT * FROM coaches WHERE slug = ?").bind(slug).first();
   const h = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
   if (!winkelVisible(k)) {
     return new Response(`<!DOCTYPE html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${t("Coach niet gevonden")}</title><link rel="stylesheet" href="/style.css"></head><body><div class="wrap" style="padding-top:80px;text-align:center"><h1>${t("Deze coach is niet gevonden")}</h1><p class="sub" style="margin:0 auto 20px">${t("De pagina bestaat niet (meer) of is nog niet gepubliceerd.")}</p><a class="btn" href="/">${t("Naar DCRAMERE Coaching")}</a></div></body></html>`,
@@ -2024,6 +2160,9 @@ async function storefrontPage(env, url, lang) {
   const w = JSON.parse(k.winkel), m = merkOut(k), brand = (m && m.naam) || "DCRAMERE Coaching";
   const avatar = avatarUrl("coach", k), kleur = m && m.kleur;
   const direct = k.is_owner && billingReady(env);
+  // coaches with Stripe Connect: visitors subscribe right here, at the coach's own price
+  let plan = null; if (!k.is_owner) try { plan = payPlan(env, k); } catch (e) { /* no online payments for this coach */ }
+  const money = plan && new Intl.NumberFormat({ nl: "nl-NL", en: "en-US", pt: "pt-BR", es: "es-419" }[lang], { style: "currency", currency: plan.valuta, minimumFractionDigits: plan.bedrag % 1 ? 2 : 0 }).format(plan.bedrag);
   const wa = w.whatsapp ? `https://wa.me/${w.whatsapp}?text=${encodeURIComponent(t("Hallo {naam}, ik zag uw coachingpagina en heb een vraag.", { naam: k.naam }))}` : null;
   const page = `<!DOCTYPE html>
 <html lang="${lang}" data-lang="${lang}"${kleur ? ` style="--gold:${kleur};--c:${kleur}"` : ""}>
@@ -2053,7 +2192,7 @@ ${avatar ? `<meta property="og:image" content="${url.origin}${avatar}">` : ""}
       <h1>${h(k.naam)}</h1>
       <p class="sf-titel">${h(w.titel)}</p>
       ${w.specialisaties.length ? `<ul class="sf-tags">${w.specialisaties.map((x) => `<li>${h(x)}</li>`).join("")}</ul>` : ""}
-      <div class="actions">${direct ? `<a class="btn" href="/?start=client#prijzen">${t("Direct starten")}</a>` : ""}<a class="btn${direct ? " ghost" : ""}" href="#aanvraag">${t("Plan een kennismaking")}</a>${wa ? `<a class="btn ghost" href="${h(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
+      <div class="actions">${direct ? `<a class="btn" href="/?start=client#prijzen">${t("Direct starten")}</a>` : plan ? `<button class="btn" type="button" data-sf-start>${t("Direct starten · {x} per maand", { x: money })}</button>` : ""}<a class="btn${direct || plan ? " ghost" : ""}" href="#aanvraag">${t("Plan een kennismaking")}</a>${wa ? `<a class="btn ghost" href="${h(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
     </div>
   </div></section>
   <section class="lsec"><div class="lwrap narrow-l">
@@ -2088,6 +2227,16 @@ ${avatar ? `<meta property="og:image" content="${url.origin}${avatar}">` : ""}
     </form>
   </div></section>
 </main>
+${plan ? `<div class="sheet-wrap" id="startSheet" hidden><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="t-sfstart">
+  <div class="sheet-h"><h2 id="t-sfstart">${t("Start uw coaching bij {naam}", { naam: h(k.naam) })}</h2><button class="del-x" type="button" data-close aria-label="${t("Sluiten")}">×</button></div>
+  <p class="sub">${t("{x} per maand, maandelijks opzegbaar. U rondt de betaling af bij onze betaalpartner Stripe; daarna kiest u meteen uw wachtwoord.", { x: money })}</p>
+  <form id="fSfStart" novalidate data-slug="${h(k.slug)}">
+    <label>${t("Naam")}<input name="naam" autocomplete="name" required></label>
+    <label>${t("E-mailadres")}<input type="email" name="email" autocomplete="email" required></label>
+    <label class="consent"><input type="checkbox" name="akkoord"><span>${t('Ik ga akkoord met de <a href="/voorwaarden.html" target="_blank" rel="noopener">voorwaarden</a> en de <a href="/privacy.html" target="_blank" rel="noopener">privacyverklaring</a>.')}</span></label>
+    <button class="btn block" type="submit">${t("Verder naar betalen")}</button>
+    <div class="flash" data-msg role="status"></div>
+  </form></div></div>` : ""}
 <footer class="lfoot"><div class="lwrap lfoot-in"><div><p>${h(brand)}<br><span>${t("Aangedreven door DCRAMERE Coaching")}</span></p></div>
   <nav><a href="/">${t("Meer coaches")}</a><a href="/privacy.html">${t("Privacy")}</a><a href="/voorwaarden.html">${t("Voorwaarden")}</a></nav></div></footer>
 <script src="/i18n.js" data-load="/core.js /storefront.js"></script>

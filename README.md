@@ -62,3 +62,9 @@ npm run deploy         # draait eerst de tests
 - **Self-service**: cliënten kunnen hun gegevens downloaden (`/api/account/export`) en hun account verwijderen. Een lopend Stripe-abonnement wordt daarbij stopgezet.
 - **Monitoring**: serverfouten komen in `fouten` terecht, met een push naar de eigenaar (maximaal één per uur). Het overzicht staat onder Coaches → Systeem. Een uptime-check is beschikbaar op `GET /api/health`.
 - Tests: `TEST_SERVER_LOG=pad npm test` schrijft de log van de testserver weg.
+
+## Talen (nl / en / pt / es)
+
+Nederlands is de brontekst. `public/i18n.js` kiest de taal (`?lang=` → eigen keuze → browsertaal → nl), laadt `public/i18n/<taal>.json`, vertaalt de statische HTML en start pas daarna de paginascripts. Dynamische tekst gaat via `T("Nederlandse tekst", {vars})`, `Tn(n, "1 …", "{n} …")` of `N_("…")` (opslaan als bron, vertalen bij tonen). De Worker gebruikt dezelfde JSON-bestanden (`src/i18n.js`) voor foutmeldingen, de coachwinkel en pushmeldingen (in de taal van het account, `clients.taal` / `coaches.taal`).
+
+Nieuwe tekst toevoegen: schrijf hem in het Nederlands in `T(…)`, draai `node scripts/i18n-keys.mjs --list` voor wat nog ontbreekt, en voeg de vertalingen toe aan de drie JSON-bestanden (of via `python3 scripts/i18n-merge.py batch.json` met `{nl: [en, pt, es]}`). `test/i18n.test.mjs` faalt zolang er iets onvertaald is of placeholders/markup niet kloppen.

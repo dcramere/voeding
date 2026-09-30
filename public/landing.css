@@ -120,3 +120,6 @@ body.landing{background:var(--bg)}
   .lnav .lang-select{padding:4px 18px 4px 6px;font-size:12px}
   .lnav .brand b{font-size:15px}
 }
+.lang-row{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:center;padding-top:18px;padding-bottom:6px;font-size:14px}
+.lang-row a{color:var(--muted);text-decoration:none}
+.lang-row a:hover,.lang-row a[aria-current]{color:var(--gold)}

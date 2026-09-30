@@ -105,6 +105,7 @@ const domReady=new Promise(r=>document.readyState==="loading"?document.addEventL
 Promise.all([ready,domReady]).then(()=>{
   if(!document.documentElement.dataset.lang){applyHead(); apply(document.body)} // server-rendered pages arrive translated
   document.querySelectorAll("[data-lang-switch]").forEach(picker);
+  document.querySelectorAll("a[hreflang]").forEach(a=>{if(a.hreflang===lang) a.setAttribute("aria-current","true")});
   document.documentElement.classList.remove("i18n-wait");
   return scripts.reduce((p,src)=>p.then(()=>load(src)),Promise.resolve());
 });

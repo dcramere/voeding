@@ -531,7 +531,7 @@ $("logoDel").addEventListener("click",async()=>{try{coach.merk=(await call("/api
 
 // ---------- storefront editor ----------
 let wk=null;
-const leeg=()=>({gepubliceerd:false,titel:"",bio:"",specialisaties:[],pakketten:[{naam:T("Online coaching"),prijs:"$49",periode:T("per maand"),beschrijving:"",kenmerken:[T("Voedingsplan op maat"),T("Trainingsprogramma"),T("Wekelijkse check-in en chat")]}],reviews:[],whatsapp:"",instagram:""});
+const leeg=()=>({gepubliceerd:false,titel:"",bio:"",specialisaties:[],pakketten:[{naam:T("Online coaching"),prijs:"$99",periode:T("per maand"),beschrijving:"",kenmerken:[T("Voedingsplan op maat"),T("Trainingsprogramma"),T("Wekelijkse check-in en chat")]}],reviews:[],whatsapp:"",instagram:""});
 const slugify=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,30);
 async function renderWinkel(){
   const r=await call("/api/coach/winkel");
@@ -554,7 +554,7 @@ function drawWinkel(){
     <h2>${T("Pakketten")}</h2>
     <div class="wk-grid">${w.pakketten.map((p,i)=>`<article class="wk-card">
       <div class="row"><label>${T("Naam")}<input data-pk="${i}" data-f="naam" value="${esc(p.naam)}" maxlength="40"></label>
-        <div class="row"><label>${T("Prijs")}<input data-pk="${i}" data-f="prijs" value="${esc(p.prijs)}" maxlength="20" placeholder="$49"></label><label>${T("Periode")}<input data-pk="${i}" data-f="periode" value="${esc(p.periode)}" maxlength="20" placeholder="${T("per maand")}"></label></div></div>
+        <div class="row"><label>${T("Prijs")}<input data-pk="${i}" data-f="prijs" value="${esc(p.prijs)}" maxlength="20" placeholder="$99"></label><label>${T("Periode")}<input data-pk="${i}" data-f="periode" value="${esc(p.periode)}" maxlength="20" placeholder="${T("per maand")}"></label></div></div>
       <label>${T("Korte beschrijving")}<input data-pk="${i}" data-f="beschrijving" value="${esc(p.beschrijving)}" maxlength="200"></label>
       <label>${T("Wat zit erin")} <small>${T("één per regel, max. 6")}</small><textarea data-pk="${i}" data-f="kenmerken" style="min-height:90px">${esc(p.kenmerken.join("\n"))}</textarea></label>
       <button class="linkbtn danger-t" type="button" data-wk="pk-del" data-i="${i}">${T("Pakket verwijderen")}</button></article>`).join("")}</div>

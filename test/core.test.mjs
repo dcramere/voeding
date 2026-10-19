@@ -215,3 +215,32 @@ test("automatic adjustment shifts calories, keeps protein, respects the safe min
   const low = DC.analyse({ ...P, bijstelling: -5000 }, m);
   assert.equal(low.kcal, Math.round(low.floor / 10) * 10, "never below the safe minimum");
 });
+
+test("coach meal plan: portions scale to the targets, stay near the coach's amounts, fixed items stay", () => {
+  const plan = { maaltijden: [
+    { naam: "Breakfast", dagboek: "ontbijt", items: [{ key: "brood", g: 70 }, { key: "ei", g: 180 }] },
+    { naam: "Lunch box", dagboek: "lunch", items: [{ key: "kip", g: 150 }, { key: "kidneybonen", g: 125 }, { key: "rijstgekookt", g: 130 }, { key: "groente", g: 200, vast: true }, { key: "olijfolie", g: 5, vast: true }] },
+    { naam: "Snack", dagboek: "snack", items: [{ key: "brood", g: 35 }, { key: "pindakaas", g: 16, vast: true }, { key: "papaya", g: 150 }] },
+    { naam: "Pre-workout", dagboek: "snack", train: true, items: [{ key: "brood", g: 70 }, { key: "banaan", g: 120, vast: true }] },
+    { naam: "Dinner box", dagboek: "avond", items: [{ key: "kip", g: 150 }, { key: "kidneybonen", g: 125 }, { key: "rijstgekookt", g: 130 }, { key: "groente", g: 200, vast: true }, { key: "olijfolie", g: 5, vast: true }] },
+  ] };
+  const P = { ...BASE, trainingsdagen: [2, 4, 6], doel: -0.2, maaltijdplan: plan }, m = { datum: "2026-10-19", gewicht: 79.7 };
+  for (const dag of ["rust", "train"]) {
+    const pd = DC.planData(P, m, { seed: 0 }, dag);
+    assert.ok(Math.abs(pd.S.k / pd.A.kcal - 1) < 0.03, `${dag}: ${pd.S.k} vs ${pd.A.kcal}`);
+    assert.equal(pd.meals.length, dag === "train" ? 5 : 4, "training-only meal");
+    assert.ok(pd.meals.every((ml) => ml.eigen));
+    const lunch = pd.meals.find((ml) => ml.name === "Lunch box");
+    assert.equal(lunch.items.find((i) => i.key === "groente").g, 200, "fixed portion unchanged");
+    const kip = lunch.items.find((i) => i.key === "kip").g;
+    assert.ok(kip >= 100 && kip <= 200, "chicken stays near 150 g: " + kip);
+    assert.equal(DC.diaryMeal(lunch), "lunch"); assert.equal(DC.diaryMeal(pd.meals.at(-1)), "avond");
+  }
+  // more calories (heavier client) → bigger portions, same foods
+  const big = DC.planData({ ...P, doel: 0.1 }, { ...m, gewicht: 95 }, { seed: 0 }, "rust");
+  assert.ok(big.S.k > 2600 && Math.abs(big.S.k / big.A.kcal - 1) < 0.05);
+  // coach text is escaped in the plan
+  const evil = { maaltijden: [{ naam: "<img src=x onerror=alert(1)>", dagboek: "snack", notitie: "<b>x</b>", items: [{ key: "ei", g: 120 }] }] };
+  const html = DC.planHTML({ ...BASE, maaltijdplan: evil }, m, { seed: 0 }, {});
+  assert.ok(!html.includes("<img src=x") && !html.includes("<b>x</b>"));
+});

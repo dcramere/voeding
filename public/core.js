@@ -38,6 +38,12 @@ const FOODS = {
   avocado:{n:"Avocado",s:"avocado",k:160,p:2,c:2,f:14.7,v:6.7,cat:"vet"},
   amandelen:{n:"Amandelen",s:"amandelen",k:600,p:21,c:7,f:50,v:12,cat:"vet"},
   walnoten:{n:"Walnoten (of andere ongebrande, ongezouten noten)",s:"walnoten",k:680,p:15,c:3.5,f:66,v:6,unit:["handje","handjes",26],cat:"vet"},
+  // not used by the automatic menu; available for coach-built meal plans and the diary
+  eend:{n:"Eend zonder vel",s:"eend",k:201,p:23.5,c:0,f:11.2,v:0,tag:["vlees"],cat:"eiwit",b:"Verwijder het vel en bak of stoof de eend gaar met kruiden en weinig vet."},
+  kidneybonen:{n:"Kidneybonen of bruine bonen, gekookt",s:"bonen",k:127,p:8.7,c:16.4,f:0.5,v:6.4,cat:"koolh",b:"Uit blik: laat de bonen uitlekken en spoel ze af. Gedroogd: een nacht weken en ongeveer een uur koken."},
+  dhal:{n:"Dhal (spliterwten of linzen), gekookt",s:"dhal",k:116,p:9,c:12,f:0.4,v:8,cat:"koolh",b:"Kook de dhal met masala, knoflook en ui tot hij zacht is."},
+  rijstgekookt:{n:"Zilvervliesrijst, gekookt",s:"zilvervliesrijst",k:111,p:2.6,c:21.2,f:0.9,v:1.8,cat:"koolh",b:"Kook de rijst 25–30 minuten gaar. Tip: kook een voorraad voor 2–3 dagen."},
+  honing:{n:"Honing",s:"honing",k:304,p:0.3,c:82,f:0,v:0,unit:["tl","tl",7],cat:"koolh"},
   pindakaas:{n:"Pindakaas (100% pinda)",s:"pindakaas",k:620,p:25,c:12,f:50,v:6,cat:"vet"}
 };
 for(const f of Object.values(FOODS)){f.n=T(f.n);f.s=T(f.s);if(f.b)f.b=T(f.b);if(f.shop)f.shop=T(f.shop);if(f.unit)f.unit=[T(f.unit[0]),T(f.unit[1]),f.unit[2]]}
@@ -178,7 +184,10 @@ function mealStructure(P,type,idx,scale){
 // SHARE_W keeps each meal near its calorie share, PSHARE_W spreads protein the same way (no 75 g chicken
 // dinner next to a 355 g quark snack).
 const FIT_W={k:6,p:2.5,c:1,f:1.5}, SHARE_W=1.2, PSHARE_W=0.8;
-function optimizeDay(meals,G){
+// coach-built plans: each portion is pulled towards the coach's own amount (v.ref), so the plan keeps its character
+const REF_W=0.05; // tuned: day totals within ~1% of target, portions within ~30% of the coach's amounts
+function optimizeDay(meals,G,refW){
+  if(refW==null) refW=REF_W;
   const tgt={k:G.kcal,p:G.prot,c:G.carb,f:G.fat};
   const vars=[]; meals.forEach((ml,mi)=>ml.vars.forEach(v=>{v.mi=mi;v.x=v.min;vars.push(v)}));
   const base={k:0,p:0,c:0,f:0}, mealBase=meals.map(()=>0), mealBaseP=meals.map(()=>0);
@@ -204,6 +213,7 @@ function optimizeDay(meals,G){
       j+=SHARE_W*((MK[mi]-ml.share*tgt.k)/tgt.k)**2;
       if(pShare[mi]!=null) j+=PSHARE_W*((MP[mi]-protTarget(mi,S,MP))/tgt.p)**2;
     });
+    vars.forEach(v=>{if(v.ref) j+=refW*((v.x-v.ref)/v.ref)**2});
     return j;
   };
   for(let it=0;it<80;it++){
@@ -213,6 +223,7 @@ function optimizeDay(meals,G){
       for(const z in tgt){const a=f[z]/100, w=wOf(z,S)/tgt[z]**2; num+=w*a*(tgt[z]-S[z]); den+=w*a*a}
       const a=f.k/100, w=SHARE_W/tgt.k**2, ml=meals[v.mi]; num+=w*a*(ml.share*tgt.k-MK[v.mi]); den+=w*a*a;
       if(pShare[v.mi]!=null){const ap=f.p/100, wp=PSHARE_W/tgt.p**2; num+=wp*ap*(protTarget(v.mi,S,MP)-MP[v.mi]); den+=wp*ap*ap}
+      if(v.ref){const wr=refW/(v.ref*v.ref); num+=wr*v.ref; den+=wr}
       v.x=Math.min(v.max,Math.max(v.min,den>0?num/den:v.min));
     }
   }
@@ -241,7 +252,38 @@ function layoutFor(P,dag){
 }
 // training days keep their own swap offsets, because the extra meal shifts the meal indices
 const offKey=dag=>dag==="train"?"offT":"off";
+// ---------- coach-built meal plan ----------
+// P.maaltijdplan = {maaltijden:[{naam, dagboek:"ontbijt|lunch|avond|snack", train:bool, notitie, items:[{key, g, vast}]}]}
+// The coach's portions are the starting point; non-fixed portions are scaled by the same optimizer as the automatic
+// menu so the day always matches the client's targets (training/rest day, every weigh-in, automatic adjustments).
+const DAGBOEK_TYPE={ontbijt:"ontbijt",lunch:"hoofd",avond:"hoofd",snack:"snack"};
+function eigenMenu(P,A,dag){
+  const lijst=P.maaltijdplan.maaltijden.filter(m=>!m.train||dag==="train");
+  const ref=lijst.map(m=>m.items.filter(i=>FOODS[i.key]).reduce((t,i)=>t+macroOf(i.key,i.g).k,0));
+  const tot=ref.reduce((a,b)=>a+b,0)||1;
+  const meals=lijst.map((m,mi)=>{
+    const items=m.items.filter(i=>FOODS[i.key]&&i.g>0), fixed=[], vars=[];
+    items.forEach((i,ii)=>{
+      if(i.vast){fixed.push({key:i.key,g:i.g,ii});return}
+      const u=FOODS[i.key].unit, step=u?u[2]:5;
+      vars.push({key:i.key,ii,role:"x",step,ref:i.g,min:Math.max(step,Math.round(i.g*0.4/step)*step),max:Math.max(step,Math.ceil(i.g*2.5/step)*step)});
+    });
+    return {m,mi,share:ref[mi]/tot,fixed,vars};
+  });
+  optimizeDay(meals,A);
+  // far from the target (e.g. the client now needs much more than the plan was written for): loosen the pull
+  // towards the coach's amounts, so the day still matches the target
+  const dagK=()=>meals.reduce((t,ml)=>t+[...ml.fixed.map(f=>macroOf(f.key,f.g).k),...ml.vars.map(v=>macroOf(v.key,v.x).k)].reduce((a,b)=>a+b,0),0);
+  for(const w of [REF_W/5,REF_W/25]) if(Math.abs(dagK()/A.kcal-1)>0.04) optimizeDay(meals,A,w);
+  return meals.map(({m,mi,fixed,vars})=>{
+    const items=[...fixed.map(f=>({key:f.key,g:f.g,ii:f.ii})),...vars.filter(v=>v.x>0).map(v=>({key:v.key,g:v.x,ii:v.ii}))].sort((a,b)=>a.ii-b.ii).map(({key,g})=>({key,g}));
+    const type=DAGBOEK_TYPE[m.dagboek]||"hoofd";
+    return {name:m.naam,type,dagboek:m.dagboek,eigen:true,i:mi,items,titel:dishTitle(type,items),
+      bereiding:m.notitie?[m.notitie]:preparation(type,items)};
+  });
+}
 function menuFor(P,menu,A,dag){
+  if(P.maaltijdplan&&P.maaltijdplan.maaltijden&&P.maaltijdplan.maaltijden.length) return eigenMenu(P,A,dag);
   const L=layoutFor(P,dag), off=(menu&&menu[offKey(dag)])||[], seed=(menu&&menu.seed)||0;
   const scale=Math.max(1,A.kcal/2400);
   const meals=L.map(([name,type,share,hint],i)=>({name,type,share,hint,i,...mealStructure(P,type,seed+(off[i]||0)+i*2,scale)}));
@@ -307,7 +349,7 @@ function targetFor(P,metingen,datum){
   return {...(D?{...W,...D[dag]}:W),dag};
 }
 // which diary meal a generated meal belongs to
-const diaryMeal=ml=>ml.type==="ontbijt"?"ontbijt":ml.type==="hoofd"?(ml.name==="Lunch"?"lunch":"avond"):"snack";
+const diaryMeal=ml=>ml.dagboek?ml.dagboek:ml.type==="ontbijt"?"ontbijt":ml.type==="hoofd"?(ml.name==="Lunch"?"lunch":"avond"):"snack";
 
 // ---------- plan data (shared by screen, print and shopping list) ----------
 function planData(P,m,menu,dag){
@@ -322,11 +364,12 @@ function planData(P,m,menu,dag){
 }
 function mealHTML(ml,o){
   const rows=ml.items.map(i=>`<tr><td class="q">${qty(i)}</td><td>${FOODS[i.key].n}</td><td class="m">${Math.round(macroOf(i.key,i.g).k)} kcal</td></tr>`).join("");
-  const swap=o.interactive?` <button class="swap" type="button" data-swap="${ml.i}" data-off="${offKey(o.dag)}" aria-label="${T("Andere invulling voor {x}",{x:T(ml.name)})}">${T("Wissel")}</button>`:"";
+  const swap=o.interactive&&!ml.eigen?` <button class="swap" type="button" data-swap="${ml.i}" data-off="${offKey(o.dag)}" aria-label="${T("Andere invulling voor {x}",{x:T(ml.name)})}">${T("Wissel")}</button>`:"";
   const eaten=o.interactive&&o.eaten?(o.eaten.has(ml.i)?`<span class="eaten done">✓ ${T("In dagboek")}</span>`:`<button class="eaten" type="button" data-eaten="${ml.i}">${T("Gegeten")}</button>`):"";
-  const prep=ml.bereiding.length?(o.print?`<ol class="prep">${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol>`
-    :`<details class="prep"><summary>${T("Bereiding")}</summary><ol>${ml.bereiding.map(s=>`<li>${s}</li>`).join("")}</ol></details>`):"";
-  return `<div class="meal"><div class="meal-h"><h3><span class="eyebrow">${T(ml.name)}${ml.hint?`<span class="sep">·</span>${ml.hint}`:""}</span>${ml.titel}</h3><span class="k">${fmt(Math.round(ml.kcal))} kcal${swap}</span></div><table>${rows}</table>${prep}${eaten?`<div class="meal-foot">${eaten}</div>`:""}</div>`;
+  const stap=x=>ml.eigen?esc(x).replace(/\n/g,"<br>"):x; // coach-written text is escaped
+  const prep=ml.bereiding.length?(o.print?`<ol class="prep">${ml.bereiding.map(s=>`<li>${stap(s)}</li>`).join("")}</ol>`
+    :`<details class="prep"><summary>${T("Bereiding")}</summary><ol>${ml.bereiding.map(s=>`<li>${stap(s)}</li>`).join("")}</ol></details>`):"";
+  return `<div class="meal"><div class="meal-h"><h3><span class="eyebrow">${ml.eigen?esc(ml.name):T(ml.name)}${ml.hint?`<span class="sep">·</span>${ml.hint}`:""}</span>${ml.titel}</h3><span class="k">${fmt(Math.round(ml.kcal))} kcal${swap}</span></div><table>${rows}</table>${prep}${eaten?`<div class="meal-foot">${eaten}</div>`:""}</div>`;
 }
 function totalsHTML(S,A){
   const pct=(a,b)=>b?Math.round(a/b*100)+"%":"";
@@ -368,10 +411,11 @@ function planHTML(P,m,menu,o){
     ${targetHTML(A,W,D,dag)}
     ${W.notes.map(n=>`<div class="note">${n}</div>`).join("")}
     <h2>${D?(dag==="train"?T("Maaltijden op een trainingsdag"):T("Maaltijden op een rustdag")):you?T("Uw maaltijden vandaag"):T("Maaltijden")}</h2>
+    ${meals[0]&&meals[0].eigen?`<p class="sub" style="font-size:14px;margin-top:-4px">${you?T("Dit menu is door uw coach samengesteld. De porties passen zich automatisch aan uw dagdoel aan."):T("Eigen voedingsplan van de coach; de porties zijn automatisch afgestemd op het dagdoel.")}</p>`:""}
     ${meals.map(ml=>mealHTML(ml,{interactive:o.interactive,dag,eaten:o.eaten})).join("")}
     ${totalsHTML(S,A)}
     <div class="actions">
-      ${o.interactive?`<button class="btn" type="button" data-new-menu>${T("Nieuw menu maken")}</button>`:""}
+      ${o.interactive&&!(meals[0]&&meals[0].eigen)?`<button class="btn" type="button" data-new-menu>${T("Nieuw menu maken")}</button>`:""}
       <button class="btn ghost" type="button" data-boodschappen>${T("Boodschappenlijst")}</button>
       <button class="btn ghost" type="button" data-print>${T("Plan als PDF")}</button>
     </div>`;
@@ -746,7 +790,7 @@ function printPlan(P,m,menu,o){
   if(img&&!img.complete){img.onload=go;img.onerror=go}else go();
 }
 
-window.DC={applyBrand,prepareAvatar,avatarHTML,FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
+window.DC={eigenMenu,applyBrand,prepareAvatar,avatarHTML,FOODS,TEMPL,setCustomFoods,productFood,nutr,targetFor,diaryMeal,macroOf,DOEL_LABEL,esc,fmt,dateNL,today,daysSince,signed,analyse,dagTargets,bmiLabel,sorted,latest,menuFor,planData,planHTML,historyHTML,
   shoppingList,shoppingHTML,printHTML,printPlan,POSES,FOTO_EVERY,FOTO_TIPS,fotoSets,lastFotoDate,fotosDue,prepareFoto,uploadFoto,fotoUploadHTML,fotoCompareHTML,checkinFieldsHTML,readCheckin,checkinsHTML,checkinFlags,intakeFieldsHTML,fillIntake,readIntake,intakeSummaryHTML,
   profielFieldsHTML,fillProfiel,readProfiel,metingFieldsHTML,readMeting,api,handleForm};
 })();

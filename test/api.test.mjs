@@ -416,6 +416,31 @@ test("automatic check-in replies: in the client's language, red flags, coach swi
   assert.equal((await w("/api/me")).data.feedback.length, 0);
 });
 
+test("coach meal plan: validation, delivered to the client, client cannot change it, removal", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Mia Plan", email: "mia@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "mia-pass-1234", privacy: true });
+  await u("/api/profiel", "PUT", { naam: "Mia Plan", profiel: PROFIEL });
+  const id = inv.data.id, put = (plan) => coach(`/api/coach/clients/${id}`, "PUT", { maaltijdplan: plan });
+  assert.equal((await put({ maaltijden: [] })).status, 400);
+  assert.equal((await put({ maaltijden: [{ naam: "X", items: [{ key: "nope", g: 100 }] }] })).status, 400, "unknown food");
+  assert.equal((await put({ maaltijden: [{ naam: "X", items: [{ key: "kip", g: 5000 }] }] })).status, 400, "grams");
+  assert.equal((await put({ maaltijden: [{ naam: "Only training", train: true, items: [{ key: "kip", g: 100 }] }] })).status, 400, "needs an everyday meal");
+  const plan = { maaltijden: [{ naam: "Ontbijt", dagboek: "ontbijt", items: [{ key: "brood", g: 70 }, { key: "ei", g: 120 }] },
+    { naam: "Pot", dagboek: "lunch", notitie: "Kook de avond ervoor.", items: [{ key: "kip", g: 150 }, { key: "dhal", g: 125 }, { key: "groente", g: 200, vast: true }] }] };
+  const ok = await put(plan);
+  assert.equal(ok.status, 200); assert.equal(ok.data.maaltijdplan.maaltijden[1].notitie, "Kook de avond ervoor.");
+  assert.equal(ok.data.maaltijdplan.maaltijden[0].items[1].vast, false);
+  const me = (await u("/api/me")).data;
+  assert.equal(me.profiel.maaltijdplan.maaltijden.length, 2);
+  const own = await u("/api/profiel", "PUT", { naam: "Mia Plan", profiel: { ...me.profiel, maaltijdplan: { maaltijden: [] } } });
+  assert.equal(own.data.profiel.maaltijdplan.maaltijden.length, 2, "client cannot replace the coach's plan");
+  // the client's own products can be used
+  const prod = await u("/api/producten", "POST", { naam: "Fernandes volkoren", kcal: 245, eiwit: 11, koolh: 40, vet: 3.4, rol: "koolh", in_menu: false });
+  assert.equal((await put({ maaltijden: [{ naam: "Brood", dagboek: "ontbijt", items: [{ key: `p${prod.data.id}`, g: 70 }] }] })).status, 200);
+  assert.equal((await put(null)).data.maaltijdplan, null);
+  assert.equal((await u("/api/me")).data.profiel.maaltijdplan, undefined);
+});
+
 test("messages: client ↔ coach, read status, check-in feedback, photos, isolation", async () => {
   assert.equal((await anna("/api/berichten", "POST", { tekst: "" })).status, 400);
   const a = await anna("/api/berichten", "POST", { tekst: "Mag ik rijst vervangen door cassave?" });

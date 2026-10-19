@@ -212,6 +212,8 @@ function renderClient(){
     :!m?`<p class="empty">${T("Nog geen meting. Voeg er een toe onder Metingen.")}</p>`
     :DC.planHTML(c.profiel,m,c.menu,{coach:true,dag:viewDag});
   $("pShop").innerHTML="";
+  if(!mpEdit||mpEdit.id!==c.id) mpEdit=null;
+  renderMp();
   $("pHist").innerHTML=c.metingen.length&&c.profiel?DC.historyHTML(c.profiel,c.metingen,{coach:true})
     :c.metingen.length?`<p class="empty">${T("Vul eerst het profiel in om de analyse te zien.")}</p>`:`<p class="empty">${T("Nog geen metingen.")}</p>`;
   $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins)+checkinReplyHTML(c);
@@ -355,6 +357,102 @@ $("navPush").addEventListener("click",async()=>{
     else{await CHAT.enablePush("coach");alert(T("Meldingen staan aan. U krijgt een melding bij nieuwe berichten en check-ins."))}
   }catch(x){alert(x.message)}
   renderNavPush();
+});
+
+// ---------- coach-built meal plan ----------
+// The coach composes the meals; the app scales the portions to the client's targets (DC.eigenMenu).
+let mpEdit=null; // {id, plan} while editing
+const MP_DAGBOEK=[["ontbijt",N_("Ontbijt")],["lunch",N_("Lunch")],["avond",N_("Avondeten")],["snack",N_("Tussendoortje")]];
+const MP_CAT=[["eiwit",N_("Vlees, vis, ei en vegetarisch")],["zuivel",N_("Zuivel")],["koolh",N_("Brood, granen en knollen")],["groente",N_("Groente")],["fruit",N_("Fruit")],["vet",N_("Noten, oliën en vetten")]];
+const mpStandaardVast=k=>k==="groente"||!!(DC.FOODS[k]&&DC.FOODS[k].oil);
+function mpFoodOptions(sel){
+  const F=DC.FOODS, eigen=Object.keys(F).filter(k=>F[k].custom);
+  return MP_CAT.map(([cat,l])=>{const ks=Object.keys(F).filter(k=>!F[k].custom&&F[k].cat===cat).sort((a,b)=>F[a].n.localeCompare(F[b].n));
+      return `<optgroup label="${esc(T(l))}">${ks.map(k=>`<option value="${k}"${k===sel?" selected":""}>${esc(F[k].n)}</option>`).join("")}</optgroup>`}).join("")+
+    (eigen.length?`<optgroup label="${esc(T("Eigen producten"))}">${eigen.map(k=>`<option value="${k}"${k===sel?" selected":""}>${esc(F[k].n)}</option>`).join("")}</optgroup>`:"");
+}
+function mpVanAutomatisch(){ // start from today's automatic menu
+  const m=DC.latest(cur.metingen), P={...cur.profiel}; delete P.maaltijdplan;
+  const tm=ml=>({naam:T(ml.name),dagboek:DC.diaryMeal(ml),train:false,notitie:"",items:ml.items.filter(i=>!DC.FOODS[i.key].custom).map(i=>({key:i.key,g:i.g,vast:mpStandaardVast(i.key)}))});
+  const rust=DC.planData(P,m,cur.menu,"rust").meals.map(tm);
+  if(DC.dagTargets(P,DC.analyse(P,m))){
+    const extra=DC.planData(P,m,cur.menu,"train").meals.find(ml=>ml.type==="training");
+    if(extra) rust.splice(rust.length-1,0,{...tm(extra),train:true});
+  }
+  return {maaltijden:rust};
+}
+function mpPreview(plan){
+  const m=DC.latest(cur.metingen); if(!m) return "";
+  const P={...cur.profiel,maaltijdplan:plan}, D=DC.dagTargets(P,DC.analyse(P,m));
+  return (D?["rust","train"]:[null]).map(dag=>{const pd=DC.planData(P,m,cur.menu,dag), r=x=>Math.round(x);
+    return `<div><b>${dag==="train"?T("Trainingsdag"):dag==="rust"?T("Rustdag"):T("Dagmenu")}</b> ${DC.fmt(r(pd.S.k))} / ${DC.fmt(pd.A.kcal)} kcal · ${T("Eiwit")} ${r(pd.S.p)}/${pd.A.prot} g · ${T("Koolhydraten")} ${r(pd.S.c)}/${pd.A.carb} g · ${T("Vet")} ${r(pd.S.f)}/${pd.A.fat} g
+      <small>${pd.meals.map(ml=>`${esc(ml.name)}: ${ml.items.map(i=>`${i.g} g ${esc(DC.FOODS[i.key].s)}`).join(", ")}`).join(" · ")}</small></div>`}).join("");
+}
+function renderMp(){
+  const el=$("pMaaltijdplan"), c=cur, plan=c.maaltijdplan, m=DC.latest(c.metingen);
+  if(!c.profiel||!m){el.innerHTML="";return}
+  if(!mpEdit){
+    el.innerHTML=`<h2>${T("Eigen voedingsplan")}</h2>
+      <p class="sub">${plan?T("Actief: {n} maaltijden die u zelf heeft samengesteld. De app past de porties automatisch aan het dagdoel aan.",{n:plan.maaltijden.length})
+        :T("Stel zelf de maaltijden samen met de producten die de cliënt echt eet. De app past de porties automatisch aan het dagdoel aan, ook na elke meting en elke bijsturing.")}</p>
+      <div class="actions" style="margin-top:0">${plan?`<button class="btn" type="button" data-mp="bewerk">${T("Plan bewerken")}</button><button class="btn ghost" type="button" data-mp="weg">${T("Terug naar automatisch menu")}</button>`
+        :`<button class="btn" type="button" data-mp="nieuw">${T("Eigen plan maken")}</button>`}</div>`;
+    return;
+  }
+  const p=mpEdit.plan;
+  el.innerHTML=`<h2>${T("Eigen voedingsplan")}</h2>
+    <p class="sub">${T("Uw porties zijn het uitgangspunt. Niet-vaste porties schalen mee met het dagdoel; vaste porties (zoals groente of olie) blijven gelijk.")}</p>
+    ${p.maaltijden.map((ml,mi)=>`<section class="pe-day">
+      <div class="pe-day-h"><input data-mpm="${mi}" data-f="naam" value="${esc(ml.naam)}" maxlength="40" class="pe-focus" aria-label="${T("Naam maaltijd")}">
+        <select data-mpm="${mi}" data-f="dagboek" aria-label="${T("Dagboek")}">${MP_DAGBOEK.map(([k,l])=>`<option value="${k}"${ml.dagboek===k?" selected":""}>${T(l)}</option>`).join("")}</select>
+        <label class="consent" style="margin:0"><input type="checkbox" data-mpm="${mi}" data-f="train" ${ml.train?"checked":""}><span>${T("Alleen op trainingsdagen")}</span></label>
+        <span class="pe-tools"><button class="linkbtn" type="button" data-mp="up" data-m="${mi}" ${mi===0?"disabled":""}>↑</button><button class="linkbtn" type="button" data-mp="down" data-m="${mi}" ${mi===p.maaltijden.length-1?"disabled":""}>↓</button><button class="linkbtn danger-t" type="button" data-mp="mdel" data-m="${mi}">${T("Verwijderen")}</button></span></div>
+      <table class="pe-ex"><thead><tr><th>${T("Product")}</th><th>${T("Gram")}</th><th>${T("Vast")}</th><th></th></tr></thead><tbody>
+      ${ml.items.map((it,ii)=>`<tr><td><select data-mpi="${mi}:${ii}" data-f="key">${mpFoodOptions(it.key)}</select></td>
+        <td><input data-mpi="${mi}:${ii}" data-f="g" inputmode="decimal" value="${it.g}" style="max-width:90px"></td>
+        <td><input type="checkbox" data-mpi="${mi}:${ii}" data-f="vast" ${it.vast?"checked":""} aria-label="${T("Vast")}"></td>
+        <td class="pe-tools"><button class="linkbtn danger-t" type="button" data-mp="idel" data-m="${mi}" data-i="${ii}" aria-label="${T("Verwijderen")}">✕</button></td></tr>`).join("")}
+      </tbody></table>
+      <div class="actions" style="margin-top:6px"><button class="btn small ghost" type="button" data-mp="iadd" data-m="${mi}">+ ${T("Product")}</button></div>
+      <details style="margin-top:6px"><summary>${T("Bereiding")} <small>${T("optioneel")}</small></summary><textarea data-mpm="${mi}" data-f="notitie" maxlength="500" style="min-height:70px;margin-top:6px" placeholder="${T("Laat leeg voor de automatische bereiding.")}">${esc(ml.notitie||"")}</textarea></details>
+    </section>`).join("")}
+    ${p.maaltijden.length<8?`<div class="actions"><button class="btn ghost" type="button" data-mp="madd">+ ${T("Maaltijd")}</button></div>`:""}
+    <div class="mp-preview" id="mpPreview">${mpPreview(p)}</div>
+    <div class="pe-save"><button class="btn" type="button" data-mp="opslaan">${T("Voedingsplan opslaan")}</button><button class="btn ghost" type="button" data-mp="annuleer">${T("Annuleren")}</button><span class="err" id="mpMsg" role="status"></span></div>`;
+}
+const mpRefresh=()=>{const pv=$("mpPreview");if(pv)pv.innerHTML=mpPreview(mpEdit.plan)};
+$("pMaaltijdplan").addEventListener("input",e=>{
+  if(!mpEdit) return; const t=e.target, p=mpEdit.plan;
+  if(t.dataset.mpm){const ml=p.maaltijden[+t.dataset.mpm],f=t.dataset.f;ml[f]=t.type==="checkbox"?t.checked:t.value}
+  else if(t.dataset.mpi){const [mi,ii]=t.dataset.mpi.split(":").map(Number), it=p.maaltijden[mi].items[ii], f=t.dataset.f;
+    it[f]=f==="vast"?t.checked:f==="g"?(parseFloat(String(t.value).replace(",","."))||0):t.value;
+    if(f==="key"){it.vast=mpStandaardVast(it.key);renderMp();return}}
+  else return;
+  mpRefresh();
+});
+$("pMaaltijdplan").addEventListener("change",e=>{if(e.target.matches("select,input[type=checkbox]"))e.target.dispatchEvent(new Event("input",{bubbles:true}))});
+$("pMaaltijdplan").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-mp]"); if(!b||!cur) return;
+  const a=b.dataset.mp, mi=+b.dataset.m, p=mpEdit&&mpEdit.plan, swap=(x,i,j)=>{[x[i],x[j]]=[x[j],x[i]]};
+  switch(a){
+    case "nieuw": mpEdit={id:cur.id,plan:mpVanAutomatisch()}; break;
+    case "bewerk": mpEdit={id:cur.id,plan:JSON.parse(JSON.stringify(cur.maaltijdplan))}; break;
+    case "annuleer": mpEdit=null; break;
+    case "weg":
+      if(!confirm(T("Terug naar het automatische menu? Uw eigen voedingsplan voor deze cliënt wordt verwijderd."))) return;
+      try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{maaltijdplan:null});renderClient()}catch(x){alert(x.message)} return;
+    case "madd": p.maaltijden.push({naam:T("Maaltijd"),dagboek:"snack",train:false,notitie:"",items:[{key:"ei",g:120,vast:false}]}); break;
+    case "mdel": if(p.maaltijden.length===1) return; p.maaltijden.splice(mi,1); break;
+    case "up": swap(p.maaltijden,mi,mi-1); break;
+    case "down": swap(p.maaltijden,mi,mi+1); break;
+    case "iadd": p.maaltijden[mi].items.push({key:"groente",g:200,vast:true}); break;
+    case "idel": if(p.maaltijden[mi].items.length===1) return; p.maaltijden[mi].items.splice(+b.dataset.i,1); break;
+    case "opslaan":
+      $("mpMsg").textContent=""; b.disabled=true;
+      try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{maaltijdplan:p});mpEdit=null;renderClient();$("pMaaltijdplan").scrollIntoView({behavior:"smooth",block:"start"})}
+      catch(x){$("mpMsg").textContent=x.message;b.disabled=false} return;
+  }
+  renderMp();
 });
 
 // ---------- manual targets ----------

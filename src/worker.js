@@ -625,7 +625,7 @@ async function clientPutProfiel(c) {
   const profiel = cleanProfiel(c.body.profiel);
   await c.env.DB.prepare("UPDATE clients SET naam = ?, profiel = ? WHERE id = ?")
     .bind(naam, JSON.stringify(profiel), c.client.id).run();
-  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen, adaptief: c.client.adaptief }) });
+  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen, adaptief: c.client.adaptief, maaltijdplan: c.client.maaltijdplan }) });
 }
 
 async function clientPutMenu(c) {
@@ -725,8 +725,29 @@ const adaptiefOf = (r) => ({ kcal: 0, uit: false, laatst: 0, gewijzigd: 0, histo
 const profielOut = (r) => {
   if (!r.profiel) return null;
   const a = adaptiefOf(r);
-  return { ...JSON.parse(r.profiel), ...(r.doelen ? { override: JSON.parse(r.doelen) } : {}), ...(a.kcal && !a.uit ? { bijstelling: a.kcal } : {}) };
+  return { ...JSON.parse(r.profiel), ...(r.doelen ? { override: JSON.parse(r.doelen) } : {}), ...(a.kcal && !a.uit ? { bijstelling: a.kcal } : {}),
+    ...(r.maaltijdplan ? { maaltijdplan: JSON.parse(r.maaltijdplan) } : {}) };
 };
+// coach-built meal plan: base foods from public/core.js or the client's own products (p<id>)
+async function cleanMaaltijdplan(env, b, clientId) {
+  if (!b || typeof b !== "object" || !Array.isArray(b.maaltijden)) fail(400, "Ongeldig voedingsplan.");
+  if (!b.maaltijden.length || b.maaltijden.length > 8) fail(400, "Een voedingsplan heeft 1 tot 8 maaltijden.");
+  const eigen = new Set((await env.DB.prepare("SELECT id FROM producten WHERE client_id = ?").bind(clientId).all()).results.map((p) => `p${p.id}`));
+  const maaltijden = b.maaltijden.map((m) => {
+    const naam = str(m && m.naam, 40, "Naam maaltijd");
+    if (!naam) fail(400, "Geef elke maaltijd een naam.");
+    const items = (Array.isArray(m.items) ? m.items : []).map((i) => {
+      const key = String(i && i.key || "");
+      if (!(DC.FOODS[key] && !DC.FOODS[key].custom) && !eigen.has(key)) fail(400, "Onbekend product in {x}.", undefined, { x: naam });
+      const g = num(i.g, 1, 2000, "Gram", true);
+      return { key, g, vast: !!i.vast };
+    });
+    if (!items.length || items.length > 12) fail(400, "{x} heeft 1 tot 12 producten nodig.", undefined, { x: naam });
+    return { naam, dagboek: ["ontbijt", "lunch", "avond", "snack"].includes(m.dagboek) ? m.dagboek : "snack", train: !!m.train, notitie: str(m.notitie, 500, "Bereiding"), items };
+  });
+  if (!maaltijden.some((m) => !m.train)) fail(400, "Zet minstens één maaltijd op elke dag (niet alleen op trainingsdagen).");
+  return { maaltijden };
+}
 function cleanDoelen(b) {
   if (b === null) return null;
   if (!b || typeof b !== "object") fail(400, "Ongeldige doelen.");
@@ -743,6 +764,7 @@ function publicClient(r) {
     aangemaakt: r.created_at, laatstGezien: r.last_seen,
     abonnement: r.abo_status ? { status: r.abo_status, einde: r.abo_einde } : null,
     adaptief: (({ kcal, uit, gewijzigd, historie }) => ({ kcal, uit, gewijzigd, historie: historie.slice(-10) }))(adaptiefOf(r)),
+    maaltijdplan: r.maaltijdplan ? JSON.parse(r.maaltijdplan) : null,
   };
 }
 
@@ -836,6 +858,10 @@ async function updateClient(c) {
     const p = b.programma === null ? null : cleanProgramma(b.programma);
     if (p && !(await programDef(c.env, p.id, c.coach.id))) fail(404, "Programma niet gevonden.");
     sets.push("programma = ?"); vals.push(p ? JSON.stringify(p) : null);
+  }
+  if ("maaltijdplan" in b) {
+    const plan = b.maaltijdplan === null ? null : await cleanMaaltijdplan(c.env, b.maaltijdplan, row.id);
+    sets.push("maaltijdplan = ?"); vals.push(plan ? JSON.stringify(plan) : null);
   }
   if ("adaptief" in b) {
     // automatic adjustment on/off, or back to the plain formula

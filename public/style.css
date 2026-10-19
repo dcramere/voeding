@@ -563,3 +563,12 @@ html.i18n-wait body{visibility:hidden}
 .top-help .linkbtn{font-size:14px}
 .adapt{margin:8px 0 6px}
 .adapt .hist td,.adapt .hist th{text-align:left}
+.mp{margin-top:26px}
+.mp table.pe-ex td:first-child{width:auto;color:inherit}
+.mp table.pe-ex td:nth-child(2){width:100px}
+.mp table.pe-ex td:nth-child(3){width:60px;text-align:center}
+.mp table.pe-ex td:nth-child(4){width:30px}
+.mp table.pe-ex th:nth-child(3){text-align:center}
+.mp .pe-ex select{width:100%;min-width:180px}
+.mp-preview{display:grid;gap:8px;margin:14px 0 4px;padding:12px 14px;border:1px solid var(--gold-dim);border-radius:10px;background:var(--gold-soft);font-size:14px}
+.mp-preview small{display:block;color:var(--muted);margin-top:3px;line-height:1.5}

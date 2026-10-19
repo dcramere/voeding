@@ -205,3 +205,13 @@ test("coach override: kcal/protein/fat replace the formula, carbs fill the rest,
 test("dates never shift a day in UTC-negative timezones", () => {
   assert.match(DC.dateNL("2026-09-28"), /28 september 2026/);
 });
+
+test("automatic adjustment shifts calories, keeps protein, respects the safe minimum", () => {
+  const P = { ...BASE, doel: -0.2 }, m = { datum: "2026-09-28", gewicht: 82.5 };
+  const a = DC.analyse(P, m), b = DC.analyse({ ...P, bijstelling: -100 }, m);
+  assert.equal(a.kcal - b.kcal, 100); assert.equal(a.prot, b.prot);
+  assert.ok(b.carb < a.carb, "carbs absorb the difference");
+  assert.ok(b.notes.some((n) => /automatisch 100 kcal verlaagd/.test(n)));
+  const low = DC.analyse({ ...P, bijstelling: -5000 }, m);
+  assert.equal(low.kcal, Math.round(low.floor / 10) * 10, "never below the safe minimum");
+});

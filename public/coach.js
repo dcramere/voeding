@@ -366,7 +366,31 @@ function renderDoelen(){
   f.elements.kcal.placeholder=t.A.auto.kcal; f.elements.prot.placeholder=t.A.auto.prot; f.elements.fat.placeholder=t.A.auto.fat;
   $("doelenAuto").hidden=!d;
   calcDoelen();
+  renderAdapt();
 }
+// automatic weekly adjustment from the weight trend (runs on the server, see adaptiefRun)
+const REDEN={"gewicht daalt te langzaam":N_("gewicht daalt te langzaam"),"gewicht daalt te snel":N_("gewicht daalt te snel"),"gewicht stijgt te snel":N_("gewicht stijgt te snel"),"gewicht stijgt te langzaam":N_("gewicht stijgt te langzaam"),"gewicht stijgt":N_("gewicht stijgt"),"gewicht daalt":N_("gewicht daalt"),"teruggezet door coach":N_("teruggezet door coach")};
+function renderAdapt(){
+  const a=cur.adaptief||{kcal:0,uit:false,historie:[]}, el=$("adaptBox");
+  const state=cur.doelen?T("Gepauzeerd: u heeft het dagdoel handmatig ingesteld. Kies Terug naar automatisch om de bijsturing te hervatten.")
+    :a.uit?T("Uit. Het dagdoel volgt alleen de formule op basis van de laatste meting.")
+    :a.kcal?T("Aan. Huidige bijstelling: {x} kcal per dag ten opzichte van de formule.",{x:(a.kcal>0?"+":"−")+Math.abs(a.kcal)})
+    :T("Aan. Nog geen bijstelling nodig.");
+  el.innerHTML=`<h2>${T("Automatische bijsturing")}</h2>
+    <p class="sub">${T("Elke week vergelijkt de app de gewichtstrend van de laatste 3 weken met het tempo dat bij het doel hoort, en past het dagdoel zo nodig met 100 kcal aan (maximaal ±500). Eiwit blijft gelijk; koolhydraten vangen het verschil op.")}</p>
+    <label class="consent"><input type="checkbox" data-adapt="aan" ${a.uit?"":"checked"} ${cur.doelen?"disabled":""}><span>${state}</span></label>
+    ${a.historie.length?`<div class="table-scroll"><table class="hist"><thead><tr><th>${T("Datum")}</th><th>${T("Wijziging")}</th><th>${T("Reden")}</th></tr></thead><tbody>${a.historie.slice().reverse().map(h=>`<tr><td>${new Date(h.t*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"short"})}</td><td>${h.van?`${DC.fmt(h.van)} → ${DC.fmt(h.naar)} kcal`:`${h.delta>0?"+":"−"}${Math.abs(h.delta)} kcal`}</td><td>${T(REDEN[h.reden]||h.reden)}${h.tempo!=null?` (${DC.fmt(h.tempo,1)}% ${T("per week")})`:""}</td></tr>`).join("")}</tbody></table></div>`:""}
+    ${a.kcal?`<div class="actions" style="margin-top:6px"><button class="btn small ghost" type="button" data-adapt="reset">${T("Bijstelling terugzetten")}</button></div>`:""}`;
+}
+$("adaptBox").addEventListener("change",async e=>{
+  if(e.target.dataset.adapt!=="aan") return;
+  try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{adaptief:{uit:!e.target.checked}});renderClient()}catch(x){alert(x.message)}
+});
+$("adaptBox").addEventListener("click",async e=>{
+  const b=e.target.closest('[data-adapt="reset"]'); if(!b) return;
+  if(!confirm(T("De automatische bijstelling terugzetten naar 0? Het dagdoel volgt dan weer de formule."))) return;
+  try{cur=await call("/api/coach/clients/"+cur.id,"PUT",{adaptief:{reset:true}});renderClient()}catch(x){alert(x.message)}
+});
 function calcDoelen(){
   const f=$("fDoelen"), t=autoTargets(); if(!t) return;
   const v=n=>{const x=parseFloat(f.elements[n].value);return x>0?x:null};

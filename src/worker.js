@@ -1,5 +1,6 @@
 // DCRAMERE Voeding — API (/api/*) + static assets (public/)
 import { tr, pickLang, valid as validLang } from "./i18n.js";
+import { DC } from "./core.js";
 
 const DAY = 86400;
 const SESSION_TTL = 30 * DAY;
@@ -78,7 +79,10 @@ export class Scheduler {
 async function runHourly(env, now, force) {
   await backupIfDue(env, now);
   const hour = new Date(now * 1000).getUTCHours();
-  if (force || env.HERINNERING_UUR === "altijd" || hour === Number(env.HERINNERING_UUR || 12)) await sendReminders(env, now);
+  if (force || env.HERINNERING_UUR === "altijd" || hour === Number(env.HERINNERING_UUR || 12)) {
+    await sendReminders(env, now);
+    await adaptiefRun(env, now);
+  }
 }
 
 // full snapshot of all data into KV, independent of D1's own 30-day Time Travel
@@ -606,7 +610,7 @@ async function clientPutProfiel(c) {
   const profiel = cleanProfiel(c.body.profiel);
   await c.env.DB.prepare("UPDATE clients SET naam = ?, profiel = ? WHERE id = ?")
     .bind(naam, JSON.stringify(profiel), c.client.id).run();
-  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen }) });
+  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen, adaptief: c.client.adaptief }) });
 }
 
 async function clientPutMenu(c) {
@@ -700,7 +704,12 @@ async function ownClient(c, id) {
 }
 
 // the coach's manual targets travel inside the profile as profiel.override (clients cannot write them)
-const profielOut = (r) => (r.profiel ? { ...JSON.parse(r.profiel), ...(r.doelen ? { override: JSON.parse(r.doelen) } : {}) } : null);
+const adaptiefOf = (r) => ({ kcal: 0, uit: false, laatst: 0, gewijzigd: 0, historie: [], ...(r && r.adaptief ? JSON.parse(r.adaptief) : {}) });
+const profielOut = (r) => {
+  if (!r.profiel) return null;
+  const a = adaptiefOf(r);
+  return { ...JSON.parse(r.profiel), ...(r.doelen ? { override: JSON.parse(r.doelen) } : {}), ...(a.kcal && !a.uit ? { bijstelling: a.kcal } : {}) };
+};
 function cleanDoelen(b) {
   if (b === null) return null;
   if (!b || typeof b !== "object") fail(400, "Ongeldige doelen.");
@@ -716,6 +725,7 @@ function publicClient(r) {
     programma: r.programma ? JSON.parse(r.programma) : null, menu: JSON.parse(r.menu),
     aangemaakt: r.created_at, laatstGezien: r.last_seen,
     abonnement: r.abo_status ? { status: r.abo_status, einde: r.abo_einde } : null,
+    adaptief: (({ kcal, uit, gewijzigd, historie }) => ({ kcal, uit, gewijzigd, historie: historie.slice(-10) }))(adaptiefOf(r)),
   };
 }
 
@@ -809,6 +819,13 @@ async function updateClient(c) {
     const p = b.programma === null ? null : cleanProgramma(b.programma);
     if (p && !(await programDef(c.env, p.id, c.coach.id))) fail(404, "Programma niet gevonden.");
     sets.push("programma = ?"); vals.push(p ? JSON.stringify(p) : null);
+  }
+  if ("adaptief" in b) {
+    // automatic adjustment on/off, or back to the plain formula
+    const a = adaptiefOf(row);
+    if (b.adaptief && typeof b.adaptief === "object" && "uit" in b.adaptief) a.uit = !!b.adaptief.uit;
+    if (b.adaptief && b.adaptief.reset && a.kcal) { a.historie.push({ t: c.now, delta: -a.kcal, reden: "teruggezet door coach" }); a.kcal = 0; a.gewijzigd = c.now; }
+    sets.push("adaptief = ?"); vals.push(JSON.stringify(a));
   }
   if ("betaalt" in b) {
     // the coach decides whether this client pays via the app; a running subscription is only stopped by the client
@@ -1773,6 +1790,62 @@ async function pushPending(c) {
     out.push(...results);
   }
   return json({ notificaties: out });
+}
+
+// ---------- adaptive targets ----------
+// Once a week per client: compare the actual weight trend (least squares over the last 21 days) with the
+// rate the goal should produce, and move the daily target by 100 kcal when it's off. Uses the app's own
+// formulas (public/core.js) so the client's plan, the safe minimum and this check always agree.
+const ADAPT_STAP = 100, ADAPT_MAX = 500, ADAPT_WEEK = 7 * DAY, ADAPT_RUST = 14 * DAY, ADAPT_VENSTER = 21;
+// % of body weight per week that counts as "on track", per goal
+const ADAPT_TEMPO = { "-0.2": [-1.0, -0.5], "-0.1": [-0.75, -0.25], "0": [-0.25, 0.25], "0.1": [0.1, 0.5] };
+function adaptiefBesluit(P, metingen, a, now) {
+  const band = ADAPT_TEMPO[String(P.doel)];
+  if (!band) return null;
+  const sinds = new Date((now - ADAPT_VENSTER * DAY) * 1000).toISOString().slice(0, 10);
+  const pts = metingen.filter((m) => m.datum >= sinds && m.gewicht > 0).map((m) => [Date.parse(m.datum + "T12:00:00Z") / 864e5, +m.gewicht]);
+  if (pts.length < 4 || pts[pts.length - 1][0] - pts[0][0] < 14) return { status: "te weinig metingen" };
+  const mx = pts.reduce((t, p) => t + p[0], 0) / pts.length, my = pts.reduce((t, p) => t + p[1], 0) / pts.length;
+  const slope = pts.reduce((t, p) => t + (p[0] - mx) * (p[1] - my), 0) / pts.reduce((t, p) => t + (p[0] - mx) ** 2, 0); // kg per day
+  const tempo = Math.round(slope * 7 / my * 1000) / 10; // % per week
+  if (tempo >= band[0] && tempo <= band[1]) return { status: "op schema", tempo };
+  if (now - a.gewijzigd < ADAPT_RUST) return { status: "wacht op effect", tempo };
+  const delta = tempo > band[1] ? -ADAPT_STAP : ADAPT_STAP;
+  const reden = P.doel < 0 ? (delta < 0 ? "gewicht daalt te langzaam" : "gewicht daalt te snel") : P.doel > 0 ? (delta < 0 ? "gewicht stijgt te snel" : "gewicht stijgt te langzaam") : (delta < 0 ? "gewicht stijgt" : "gewicht daalt");
+  if (Math.abs(a.kcal + delta) > ADAPT_MAX) return { status: "maximum bereikt", tempo };
+  const laatste = metingen[metingen.length - 1];
+  const van = DC.analyse({ ...P, bijstelling: a.kcal }, laatste).kcal, naar = DC.analyse({ ...P, bijstelling: a.kcal + delta }, laatste).kcal;
+  if (naar === van) return { status: "veilige ondergrens", tempo }; // already at the safe minimum
+  return { status: "bijgesteld", tempo, delta, van, naar, reden };
+}
+async function adaptiefRun(env, now) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, coach_id, naam, profiel, doelen, adaptief FROM clients
+     WHERE actief = 1 AND demo = 0 AND profiel IS NOT NULL AND doelen IS NULL
+       AND (abo_status IS NULL OR abo_status IN ('active','trialing','past_due'))`).all();
+  let n = 0;
+  for (const c of results) {
+    try {
+      const a = adaptiefOf(c);
+      if (a.uit || now - a.laatst < ADAPT_WEEK - DAY / 2) continue;
+      const P = JSON.parse(c.profiel), metingen = await metingenOf(env, c.id);
+      const b = metingen.length ? adaptiefBesluit(P, metingen, a, now) : null;
+      a.laatst = now;
+      if (b && b.status === "bijgesteld") {
+        a.kcal += b.delta; a.gewijzigd = now;
+        a.historie = [...a.historie, { t: now, van: b.van, naar: b.naar, delta: b.delta, tempo: b.tempo, reden: b.reden }].slice(-20);
+        n++;
+      }
+      await env.DB.prepare("UPDATE clients SET adaptief = ? WHERE id = ?").bind(JSON.stringify(a), c.id).run();
+      if (b && b.status === "bijgesteld") {
+        await notify(env, "coach", c.coach_id, { titel: "Dagdoel van {naam} automatisch bijgesteld", tekst: "{van} → {naar} kcal: {reden} ({tempo}% per week).",
+          v: { naam: c.naam, van: b.van, naar: b.naar, reden: b.reden, tempo: b.tempo }, url: `/coach/#/client/${c.id}/profiel` }, now);
+        await notify(env, "client", c.id, { titel: "Uw plan is bijgesteld", tekst: "Op basis van uw voortgang is uw dagdoel nu {naar} kcal. Uw menu is aangepast.",
+          v: { naar: b.naar }, url: "/app/?v=plan" }, now);
+      }
+    } catch (e) { console.error("adaptief", c.id, e); }
+  }
+  if (n) console.log(`adaptive targets adjusted: ${n}`);
 }
 
 // ---------- reminders ----------

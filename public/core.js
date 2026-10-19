@@ -96,9 +96,12 @@ function analyse(P,m){
   const tdee=bmr*(+P.activiteit||1.55);
   let adj=+P.doel||0; const notes=[];
   if(bmi<18.5 && adj<0){adj=0;notes.push(T("De BMI is lager dan 18,5. Het plan staat daarom op gewicht behouden in plaats van afvallen. Bespreek het doel met uw coach."));}
-  let kcal=tdee*(1+adj);
+  // P.bijstelling: automatic weekly correction (kcal) from the client's actual weight trend, see adaptief in the Worker
+  const bij=+P.bijstelling||0;
+  let kcal=tdee*(1+adj)+bij;
   const floor=Math.max(bmr, man?1500:1200);
   if(kcal<floor){kcal=floor;notes.push(T("Het dagdoel is afgerond naar een veilige ondergrens."));}
+  else if(bij) notes.push(T(bij<0?"Uw dagdoel is automatisch {x} kcal verlaagd, omdat uw gewicht de afgelopen weken minder snel veranderde dan uw doel vraagt.":"Uw dagdoel is automatisch {x} kcal verhoogd, zodat u niet te snel gaat en uw spiermassa behoudt.",{x:Math.abs(bij)}));
   kcal=Math.round(kcal/10)*10;
   const auto={kcal,prot:Math.round(Math.min(lbm*(adj<0?2.2:2.0), w*2.4))};
   auto.fat=Math.round(Math.max(kcal*0.25/9, w*0.7));

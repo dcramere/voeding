@@ -330,6 +330,51 @@ test("coach targets: validation, merged into profile, clients cannot set them", 
   assert.equal((await anna("/api/me")).data.profiel.override, undefined);
 });
 
+test("adaptive targets: weekly correction from the weight trend, limits, coach controls", async () => {
+  const iso = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+  const PROF = { geslacht: "m", geboorte: "2004-09-22", lengte: 170, maaltijden: 3, activiteit: 1.55, doel: -0.2, excl: [], trainingsdagen: [2, 4, 6], trainingsmoment: "avond" };
+  const mk = async (naam, mail, weights) => {
+    const u = client(), inv = await coach("/api/coach/clients", "POST", { naam, email: mail });
+    await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "adapt-pass-12", privacy: true });
+    await u("/api/profiel", "PUT", { naam, profiel: PROF });
+    for (const [d, kg] of weights) await u("/api/metingen", "POST", { datum: iso(d), gewicht: kg });
+    return [u, inv.data.id];
+  };
+  // stalled: same weight for 3 weeks while the goal is fat loss → −100 kcal
+  const [stil, stilId] = await mk("Stan Stil", "stan@t.nl", [[20, 79.8], [14, 79.6], [10, 79.9], [7, 79.7], [3, 79.8], [0, 79.7]]);
+  // losing 2%/week → +100 kcal so they don't lose muscle
+  const [snel, snelId] = await mk("Sam Snel", "sam@t.nl", [[20, 86], [14, 84.3], [7, 82.6], [0, 80.9]]);
+  // only one weigh-in → nothing happens
+  const [, weinigId] = await mk("Wim Weinig", "wim@t.nl", [[0, 90]]);
+  const before = (await stil("/api/me")).data.profiel;
+  assert.equal(before.bijstelling, undefined);
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  const after = (await stil("/api/me")).data.profiel;
+  assert.equal(after.bijstelling, -100);
+  assert.equal((await snel("/api/me")).data.profiel.bijstelling, 100);
+  const cl = (await coach(`/api/coach/clients/${stilId}`)).data;
+  assert.equal(cl.adaptief.kcal, -100); assert.equal(cl.adaptief.historie[0].reden, "gewicht daalt te langzaam");
+  assert.ok(cl.adaptief.historie[0].van - cl.adaptief.historie[0].naar === 100, JSON.stringify(cl.adaptief.historie[0]));
+  assert.equal((await coach(`/api/coach/clients/${weinigId}`)).data.adaptief.kcal, 0);
+  assert.ok((await stil("/api/push/pending")).data.notificaties.some((n) => n.titel === "Uw plan is bijgesteld"));
+  // at most once a week
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  assert.equal((await stil("/api/me")).data.profiel.bijstelling, -100);
+  // the client cannot set it themselves
+  const own = await stil("/api/profiel", "PUT", { naam: "Stan Stil", profiel: { ...PROF, bijstelling: -1000 } });
+  assert.equal(own.data.profiel.bijstelling, -100);
+  // coach: switch off (formula only), back on, reset
+  assert.equal((await coach(`/api/coach/clients/${stilId}`, "PUT", { adaptief: { uit: true } })).data.adaptief.uit, true);
+  assert.equal((await stil("/api/me")).data.profiel.bijstelling, undefined);
+  await coach(`/api/coach/clients/${stilId}`, "PUT", { adaptief: { uit: false } });
+  const reset = (await coach(`/api/coach/clients/${stilId}`, "PUT", { adaptief: { reset: true } })).data.adaptief;
+  assert.equal(reset.kcal, 0); assert.equal(reset.historie.pop().reden, "teruggezet door coach");
+  // manual targets pause the automatic adjustment
+  await coach(`/api/coach/clients/${snelId}`, "PUT", { doelen: { kcal: 2100 } });
+  assert.equal((await snel("/api/me")).data.profiel.override.kcal, 2100);
+  await coach(`/api/coach/clients/${snelId}`, "PUT", { doelen: null });
+});
+
 test("messages: client ↔ coach, read status, check-in feedback, photos, isolation", async () => {
   assert.equal((await anna("/api/berichten", "POST", { tekst: "" })).status, 400);
   const a = await anna("/api/berichten", "POST", { tekst: "Mag ik rijst vervangen door cassave?" });

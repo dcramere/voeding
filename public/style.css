@@ -561,3 +561,5 @@ html.i18n-wait body{visibility:hidden}
 .top-actions .lang-select{padding:3px 22px 3px 7px}
 .top-help{display:flex;align-items:center;gap:14px}
 .top-help .linkbtn{font-size:14px}
+.adapt{margin:8px 0 6px}
+.adapt .hist td,.adapt .hist th{text-align:left}

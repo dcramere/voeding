@@ -5,9 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DCRAMERE Coach</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#0a0a0a">
-<link rel="icon" href="/img/icon-48.png" type="image/png">
+<link rel="icon" href="/img/icon-48.png" type="image/png" sizes="48x48">
+<link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="/img/icon-180.png">
+<link rel="manifest" href="/coach.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DCRAMERE Coach">
+<meta name="theme-color" content="#0a0a0a">
 <link rel="preload" href="/fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
@@ -108,6 +114,11 @@
         <h2 style="margin-top:0">Check-ins</h2>
         <label class="consent"><input type="checkbox" id="autoCheckin"><span>Automatisch reageren op check-ins. De app schrijft binnen een minuut een persoonlijk antwoord in uw naam, op basis van de scores, het gewicht, het dagboek en de trainingen. U krijgt een kopie, en een melding met "aandacht nodig" bij pijn, blessures of ziekte.</span></label>
         <label class="consent"><input type="checkbox" id="autoTraining"><span>Training automatisch aanpassen. Na een check-in met spierpijn of pijn, weinig energie en slechte slaap, of veel stress en slechte slaap wordt die week lichter: ongeveer een derde minder sets en lichtere doelgewichten. Het doelgewicht per set stijgt vanzelf als alle herhalingen gehaald zijn.</span></label>
+        <label class="consent"><input type="checkbox" id="autoPlan"><span>Voedingsplan automatisch samenstellen uit de intake. Zodra een nieuwe cliënt intake, profiel en eerste meting heeft ingevuld, maakt de app een eigen voedingsplan met de producten die de cliënt noemt. U kunt het daarna aanpassen.</span></label>
+        <h2>E-mail</h2>
+        <p class="sub" id="emailInfo"></p>
+        <label class="consent"><input type="checkbox" id="emailAan"><span>Stuur mij een e-mail bij check-ins, aanvragen, automatische aanpassingen en nieuwe voedingsplannen.</span></label>
+        <label class="consent"><input type="checkbox" id="emailBerichten"><span>Ook bij elk chatbericht van een cliënt.</span></label>
         <h2>Uw profielfoto</h2>
         <div class="avatar-edit"><span id="cAv"></span><div><div class="actions"><label class="btn small ghost"><input type="file" accept="image/*" id="cAvInput" hidden>Foto kiezen</label><button class="linkbtn" type="button" id="cAvDel" hidden>Verwijderen</button></div>
           <p class="sub" style="font-size:13px;margin:6px 0 0">Zichtbaar voor uw cliënten (chat) en bovenaan uw winkel.</p><div class="err" id="cAvMsg" role="status"></div></div></div>

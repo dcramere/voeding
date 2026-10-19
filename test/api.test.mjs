@@ -16,6 +16,11 @@ const VAPID_JWK = JSON.stringify(vapid.privateKey.export({ format: "jwk" }));
 const VAPID_PUB = Buffer.from(vapid.publicKey.export({ format: "jwk" }).x, "base64url").length &&
   Buffer.concat([Buffer.from([4]), Buffer.from(vapid.publicKey.export({ format: "jwk" }).x, "base64url"), Buffer.from(vapid.publicKey.export({ format: "jwk" }).y, "base64url")]).toString("base64url");
 const pushes = [];
+// fake Resend: records every email
+const MAIL_PORT = 8796, mails = [];
+const mailMock = createServer((req, res) => { let b = ""; req.on("data", (d) => (b += d)); req.on("end", () => {
+  mails.push({ auth: req.headers.authorization, ...JSON.parse(b || "{}") }); res.writeHead(200, { "content-type": "application/json" }); res.end('{"id":"m"}');
+}); });
 const pushMock = createServer((req, res) => { let b = ""; req.on("data", (d) => (b += d)); req.on("end", () => {
   pushes.push({ path: req.url, auth: req.headers.authorization, ttl: req.headers.ttl, body: b });
   res.writeHead(req.url.includes("gone") ? 410 : 201); res.end();
@@ -84,11 +89,12 @@ let dev;
 before(async () => {
   await new Promise((r) => stripeMock.listen(STRIPE_PORT, "127.0.0.1", r));
   await new Promise((r) => pushMock.listen(PUSH_PORT, "127.0.0.1", r));
+  await new Promise((r) => mailMock.listen(MAIL_PORT, "127.0.0.1", r));
   wrangler(["d1", "migrations", "apply", "dcramere-voeding", "--local", "--persist-to", persist, "--config", "wrangler.test.jsonc"]);
   dev = spawn("npx", ["wrangler", "dev", "--config", "wrangler.test.jsonc", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
     "--var", `SETUP_CODE:${SETUP}`, "--var", "STRIPE_SECRET_KEY:sk_test_mock", "--var", `STRIPE_API_BASE:http://127.0.0.1:${STRIPE_PORT}`,
     "--var", "STRIPE_PRICE_CLIENT:price_client", "--var", "STRIPE_PRICE_COACH:price_coach", "--var", `STRIPE_WEBHOOK_SECRET:${WHSEC}`,
-    "--var", `VAPID_PUBLIC:${VAPID_PUB}`, "--var", `VAPID_PRIVATE_JWK:${VAPID_JWK}`, "--var", `PUSH_TEST_ORIGIN:http://127.0.0.1:${PUSH_PORT}`, "--var", "AUTO_INHAAL_WACHT:0",
+    "--var", `VAPID_PUBLIC:${VAPID_PUB}`, "--var", `VAPID_PRIVATE_JWK:${VAPID_JWK}`, "--var", `PUSH_TEST_ORIGIN:http://127.0.0.1:${PUSH_PORT}`, "--var", "AUTO_INHAAL_WACHT:0", "--var", "RESEND_API_KEY:re_test", "--var", `RESEND_API_BASE:http://127.0.0.1:${MAIL_PORT}`,
     "--test-scheduled", "--show-interactive-dev-session=false"],
     // output goes to a file (TEST_SERVER_LOG=path) or is discarded: an unread pipe fills up and blocks wrangler
     { stdio: process.env.TEST_SERVER_LOG ? ["ignore", openSync(process.env.TEST_SERVER_LOG, "w"), openSync(process.env.TEST_SERVER_LOG, "a")] : "ignore", detached: true });
@@ -101,7 +107,7 @@ before(async () => {
 });
 // kill the whole process group (npx → wrangler → workerd), not just npx
 function stop() { try { process.kill(-dev.pid, "SIGTERM"); } catch {} }
-after(() => { stop(); stripeMock.close(); pushMock.close(); rmSync(persist, { recursive: true, force: true }); });
+after(() => { stop(); stripeMock.close(); pushMock.close(); mailMock.close(); rmSync(persist, { recursive: true, force: true }); });
 
 // minimal cookie-jar client (one per browser/user)
 function client() {
@@ -920,4 +926,60 @@ test("catch-up: unanswered check-ins of the last 7 days get their reply on the n
   assert.equal(fb.length, 1, "already answered by the button, the catch-up adds nothing"); assert.ok(fb[0].checkin_id);
   assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
   assert.equal((await w("/api/me")).data.feedback.length, 1, "answered once");
+});
+
+test("email: coach gets an email copy of notifications, chat messages optional, can switch off", async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const st = (await coach("/api/coach/me")).data;
+  assert.equal(st.emailAan, true); assert.equal(st.emailBerichten, false); assert.equal(st.emailBeschikbaar, true);
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Eva Mail", email: "eva-mail@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "eva-pass-1234", privacy: true });
+  mails.length = 0;
+  await u("/api/checkins", "POST", { datum: new Date().toISOString().slice(0, 10), energie: 3, honger: 3, slaap: 3, stress: 3, naleving: 3, training: 2, opmerking: "" });
+  await wait(800);
+  const m = mails.find((x) => /Eva Mail/.test(x.subject));
+  assert.ok(m, "email for the check-in"); assert.deepEqual(m.to, ["coach@t.nl"]); assert.equal(m.auth, "Bearer re_test");
+  assert.match(m.html, /\/coach\/#\/client\/\d+\/checkins/); assert.match(m.from, /DCRAMERE Coaching/);
+  mails.length = 0;
+  await u("/api/berichten", "POST", { tekst: "Vraagje" }); await wait(500);
+  assert.equal(mails.length, 0, "no email per chat message by default");
+  await coach("/api/coach/instellingen", "PUT", { emailBerichten: true });
+  await u("/api/berichten", "POST", { tekst: "Nog een vraagje" }); await wait(500);
+  assert.equal(mails.length, 1);
+  await coach("/api/coach/instellingen", "PUT", { emailAan: false });
+  await u("/api/berichten", "POST", { tekst: "Derde" }); await wait(500);
+  assert.equal(mails.length, 1, "switched off");
+  await coach("/api/coach/instellingen", "PUT", { emailAan: true, emailBerichten: false });
+});
+
+test("meal plan from the intake: own foods, same pot for lunch and dinner, once only", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Ivo Intake", email: "ivo@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "ivo-pass-1234", privacy: true });
+  const intake = { doel: "Afvallen", eten: "Brood met ei, rijst met kip en bonen", koken: "avond", producten: ["kip", "rijst", "ei", "brood", "kidneybonen", "banaan", "nope"] };
+  const it = await u("/api/intake", "PUT", intake);
+  assert.deepEqual(it.data.producten, ["kip", "rijst", "ei", "brood", "kidneybonen", "banaan"], "unknown foods dropped");
+  await u("/api/profiel", "PUT", { naam: "Ivo Intake", profiel: { ...PROFIEL, maaltijden: 3, trainingsdagen: [2, 4, 6] } });
+  const r = await u("/api/metingen", "POST", { datum: "2026-10-10", gewicht: 80 });
+  const plan = r.data.maaltijdplan;
+  assert.ok(plan, "plan built after the first weigh-in");
+  const allowed = new Set([...intake.producten, "groente", "olijfolie"]);
+  const used = plan.maaltijden.flatMap((ml) => ml.items.map((i) => i.key));
+  assert.ok(used.every((k) => allowed.has(k) || k === "kokosolie"), "only their own foods: " + used.join(","));
+  const lunch = plan.maaltijden.find((x) => x.dagboek === "lunch"), avond = plan.maaltijden.find((x) => x.dagboek === "avond");
+  assert.deepEqual(avond.items, lunch.items, "cooks the night before: same pot");
+  assert.ok(plan.maaltijden.some((x) => x.train), "extra meal on training days");
+  assert.equal((await u("/api/me")).data.profiel.maaltijdplan.maaltijden.length, plan.maaltijden.length);
+  assert.ok((await coach("/api/push/pending")).status === 200);
+  // the coach removes it → not rebuilt automatically
+  await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { maaltijdplan: null });
+  const r2 = await u("/api/metingen", "POST", { datum: "2026-10-11", gewicht: 79.8 });
+  assert.equal(r2.data.maaltijdplan, undefined);
+  // switched off for the coach → nothing is built for a new client
+  await coach("/api/coach/instellingen", "PUT", { autoPlan: false });
+  const v = client(), inv2 = await coach("/api/coach/clients", "POST", { naam: "Nina Nee", email: "nina-nee@t.nl" });
+  await v("/api/invite", "POST", { token: tokenOf(inv2.data.link), password: "nina-pass-1234", privacy: true });
+  await v("/api/intake", "PUT", intake);
+  await v("/api/profiel", "PUT", { naam: "Nina Nee", profiel: PROFIEL });
+  assert.equal((await v("/api/metingen", "POST", { datum: "2026-10-10", gewicht: 70 })).data.maaltijdplan, undefined);
+  await coach("/api/coach/instellingen", "PUT", { autoPlan: true });
 });

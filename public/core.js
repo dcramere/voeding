@@ -617,28 +617,37 @@ const INTAKE_Q=[
   ["ervaring","select",T("Ervaring met training"),[["geen",T("Geen")],["beginner",T("Beginner (minder dan 1 jaar)")],["gevorderd",T("Gevorderd (1–3 jaar)")],["ervaren",T("Ervaren (meer dan 3 jaar)")]]],
   ["sport","text",T("Welke sport of training doet u?")],
   ["lastig","textarea",T("Wat vindt u het lastigst aan gezond eten?")],
+  ["eten","textarea",T("Wat eet u op een gewone dag?"),T("Bijvoorbeeld: ontbijt brood met ei, lunch rijst met kip en bonen, tussendoor pindakaasbrood, 's avonds hetzelfde als de lunch")],
+  ["koken","select",T("Hoe kookt u meestal?"),[["dagelijks",T("Elke dag vers")],["avond",T("De avond ervoor, voor de hele volgende dag")],["prep",T("Een paar keer per week in grote porties")],["weinig",T("Weinig: vaak kant-en-klaar of afhaal")]]],
+  ["producten","foods",T("Welke van deze producten eet u vaak of graag?")],
   ["alcohol","select",T("Hoe vaak drinkt u alcohol?"),[["nooit",T("Nooit")],["soms",T("Soms (minder dan 1× per week)")],["wekelijks",T("Wekelijks")],["dagelijks",T("Dagelijks")]]]
 ];
 function intakeFieldsHTML(){
   return INTAKE_Q.map(([k,t,l,x])=>{
     const ph=typeof x==="string"?` placeholder="${x}"`:"";
     if(t==="textarea") return `<label>${l}${x===true?"":` <small>${T("optioneel")}</small>`}<textarea name="${k}" style="min-height:90px"${ph}${x===true?" required":""}></textarea></label>`;
+    if(t==="foods") return `<fieldset><legend>${l} <small>${T("optioneel")}</small></legend><div class="checks" data-intake-foods>${Object.keys(FOODS).filter(f=>!FOODS[f].custom).map(f=>`<label class="chip"><input type="checkbox" value="${f}">${esc(FOODS[f].n.replace(/ \(.*\)/,""))}</label>`).join("")}</div></fieldset>`;
     if(t==="select") return `<label>${l}<select name="${k}"><option value="">${T("Kies…")}</option>${x.map(([v,o])=>`<option value="${v}">${o}</option>`).join("")}</select></label>`;
     return `<label>${l} <small>${T("optioneel")}</small><input name="${k}" type="${t}"${t==="number"?' inputmode="decimal" step="0.5"':""}${ph}></label>`;
   }).join("");
 }
-function fillIntake(f,I){if(!I)return;INTAKE_Q.forEach(([k])=>{if(I[k]!=null) f.elements[k].value=I[k]})}
+function fillIntake(f,I){if(!I)return;INTAKE_Q.forEach(([k,t])=>{
+  if(t==="foods") f.querySelectorAll("[data-intake-foods] input").forEach(i=>{i.checked=(I[k]||[]).includes(i.value)});
+  else if(I[k]!=null) f.elements[k].value=I[k]})}
 function readIntake(f){
   const I={};
-  INTAKE_Q.forEach(([k,t])=>{const v=f.elements[k].value.trim();I[k]=t==="number"?(v===""?null:parseFloat(v.replace(",","."))):v});
+  INTAKE_Q.forEach(([k,t])=>{
+    if(t==="foods"){I[k]=[...f.querySelectorAll("[data-intake-foods] input:checked")].map(i=>i.value);return}
+    const v=f.elements[k].value.trim();I[k]=t==="number"?(v===""?null:parseFloat(v.replace(",","."))):v});
   if(!I.doel) throw new Error(T("Beschrijf kort wat u wilt bereiken."));
   return I;
 }
 function intakeSummaryHTML(I){
   if(!I) return `<p class="empty">${T("De cliënt heeft de intake nog niet ingevuld.")}</p>`;
   return `<dl class="intake">${INTAKE_Q.map(([k,t,l,x])=>{
-    let v=I[k]; if(v==null||v==="") return "";
+    let v=I[k]; if(v==null||v===""||(Array.isArray(v)&&!v.length)) return "";
     if(t==="select") v=(x.find(o=>o[0]===v)||[,v])[1];
+    if(t==="foods") v=v.filter(f=>FOODS[f]).map(f=>FOODS[f].n.replace(/ \(.*\)/,"")).join(", ");
     return `<dt>${l}</dt><dd>${esc(v)}${k==="streefgewicht"?" kg":k==="slaap"?" "+T("uur"):""}</dd>`;
   }).join("")}</dl>`;
 }

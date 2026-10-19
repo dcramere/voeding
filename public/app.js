@@ -376,7 +376,8 @@ DC.handleForm($("fProfiel"),async f=>{
 });
 DC.handleForm($("fMeting"),async f=>{
   if(!me.profiel) throw new Error(T("Vul eerst uw profiel in."));
-  me.metingen=(await DC.api("/api/metingen","POST",DC.readMeting(f))).metingen;
+  const res=await DC.api("/api/metingen","POST",DC.readMeting(f));
+  me.metingen=res.metingen; if(res.maaltijdplan&&me.profiel) me.profiel.maaltijdplan=res.maaltijdplan; // plan built from the intake
   renderAll(); f.reset(); f.elements.datum.value=DC.today();
   if(!checkinDue()){setTimeout(()=>show("plan"),800);return T("Gewicht opgeslagen. Uw plan is bijgewerkt.")}
   $("weekTitle").scrollIntoView({behavior:"smooth",block:"start"});

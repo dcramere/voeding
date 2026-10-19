@@ -247,6 +247,7 @@ const INTAKE_KEUZES = {
   werk: ["zittend", "staand", "fysiek", "ploegen"],
   ervaring: ["geen", "beginner", "gevorderd", "ervaren"],
   alcohol: ["nooit", "soms", "wekelijks", "dagelijks"],
+  koken: ["dagelijks", "avond", "prep", "weinig"],
 };
 function cleanIntake(b) {
   if (!b || typeof b !== "object") fail(400, "Intake ontbreekt.");
@@ -263,6 +264,9 @@ function cleanIntake(b) {
     sport: str(b.sport, 500, "Sport"),
     lastig: str(b.lastig, 1000, "Lastigste punt"),
     alcohol: keuze("alcohol"),
+    eten: str(b.eten, 2000, "Eetgewoonten"),
+    koken: keuze("koken"),
+    producten: (Array.isArray(b.producten) ? b.producten : []).filter((k) => typeof k === "string" && DC.FOODS[k] && !DC.FOODS[k].custom).slice(0, 60),
   };
   if (!intake.doel) fail(400, "Beschrijf kort wat u wilt bereiken.");
   return intake;
@@ -403,9 +407,9 @@ const ROUTES = [
   ["GET", "/coach/me", withCoach(coachMeInfo, { billing: true })],
   ["PUT", "/coach/instellingen", withCoach(async (c) => {
     if ("autoCheckin" in c.body) await c.env.DB.prepare("UPDATE coaches SET auto_checkin = ? WHERE id = ?").bind(c.body.autoCheckin ? 1 : 0, c.coach.id).run();
-    if ("autoTraining" in c.body) await c.env.DB.prepare("UPDATE coaches SET auto_training = ? WHERE id = ?").bind(c.body.autoTraining ? 1 : 0, c.coach.id).run();
-    const r = await c.env.DB.prepare("SELECT auto_checkin, auto_training FROM coaches WHERE id = ?").bind(c.coach.id).first();
-    return json({ autoCheckin: !!r.auto_checkin, autoTraining: !!r.auto_training });
+    for (const [k, col] of [["autoTraining", "auto_training"], ["autoPlan", "auto_plan"], ["emailAan", "email_aan"], ["emailBerichten", "email_berichten"]])
+      if (k in c.body) await c.env.DB.prepare(`UPDATE coaches SET ${col} = ? WHERE id = ?`).bind(c.body[k] ? 1 : 0, c.coach.id).run();
+    return json(await coachInstellingen(c.env, c.coach.id));
   })],
   ["POST", /^\/coach\/clients\/(\d+)\/checkins\/(\d+)\/antwoord$/, withCoach(async (c) => {
     // the coach asks for the automatic reply right now (same engine as after a check-in)
@@ -539,7 +543,8 @@ async function upsertMeting(c, clientId, door) {
        gewicht = excluded.gewicht, taille = excluded.taille, heup = excluded.heup,
        p1 = excluded.p1, p2 = excluded.p2, p3 = excluded.p3, p4 = excluded.p4, door = excluded.door`,
   ).bind(clientId, m.datum, m.gewicht, m.taille, m.heup, m.p1, m.p2, m.p3, m.p4, door, c.now).run();
-  return json({ metingen: await metingenOf(c.env, clientId) });
+  const plan = await planUitIntake(c.env, clientId, c.now);
+  return json({ metingen: await metingenOf(c.env, clientId), ...(plan ? { maaltijdplan: plan } : {}) });
 }
 
 async function login(c, role, table) {
@@ -625,7 +630,8 @@ async function clientPutProfiel(c) {
   const profiel = cleanProfiel(c.body.profiel);
   await c.env.DB.prepare("UPDATE clients SET naam = ?, profiel = ? WHERE id = ?")
     .bind(naam, JSON.stringify(profiel), c.client.id).run();
-  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen, adaptief: c.client.adaptief, maaltijdplan: c.client.maaltijdplan }) });
+  const plan = await planUitIntake(c.env, c.client.id, c.now);
+  return json({ naam, profiel: profielOut({ profiel: JSON.stringify(profiel), doelen: c.client.doelen, adaptief: c.client.adaptief, maaltijdplan: plan ? JSON.stringify(plan) : c.client.maaltijdplan }) });
 }
 
 async function clientPutMenu(c) {
@@ -646,6 +652,7 @@ async function clientAcceptPrivacy(c) {
 async function clientPutIntake(c) {
   const intake = cleanIntake(c.body);
   await c.env.DB.prepare("UPDATE clients SET intake = ? WHERE id = ?").bind(JSON.stringify(intake), c.client.id).run();
+  await planUitIntake(c.env, c.client.id, c.now);
   return json(intake);
 }
 
@@ -728,6 +735,62 @@ const profielOut = (r) => {
   return { ...JSON.parse(r.profiel), ...(r.doelen ? { override: JSON.parse(r.doelen) } : {}), ...(a.kcal && !a.uit ? { bijstelling: a.kcal } : {}),
     ...(r.maaltijdplan ? { maaltijdplan: JSON.parse(r.maaltijdplan) } : {}) };
 };
+// ---------- meal plan from the intake ----------
+// Once intake (eating habits), profile and a weigh-in exist, build a coach meal plan from the foods the client
+// already eats: the ones ticked in the intake plus those Workers AI finds in their description. The automatic
+// menu generator does the portions; the result is stored as an ordinary coach plan the coach can edit.
+// Runs once per client (plan_intake), never over a plan the coach made, and only when the coach has it switched on.
+async function etenUitTekst(env, tekst) {
+  if (!env.AI || !tekst) return [];
+  const lijst = Object.entries(DC.FOODS).filter(([, f]) => !f.custom).map(([k, f]) => `${k}: ${f.n}`).join("\n");
+  try {
+    const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [
+      { role: "system", content: "You map a person's description of their daily food (any language) to a fixed list of food ids. Answer with a JSON array of ids only, e.g. [\"kip\",\"rijst\"]. Only use ids from the list. Match generously: chicken breast or chicken → kip, brown or white rice → rijst, whole wheat bread → brood, kidney beans or red beans → kidneybonen, dal/daal/split peas → dhal, duck → eend, vegetables → groente, peanut butter → pindakaas." },
+      { role: "user", content: `Food list (id: name):\n${lijst}\n\nDescription:\n${String(tekst).slice(0, 1500)}` },
+    ], max_tokens: 200, temperature: 0 });
+    const txt = String(typeof res.response === "string" ? res.response : JSON.stringify(res.response));
+    const arr = JSON.parse((txt.match(/\[[\s\S]*?\]/) || ["[]"])[0]);
+    return arr.filter((k) => typeof k === "string" && DC.FOODS[k] && !DC.FOODS[k].custom);
+  } catch (e) { console.error("intake food extraction failed", e); return []; }
+}
+async function planUitIntake(env, clientId, now) {
+  try {
+    const cl = await env.DB.prepare("SELECT c.*, k.auto_plan FROM clients c JOIN coaches k ON k.id = c.coach_id WHERE c.id = ?").bind(clientId).first();
+    if (!cl || cl.plan_intake || cl.maaltijdplan || !cl.auto_plan || !cl.intake || !cl.profiel || cl.doelen) return null;
+    const intake = JSON.parse(cl.intake);
+    if (!(intake.producten && intake.producten.length) && !intake.eten) return null;
+    const metingen = await metingenOf(env, clientId);
+    if (!metingen.length) return null;
+    const P0 = JSON.parse(cl.profiel);
+    const eten = new Set([...(intake.producten || []), ...(await etenUitTekst(env, intake.eten))].filter((k) => !(P0.excl || []).includes(k)));
+    if (eten.size < 3) return null; // too little to build a plan from: keep the automatic menu
+    // the main meals need a protein and a carbohydrate source; add a neutral one only when none was named
+    if (!["kip", "witvis", "kvv", "zalm", "tofu", "ei", "tonijn", "tempeh", "gehakt"].some((k) => eten.has(k))) eten.add("kip");
+    if (!["rijst", "zoeteaardappel", "peul", "aardappel", "cassave", "pasta", "bakbanaan"].some((k) => eten.has(k))) eten.add("rijst");
+    eten.add("groente");
+    const P = { ...P0, excl: Object.keys(DC.FOODS).filter((k) => !DC.FOODS[k].custom && !eten.has(k)) };
+    const m = metingen[metingen.length - 1], A = DC.analyse(P, m), D = DC.dagTargets(P, A);
+    const lang = cl.taal || "nl", vast = (k) => k === "groente" || !!DC.FOODS[k].oil;
+    const naarPlan = (ml, train) => ({ naam: tr(lang, ml.name), dagboek: DC.diaryMeal(ml), train, notitie: "",
+      items: ml.items.map((i) => ({ key: i.key, g: i.g, vast: vast(i.key) })) });
+    const maaltijden = DC.menuFor(P, { seed: 0 }, D ? { ...A, ...D.rust } : A, D ? "rust" : null).map((ml) => naarPlan(ml, false));
+    if (D) {
+      const extra = DC.menuFor(P, { seed: 0 }, { ...A, ...D.train }, "train").find((ml) => ml.type === "training");
+      if (extra) maaltijden.splice(maaltijden.length - 1, 0, naarPlan(extra, true));
+    }
+    // cooks the night before for the whole day: lunch and dinner come from the same pot
+    if (intake.koken === "avond") {
+      const lunch = maaltijden.find((x) => x.dagboek === "lunch"), avond = maaltijden.find((x) => x.dagboek === "avond");
+      if (lunch && avond) { avond.items = lunch.items.map((i) => ({ ...i })); avond.notitie = tr(lang, "Uit dezelfde pan als de lunch, de avond ervoor gekookt."); }
+    }
+    const plan = { maaltijden, bron: "intake" };
+    await env.DB.prepare("UPDATE clients SET maaltijdplan = ?, plan_intake = 1 WHERE id = ?").bind(JSON.stringify(plan), clientId).run();
+    await notify(env, "coach", cl.coach_id, { titel: "Voedingsplan voor {naam} samengesteld", v: { naam: cl.naam },
+      tekst: "Op basis van de producten die {naam} in de intake noemt. Bekijk en pas het aan onder Plan → Eigen voedingsplan.", url: `/coach/#/client/${clientId}/plan` }, now);
+    return plan;
+  } catch (e) { console.error("plan from intake failed", e); return null; }
+}
+
 // coach-built meal plan: base foods from public/core.js or the client's own products (p<id>)
 async function cleanMaaltijdplan(env, b, clientId) {
   if (!b || typeof b !== "object" || !Array.isArray(b.maaltijden)) fail(400, "Ongeldig voedingsplan.");
@@ -1587,12 +1650,16 @@ async function storefrontCheckout(c) {
 }
 
 // --- coaches: platform subscription
+async function coachInstellingen(env, id) {
+  const r = await env.DB.prepare("SELECT auto_checkin, auto_training, auto_plan, email_aan, email_berichten FROM coaches WHERE id = ?").bind(id).first();
+  return { autoCheckin: !!r.auto_checkin, autoTraining: !!r.auto_training, autoPlan: !!r.auto_plan, emailAan: !!r.email_aan, emailBerichten: !!r.email_berichten, emailBeschikbaar: !!env.RESEND_API_KEY };
+}
 async function coachMeInfo(c) {
   const k = c.coach;
   return json({ id: k.id, naam: k.naam, email: k.email, taal: k.taal || null, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
     aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k),
     avatar: avatarUrl("coach", k), slug: k.slug, connect: connectOut(c.env, k),
-    ...(({ auto_checkin, auto_training }) => ({ autoCheckin: !!auto_checkin, autoTraining: !!auto_training }))(await c.env.DB.prepare("SELECT auto_checkin, auto_training FROM coaches WHERE id = ?").bind(k.id).first()),
+    ...(await coachInstellingen(c.env, k.id)),
     nieuweAanvragen: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM aanvragen WHERE coach_id = ? AND status = 'nieuw'").bind(k.id).first()).n });
 }
 async function coachSessionFor(c, coachId, customer, mail) {
@@ -1718,7 +1785,7 @@ async function addBericht(c, clientId, van, tekst, extra = {}) {
   const preview = tekst ? tekst.slice(0, 120) : "📷 Foto";
   const n = van === "coach"
     ? ["client", cl.id, { titel: extra.checkin_id ? "Uw coach reageerde op uw check-in" : "Nieuw bericht van uw coach", tekst: preview, raw: !!tekst, url: "/app/?v=coach" }]
-    : ["coach", cl.coach_id, { titel: "Bericht van {naam}", v: { naam: cl.naam }, tekst: preview, raw: !!tekst, url: `/coach/#/client/${cl.id}/berichten` }];
+    : ["coach", cl.coach_id, { titel: "Bericht van {naam}", v: { naam: cl.naam }, tekst: preview, raw: !!tekst, soort: "bericht", url: `/coach/#/client/${cl.id}/berichten` }];
   c.ctx?.waitUntil(notify(c.env, n[0], n[1], n[2], c.now));
   return meta.last_row_id;
 }
@@ -1798,10 +1865,33 @@ async function notify(env, role, subjectId, n, now) {
     const titel = tr(lang, n.titel, n.v), tekst = n.raw ? n.tekst : tr(lang, n.tekst, n.v);
     await env.DB.prepare("INSERT INTO notificaties (role, subject_id, titel, tekst, url, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(role, subjectId, titel, tekst, n.url, now).run();
+    if (role === "coach") await coachEmail(env, subjectId, lang, titel, tekst, n);
     if (!env.VAPID_PRIVATE_JWK || !env.VAPID_PUBLIC) return;
     const { results } = await env.DB.prepare("SELECT endpoint FROM push_subs WHERE role = ? AND subject_id = ?").bind(role, subjectId).all();
     await Promise.all(results.map((s) => sendPush(env, s.endpoint, now).catch((e) => console.error("push", e))));
   } catch (e) { console.error("notify failed", e); }
+}
+// Email copy of a coach notification via Resend (RESEND_API_KEY). Without an own domain Resend only delivers to the
+// account owner's address; failures are logged and never block the notification itself.
+async function coachEmail(env, coachId, lang, titel, tekst, n) {
+  if (!env.RESEND_API_KEY) return;
+  try {
+    const k = await env.DB.prepare("SELECT email, email_aan, email_berichten FROM coaches WHERE id = ?").bind(coachId).first();
+    if (!k || !k.email_aan || (n.soort === "bericht" && !k.email_berichten)) return;
+    const h = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    const link = (env.APP_URL || "https://dcramere-voeding.dcramere.workers.dev") + (n.url || "/coach/");
+    const html = `<div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1d1b16">
+      <p style="font-size:11px;letter-spacing:3px;color:#a37f00;font-weight:bold;margin:0 0 8px">DCRAMERE COACHING</p>
+      <h2 style="font-size:20px;margin:0 0 12px">${h(titel)}</h2>
+      <p style="font-size:15px;line-height:1.55;white-space:pre-wrap;margin:0 0 20px">${h(tekst)}</p>
+      <a href="${h(link)}" style="display:inline-block;background:#f4d03f;color:#0a0a0a;font-weight:bold;text-decoration:none;padding:12px 20px;border-radius:8px">${h(tr(lang, "Openen in het dashboard"))}</a>
+      <p style="font-size:12px;color:#888;margin-top:24px">${h(tr(lang, "U ontvangt deze e-mail omdat e-mailmeldingen aan staan. Zet ze uit onder Instellingen in het dashboard."))}</p></div>`;
+    const r = await fetch(`${env.RESEND_API_BASE || "https://api.resend.com"}/emails`, {
+      method: "POST", headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ from: env.EMAIL_FROM || "DCRAMERE Coaching <onboarding@resend.dev>", to: [k.email], subject: titel, html, text: `${titel}\n\n${tekst}\n\n${link}` }),
+    });
+    if (!r.ok) console.error("email failed", r.status, await r.text().catch(() => ""));
+  } catch (e) { console.error("email failed", e); }
 }
 async function sessionRoles(c) {
   const out = [];
@@ -2407,7 +2497,9 @@ async function storefrontPage(env, url, lang) {
 <meta property="og:description" content="${h(w.bio.slice(0, 200))}">
 ${avatar ? `<meta property="og:image" content="${url.origin}${avatar}">` : ""}
 <meta name="theme-color" content="#0a0a0a">
-<link rel="icon" href="/img/icon-48.png" type="image/png">
+<link rel="icon" href="/img/icon-48.png" type="image/png" sizes="48x48"><link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="${m && m.logo ? h(m.logo) : "/img/icon-180.png"}"><link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="${h(k.naam)}">
 <link rel="preload" href="/fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/overpass.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/landing.css"><link rel="stylesheet" href="/storefront.css">

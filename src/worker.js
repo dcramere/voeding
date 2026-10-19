@@ -400,6 +400,10 @@ const ROUTES = [
   ["POST", "/coach/login", coachLogin],
   ["POST", "/coach/logout", logout("coach")],
   ["GET", "/coach/me", withCoach(coachMeInfo, { billing: true })],
+  ["PUT", "/coach/instellingen", withCoach(async (c) => {
+    if ("autoCheckin" in c.body) await c.env.DB.prepare("UPDATE coaches SET auto_checkin = ? WHERE id = ?").bind(c.body.autoCheckin ? 1 : 0, c.coach.id).run();
+    return json({ autoCheckin: !!c.body.autoCheckin });
+  })],
   ["PUT", "/coach/taal", withCoach(async (c) => { await setTaal(c, "coaches", c.coach.id); return json({ ok: true }); }, { billing: true })],
   ["POST", "/coach/signup", coachSignup],
   ["POST", "/coach/checkout", withCoach(coachCheckout, { billing: true })],
@@ -643,7 +647,9 @@ async function clientAddCheckin(c) {
        energie = excluded.energie, honger = excluded.honger, slaap = excluded.slaap, stress = excluded.stress,
        naleving = excluded.naleving, training = excluded.training, opmerking = excluded.opmerking`,
   ).bind(c.client.id, k.datum, k.energie, k.honger, k.slaap, k.stress, k.naleving, k.training, k.opmerking, c.now).run();
-  c.ctx?.waitUntil(notify(c.env, "coach", c.client.coach_id, { titel: "Check-in van {naam}", v: { naam: c.client.naam },
+  const coach = await c.env.DB.prepare("SELECT id, naam, auto_checkin FROM coaches WHERE id = ?").bind(c.client.coach_id).first();
+  if (coach && coach.auto_checkin) c.ctx?.waitUntil(autoCheckinReply(c.env, c.client.id, k.datum, c.now));
+  else c.ctx?.waitUntil(notify(c.env, "coach", c.client.coach_id, { titel: "Check-in van {naam}", v: { naam: c.client.naam },
     tekst: k.opmerking ? k.opmerking.slice(0, 120) : "Er staat een nieuwe weekcheck-in klaar.", raw: !!k.opmerking, url: `/coach/#/client/${c.client.id}/checkins` }, c.now));
   return json({ checkins: await checkinsOf(c.env, c.client.id, 12) });
 }
@@ -782,7 +788,7 @@ async function getClient(c) {
   const [metingen, checkins, fotos, workouts, producten] = await Promise.all([
     metingenOf(c.env, row.id), checkinsOf(c.env, row.id), fotosOf(c.env, row.id), workoutsOf(c.env, row), productenOf(c.env, row.id)]);
   const ongelezen = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'client' AND gelezen IS NULL").bind(row.id).first()).n;
-  const feedback = (await c.env.DB.prepare("SELECT id, tekst, checkin_id, created_at FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id").bind(row.id).all()).results;
+  const feedback = (await c.env.DB.prepare("SELECT id, tekst, checkin_id, created_at, auto FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id").bind(row.id).all()).results;
   const programmaDef = row.programma ? await customDefOut(c.env, JSON.parse(row.programma).id, row.coach_id) : null;
   return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback, programmaDef });
 }
@@ -1549,6 +1555,7 @@ async function coachMeInfo(c) {
   return json({ id: k.id, naam: k.naam, email: k.email, taal: k.taal || null, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
     aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k),
     avatar: avatarUrl("coach", k), slug: k.slug, connect: connectOut(c.env, k),
+    autoCheckin: !!(await c.env.DB.prepare("SELECT auto_checkin FROM coaches WHERE id = ?").bind(k.id).first()).auto_checkin,
     nieuweAanvragen: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM aanvragen WHERE coach_id = ? AND status = 'nieuw'").bind(k.id).first()).n });
 }
 async function coachSessionFor(c, coachId, customer, mail) {
@@ -1654,7 +1661,7 @@ async function stripeWebhook(c) {
 }
 
 // ---------- messages (coach ↔ client) ----------
-const BERICHT_COLS = "id, van, tekst, foto_key IS NOT NULL AS foto, checkin_id, gelezen, created_at";
+const BERICHT_COLS = "id, van, tekst, foto_key IS NOT NULL AS foto, checkin_id, gelezen, created_at, auto";
 async function berichtenOf(env, clientId, na) {
   const { results } = await env.DB.prepare(
     `SELECT ${BERICHT_COLS} FROM berichten WHERE client_id = ? AND id > ? ORDER BY id DESC LIMIT 200`,
@@ -1799,15 +1806,20 @@ async function pushPending(c) {
 const ADAPT_STAP = 100, ADAPT_MAX = 500, ADAPT_WEEK = 7 * DAY, ADAPT_RUST = 14 * DAY, ADAPT_VENSTER = 21;
 // % of body weight per week that counts as "on track", per goal
 const ADAPT_TEMPO = { "-0.2": [-1.0, -0.5], "-0.1": [-0.75, -0.25], "0": [-0.25, 0.25], "0.1": [0.1, 0.5] };
+// weight trend in % of body weight per week (least squares over the last 21 days); null with too few weigh-ins
+function gewichtsTempo(metingen, now) {
+  const sinds = new Date((now - ADAPT_VENSTER * DAY) * 1000).toISOString().slice(0, 10);
+  const pts = metingen.filter((m) => m.datum >= sinds && m.gewicht > 0).map((m) => [Date.parse(m.datum + "T12:00:00Z") / 864e5, +m.gewicht]);
+  if (pts.length < 4 || pts[pts.length - 1][0] - pts[0][0] < 14) return null;
+  const mx = pts.reduce((t, p) => t + p[0], 0) / pts.length, my = pts.reduce((t, p) => t + p[1], 0) / pts.length;
+  const slope = pts.reduce((t, p) => t + (p[0] - mx) * (p[1] - my), 0) / pts.reduce((t, p) => t + (p[0] - mx) ** 2, 0); // kg per day
+  return Math.round(slope * 7 / my * 1000) / 10;
+}
 function adaptiefBesluit(P, metingen, a, now) {
   const band = ADAPT_TEMPO[String(P.doel)];
   if (!band) return null;
-  const sinds = new Date((now - ADAPT_VENSTER * DAY) * 1000).toISOString().slice(0, 10);
-  const pts = metingen.filter((m) => m.datum >= sinds && m.gewicht > 0).map((m) => [Date.parse(m.datum + "T12:00:00Z") / 864e5, +m.gewicht]);
-  if (pts.length < 4 || pts[pts.length - 1][0] - pts[0][0] < 14) return { status: "te weinig metingen" };
-  const mx = pts.reduce((t, p) => t + p[0], 0) / pts.length, my = pts.reduce((t, p) => t + p[1], 0) / pts.length;
-  const slope = pts.reduce((t, p) => t + (p[0] - mx) * (p[1] - my), 0) / pts.reduce((t, p) => t + (p[0] - mx) ** 2, 0); // kg per day
-  const tempo = Math.round(slope * 7 / my * 1000) / 10; // % per week
+  const tempo = gewichtsTempo(metingen, now);
+  if (tempo == null) return { status: "te weinig metingen" };
   if (tempo >= band[0] && tempo <= band[1]) return { status: "op schema", tempo };
   if (now - a.gewijzigd < ADAPT_RUST) return { status: "wacht op effect", tempo };
   const delta = tempo > band[1] ? -ADAPT_STAP : ADAPT_STAP;
@@ -1846,6 +1858,97 @@ async function adaptiefRun(env, now) {
     } catch (e) { console.error("adaptief", c.id, e); }
   }
   if (n) console.log(`adaptive targets adjusted: ${n}`);
+}
+
+// ---------- automatic check-in replies ----------
+// Right after a check-in: gather the client's context, let Workers AI write a short reply in the coach's voice and
+// the client's language, and post it in the chat under that check-in (as the coach). Without AI, or when the
+// model fails, a template reply built from the same data goes out, so the client always gets an answer.
+// check-in questions: key, English name, meaning of a low score, of a high score, which end is bad
+const CHECK_UITLEG = [["energie", "energy", "low energy", "high energy", "laag"], ["honger", "hunger", "little hunger", "very hungry", "hoog"],
+  ["slaap", "sleep", "poor sleep", "good sleep", "laag"], ["stress", "stress", "little stress", "a lot of stress", "hoog"], ["naleving", "followed the plan", "barely followed the plan", "followed the plan well", "laag"]];
+const TAAL_NAAM = { nl: "Dutch (informal 'je')", en: "English", pt: "Brazilian Portuguese (use 'você')", es: "Spanish (informal 'tú')" };
+const RODE_VLAG = /pijn|blessure|geblesseerd|gevoelig|ziek|sore|ache|dokter|arts|opgeven|stoppen|pain|injur|hurt|sick|ill\b|doctor|quit|give up|\bdor\b|lesão|machuc|doente|médico|desistir|dolor|lesión|lesion|enferm|rendirme|dejarlo/i;
+async function checkinContext(env, client, k, now) {
+  const P = profielOut(client) || null, metingen = await metingenOf(env, client.id);
+  const laatste = metingen[metingen.length - 1];
+  const A = P && laatste ? DC.analyse(P, laatste) : null, D = A ? DC.dagTargets(P, A) : null;
+  const iso = (d) => new Date((now - d * DAY) * 1000).toISOString().slice(0, 10);
+  const dagen = (await env.DB.prepare("SELECT datum, SUM(kcal) AS kcal, SUM(eiwit) AS eiwit FROM dagboek WHERE client_id = ? AND datum >= ? GROUP BY datum").bind(client.id, iso(7)).all()).results;
+  const trainingen = (await env.DB.prepare("SELECT COUNT(*) AS n FROM workouts WHERE client_id = ? AND datum >= ?").bind(client.id, iso(7)).first()).n;
+  const vorige = (await env.DB.prepare("SELECT energie, honger, slaap, stress, naleving FROM checkins WHERE client_id = ? AND datum < ? ORDER BY datum DESC LIMIT 1").bind(client.id, k.datum).first());
+  const intake = client.intake ? JSON.parse(client.intake) : null, a = adaptiefOf(client);
+  return { P, A, D, laatste, eerste: metingen[0], tempo: gewichtsTempo(metingen, now), dagen, trainingen, vorige, intake, a };
+}
+// which check-in answers need attention (same rule as the dashboard: low energy/sleep/adherence, high hunger/stress)
+const checkinVlaggen = (k) => ["energie", "slaap", "naleving"].filter((x) => k[x] <= 2).concat(["honger", "stress"].filter((x) => k[x] >= 4));
+function sjabloonAntwoord(lang, client, k, ctx, rood) {
+  const t = (s, v) => tr(lang, s, v), zin = [t("Hoi {naam}, bedankt voor je check-in!", { naam: client.naam.split(" ")[0] })];
+  if (ctx.tempo != null && ctx.P) {
+    const goed = ctx.P.doel < 0 ? ctx.tempo < -0.2 : ctx.P.doel > 0 ? ctx.tempo > 0.05 : Math.abs(ctx.tempo) <= 0.25;
+    zin.push(goed ? t("Je gewicht gaat de goede kant op ({x}% per week), ga zo door.", { x: ctx.tempo }) : t("Je gewicht beweegt de laatste weken nog niet genoeg; we sturen bij waar nodig."));
+  }
+  const tips = { energie: "Je energie is laag: probeer op tijd te slapen en eet je koolhydraten rond je training.",
+    honger: "Veel honger? Eet meer groente bij je maaltijden, drink genoeg water en verdeel je eiwit over de dag.",
+    slaap: "Je slaap kan beter: ga elke dag rond dezelfde tijd naar bed, zonder scherm het laatste halfuur.",
+    stress: "Veel stress deze week. Een wandeling van 20 minuten per dag helpt echt, en wees niet te streng voor jezelf.",
+    naleving: "Het plan volgen ging lastig. Kies één maaltijd die je deze week elke dag precies volgens het plan eet, en bouw vanaf daar op." };
+  const v = checkinVlaggen(k);
+  if (v.length) v.slice(0, 2).forEach((x) => zin.push(t(tips[x]))); else zin.push(t("Je scores zien er goed uit, mooi zo."));
+  if (rood) zin.push(t("Je noemt iets wat ik persoonlijk wil bekijken. Ik kom er zo snel mogelijk bij je op terug; neem bij pijn rust en raadpleeg zo nodig een arts."));
+  zin.push(t("Houd je metingen en dagboek bij, dan stuur ik waar nodig bij. 💪"));
+  return zin.join(" ");
+}
+async function aiAntwoord(env, lang, client, coach, k, ctx, rood) {
+  if (!env.AI) return null;
+  const doel = { "-0.2": "burn fat", "-0.1": "lose weight gradually", "0": "maintain weight", "0.1": "build muscle" }[String(ctx.P && ctx.P.doel)] || "not set";
+  const logged = ctx.dagen.length, gem = logged ? Math.round(ctx.dagen.reduce((t, d) => t + d.kcal, 0) / logged) : null;
+  const feiten = [
+    `Client: ${client.naam.split(" ")[0]}. Goal: ${doel}.${ctx.intake && ctx.intake.doel ? ` In their own words: "${String(ctx.intake.doel).slice(0, 300)}"` : ""}`,
+    `This week's check-in, scored 1-5 and already interpreted: ${CHECK_UITLEG.map(([x, naam, laag, hoog, slecht]) => {
+      const v = k[x], bad = slecht === "laag" ? v <= 2 : v >= 4, good = slecht === "laag" ? v >= 4 : v <= 2;
+      return `${naam} ${v}/5 = ${v <= 2 ? laag : v >= 4 ? hoog : "average"} (${bad ? "NEEDS ATTENTION" : good ? "going well" : "okay"})`;
+    }).join("; ")}. Workouts reported: ${k.training == null ? "not filled in" : k.training}.`,
+    ctx.vorige ? `Previous check-in: energy ${ctx.vorige.energie}, hunger ${ctx.vorige.honger}, sleep ${ctx.vorige.slaap}, stress ${ctx.vorige.stress}, plan ${ctx.vorige.naleving}.` : "This is their first check-in.",
+    k.opmerking ? `Their comment: "${k.opmerking.slice(0, 600)}"` : "No comment.",
+    ctx.laatste ? (() => {
+      const dagen = Math.max(0, Math.round((Date.parse(ctx.laatste.datum) - Date.parse(ctx.eerste.datum)) / 864e5)), diff = Math.round((ctx.laatste.gewicht - ctx.eerste.gewicht) * 10) / 10;
+      return `Weight now ${ctx.laatste.gewicht} kg. Change since their first weigh-in ${dagen} days ago (${ctx.eerste.gewicht} kg): ${diff > 0 ? "+" : ""}${diff} kg in total${dagen >= 7 ? `, about ${Math.round(diff / dagen * 70) / 10} kg per week` : ""}. Trend last 3 weeks: ${ctx.tempo == null ? "not enough weigh-ins yet" : ctx.tempo + "% of body weight per week"}.`;
+    })() : "No weigh-ins yet.",
+    `Weight trend compared with the goal: ${ctx.tempo == null || !ADAPT_TEMPO[String(ctx.P && ctx.P.doel)] ? "not enough weigh-ins yet to judge" : (([lo, hi]) => ctx.tempo > hi ? (ctx.P.doel < 0 ? "SLOWER than the goal (weight is not dropping enough)" : "FASTER than the goal") : ctx.tempo < lo ? (ctx.P.doel > 0 ? "SLOWER than the goal (not gaining enough)" : "FASTER than the goal (losing too quickly)") : "ON TRACK")(ADAPT_TEMPO[String(ctx.P.doel)])}.`,
+    ctx.A ? `Daily target: ${ctx.D ? `${ctx.D.train.kcal} kcal on training days, ${ctx.D.rust.kcal} kcal on rest days` : ctx.A.kcal + " kcal"}, protein ${ctx.A.prot} g.${ctx.a.kcal ? ` The app automatically ${ctx.a.kcal < 0 ? "lowered" : "raised"} the target by ${Math.abs(ctx.a.kcal)} kcal based on their progress.` : ""}` : "",
+    `Food diary last 7 days: ${logged} day(s) logged${gem ? `, on average ${gem} kcal` : ""}. Workouts logged in the app last 7 days: ${ctx.trainingen}.`,
+  ].filter(Boolean).join("\n");
+  const system = `You are ${coach.naam}, a certified nutritionist and online coach, replying to your client's weekly check-in in the coaching app chat.
+Write in ${TAAL_NAAM[lang] || "English"}. Style: warm, direct and motivating, like a WhatsApp message from a personal coach; at most 1-2 emoji.
+Length: 50-110 words, one or two short paragraphs, no headings, no lists, no hashtags, no sign-off with your name.
+Content: react to what stands out (good or bad), use the real numbers given, and give one or two concrete actions for the coming week. Follow the interpretations given (NEEDS ATTENTION, going well, ON TRACK, SLOWER, FASTER) exactly. Call app features by these names: ${{ nl: "dagboek, check-in, menu, training", en: "diary, check-in, menu, training", pt: "diário, check-in, cardápio, treino", es: "diario, check-in, menú, entrenamiento" }[lang] || "diary, check-in, menu, training"}.
+Rules: only use the facts given and state numbers exactly as given (with their time span), never invent data. Do not praise low scores or bad sleep. Do not change calorie targets yourself (the app does that) and do not give medical diagnoses.${rood ? " The client mentions pain, injury, illness or wanting to quit: take it seriously, tell them to rest or see a doctor if needed, and say you will look at it personally." : ""}`;
+  try {
+    const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [{ role: "system", content: system }, { role: "user", content: feiten }], max_tokens: 350, temperature: 0.6 });
+    const txt = String(typeof res.response === "string" ? res.response : "").trim().replace(/^["']|["']$/g, "");
+    return txt.length >= 40 ? txt.slice(0, 1500) : null;
+  } catch (e) { console.error("auto reply AI failed", e); return null; }
+}
+async function autoCheckinReply(env, clientId, datum, now) {
+  try {
+    const client = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(clientId).first();
+    const k = await env.DB.prepare("SELECT * FROM checkins WHERE client_id = ? AND datum = ?").bind(clientId, datum).first();
+    const coach = await env.DB.prepare("SELECT id, naam FROM coaches WHERE id = ?").bind(client.coach_id).first();
+    if (!client || !k || !coach) return;
+    if (await env.DB.prepare("SELECT 1 FROM berichten WHERE client_id = ? AND checkin_id = ? AND van = 'coach'").bind(clientId, k.id).first()) return; // already answered
+    const lang = client.taal || "nl", rood = RODE_VLAG.test(k.opmerking || "") || k.energie === 1 || k.naleving === 1;
+    const ctx = await checkinContext(env, client, k, now);
+    const tekst = (await aiAntwoord(env, lang, client, coach, k, ctx, rood)) || sjabloonAntwoord(lang, client, k, ctx, rood);
+    await env.DB.prepare("INSERT INTO berichten (client_id, van, tekst, checkin_id, created_at, auto) VALUES (?, 'coach', ?, ?, ?, 1)").bind(clientId, tekst, k.id, now).run();
+    await notify(env, "client", clientId, { titel: "Uw coach reageerde op uw check-in", tekst: tekst.slice(0, 120), raw: true, url: "/app/?v=coach" }, now);
+    await notify(env, "coach", coach.id, { titel: rood ? "Check-in van {naam}: aandacht nodig" : "Check-in van {naam} automatisch beantwoord", v: { naam: client.naam },
+      tekst: tekst.slice(0, 120), raw: true, url: `/coach/#/client/${clientId}/checkins` }, now);
+  } catch (e) {
+    console.error("auto check-in reply failed", e);
+    await notify(env, "coach", (await env.DB.prepare("SELECT coach_id FROM clients WHERE id = ?").bind(clientId).first() || {}).coach_id,
+      { titel: "Check-in van {naam}", v: { naam: "" }, tekst: "Er staat een nieuwe weekcheck-in klaar.", url: `/coach/#/client/${clientId}/checkins` }, now).catch(() => {});
+  }
 }
 
 // ---------- reminders ----------

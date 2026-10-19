@@ -132,6 +132,8 @@ test("coach setup: wrong code rejected, first setup works, second blocked", asyn
   assert.equal(ok.status, 200);
   assert.equal((await anon("/api/coach/setup", "POST", { code: SETUP, naam: "Evil", email: "e@t.nl", password: "0123456789" })).status, 403);
   assert.equal((await coach("/api/coach/me")).data.naam, "Coach");
+  // automatic check-in replies are covered in their own test; keep the other tests about manual messages
+  await coach("/api/coach/instellingen", "PUT", { autoCheckin: false });
 });
 
 test("coach creates clients; duplicate e-mail rejected", async () => {
@@ -373,6 +375,45 @@ test("adaptive targets: weekly correction from the weight trend, limits, coach c
   await coach(`/api/coach/clients/${snelId}`, "PUT", { doelen: { kcal: 2100 } });
   assert.equal((await snel("/api/me")).data.profiel.override.kcal, 2100);
   await coach(`/api/coach/clients/${snelId}`, "PUT", { doelen: null });
+});
+
+test("automatic check-in replies: in the client's language, red flags, coach switch", async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  await coach("/api/coach/instellingen", "PUT", { autoCheckin: true });
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Carla Check", email: "carla@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "carla-pass-12", privacy: true });
+  await u("/api/taal", "PUT", { taal: "en" });
+  await u("/api/profiel", "PUT", { naam: "Carla Check", profiel: { ...PROFIEL, doel: -0.1 } });
+  await u("/api/metingen", "POST", { datum: "2026-09-20", gewicht: 70 });
+  const day = new Date().toISOString().slice(0, 10);
+  await u("/api/checkins", "POST", { datum: day, energie: 2, honger: 4, slaap: 3, stress: 3, naleving: 4, training: 3, opmerking: "Busy week at work" });
+  await wait(800);
+  const fb = (await u("/api/me")).data.feedback;
+  const reply = fb.find((b) => b.checkin_id);
+  assert.ok(reply, "reply posted under the check-in");
+  assert.match(reply.tekst, /^Hi Carla, thank you for your check-in!/, "template reply (no AI in tests) in the client's language");
+  assert.match(reply.tekst, /energy is low/i); assert.match(reply.tekst, /hungry/i);
+  const coachView = (await coach(`/api/coach/clients/${inv.data.id}`)).data.feedback;
+  assert.equal(coachView[0].auto, 1, "marked as automatic for the coach");
+  // resubmitting the same day does not send a second reply
+  await u("/api/checkins", "POST", { datum: day, energie: 3, honger: 3, slaap: 3, stress: 3, naleving: 4, training: 3, opmerking: "" });
+  await wait(600);
+  assert.equal((await u("/api/me")).data.feedback.filter((b) => b.checkin_id).length, 1);
+  // red flag: pain → coach gets an attention notification, the reply says the coach will look personally
+  const v = client(), inv2 = await coach("/api/coach/clients", "POST", { naam: "Ruben Rood", email: "ruben-rood@t.nl" });
+  await v("/api/invite", "POST", { token: tokenOf(inv2.data.link), password: "ruben-pass-12", privacy: true });
+  await v("/api/checkins", "POST", { datum: day, energie: 3, honger: 3, slaap: 3, stress: 3, naleving: 3, training: 2, opmerking: "Ik heb pijn in mijn knie" });
+  await wait(800);
+  const rr = (await v("/api/me")).data.feedback.find((b) => b.checkin_id);
+  assert.match(rr.tekst, /persoonlijk wil bekijken/);
+  // coach switch off → no automatic reply
+  assert.equal((await coach("/api/coach/instellingen", "PUT", { autoCheckin: false })).data.autoCheckin, false);
+  assert.equal((await coach("/api/coach/me")).data.autoCheckin, false);
+  const w = client(), inv3 = await coach("/api/coach/clients", "POST", { naam: "Otto Uit", email: "otto@t.nl" });
+  await w("/api/invite", "POST", { token: tokenOf(inv3.data.link), password: "otto-pass-123", privacy: true });
+  await w("/api/checkins", "POST", { datum: day, energie: 4, honger: 3, slaap: 4, stress: 2, naleving: 4, training: 3, opmerking: "" });
+  await wait(600);
+  assert.equal((await w("/api/me")).data.feedback.length, 0);
 });
 
 test("messages: client ↔ coach, read status, check-in feedback, photos, isolation", async () => {

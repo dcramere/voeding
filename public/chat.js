@@ -20,7 +20,7 @@ function messagesHTML(list,me,fotoUrl,checkins,other){
     const mine=b.van===me;
     const av=!mine&&other?`<span class="msg-av">${DC.avatarHTML(other.avatar,other.naam,28)}</span>`:"";
     return `${sep}<div class="msg-row ${mine?"mine":"theirs"}">${av}<div class="msg ${mine?"mine":"theirs"}${b.checkin_id?" fb":""}">
-      ${b.checkin_id?`<span class="msg-tag">${k?T("Reactie op check-in van {d}",{d:DC.dateNL(k.datum,{day:"numeric",month:"short"})}):T("Reactie op check-in")}</span>`:""}
+      ${b.checkin_id?`<span class="msg-tag">${k?T("Reactie op check-in van {d}",{d:DC.dateNL(k.datum,{day:"numeric",month:"short"})}):T("Reactie op check-in")}${me==="coach"&&b.auto?` · ${T("automatisch")}`:""}</span>`:""}
       ${b.foto?`<a href="${fotoUrl(b.id)}" target="_blank" rel="noopener"><img src="${fotoUrl(b.id)}" alt="${T("Foto")}" loading="lazy"></a>`:""}
       ${b.tekst?`<div class="msg-t" data-no-t>${linkify(b.tekst)}</div>`:""}
       <span class="msg-m">${time(b.created_at)}${mine&&b.gelezen?" · "+T("gelezen"):""}</span></div></div>`;

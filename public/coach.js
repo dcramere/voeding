@@ -298,7 +298,7 @@ function checkinReplyHTML(c){
     const flags=DC.checkinFlags(k), fb=(c.feedback||[]).filter(b=>b.checkin_id===k.id);
     return `<article><p class="kicker">${T("Week van {d}",{d:DC.dateNL(k.datum,{day:"numeric",month:"long"})})}</p>
       <p class="sub" style="margin:0 0 6px">${flags.length?`<span class="stale">${T("Aandacht: {x}",{x:flags.join(", ")})}</span>`:T("Geen bijzonderheden")}${k.opmerking?` · “${esc(k.opmerking)}”`:""}</p>
-      ${fb.map(b=>`<div class="msg mine fb"><div class="msg-t">${esc(b.tekst)}</div></div>`).join("")}
+      ${fb.map(b=>`<div class="msg mine fb">${b.auto?`<span class="msg-tag">${T("automatisch")}</span>`:""}<div class="msg-t">${esc(b.tekst)}</div></div>`).join("")}
       <form data-kreply="${k.id}" novalidate><textarea name="tekst" rows="2" placeholder="${fb.length?T("Nog een reactie"):T("Uw reactie op deze week")}"></textarea><button class="btn small" type="submit">${T("Verstuur")}</button></form></article>`;
   }).join("")}</div>`;
 }
@@ -560,6 +560,7 @@ $("connectBox").addEventListener("click",async e=>{
 });
 function renderInstellingen(){
   renderConnect();
+  $("autoCheckin").checked=!!coach.autoCheckin;
   $("cAv").innerHTML=DC.avatarHTML(coach.avatar,coach.naam,88); $("cAvDel").hidden=!coach.avatar;
   const m=coach.merk||{}, f=$("fMerk");
   f.elements.naam.value=m.naam||""; f.elements.kleur.value=m.kleur||"#f4d03f"; f.elements.kleurHex.value=m.kleur||""; f.elements.logo.value="";
@@ -597,6 +598,9 @@ $("cAvInput").addEventListener("change",async e=>{
   e.target.value="";
 });
 $("cAvDel").addEventListener("click",async()=>{try{coach.avatar=(await call("/api/coach/avatar","DELETE")).avatar;renderInstellingen()}catch(x){alert(x.message)}});
+$("autoCheckin").addEventListener("change",async e=>{
+  try{coach.autoCheckin=(await call("/api/coach/instellingen","PUT",{autoCheckin:e.target.checked})).autoCheckin}catch(x){alert(x.message);e.target.checked=!e.target.checked}
+});
 $("logoDel").addEventListener("click",async()=>{try{coach.merk=(await call("/api/coach/merk/logo","DELETE")).merk;renderInstellingen()}catch(x){alert(x.message)}});
 
 // ---------- storefront editor ----------

@@ -300,7 +300,7 @@ function checkinReplyHTML(c){
     return `<article><p class="kicker">${T("Week van {d}",{d:DC.dateNL(k.datum,{day:"numeric",month:"long"})})}</p>
       <p class="sub" style="margin:0 0 6px">${flags.length?`<span class="stale">${T("Aandacht: {x}",{x:flags.join(", ")})}</span>`:T("Geen bijzonderheden")}${k.opmerking?` · “${esc(k.opmerking)}”`:""}</p>
       ${fb.map(b=>`<div class="msg mine fb">${b.auto?`<span class="msg-tag">${T("automatisch")}</span>`:""}<div class="msg-t">${esc(b.tekst)}</div></div>`).join("")}
-      <form data-kreply="${k.id}" novalidate><textarea name="tekst" rows="2" placeholder="${fb.length?T("Nog een reactie"):T("Uw reactie op deze week")}"></textarea><button class="btn small" type="submit">${T("Verstuur")}</button></form></article>`;
+      <form data-kreply="${k.id}" novalidate><textarea name="tekst" rows="2" placeholder="${fb.length?T("Nog een reactie"):T("Uw reactie op deze week")}"></textarea><button class="btn small" type="submit">${T("Verstuur")}</button>${fb.length?"":`<button class="btn small ghost" type="button" data-kauto="${k.id}">${T("Automatisch beantwoorden")}</button>`}</form></article>`;
   }).join("")}</div>`;
 }
 async function loadCChat(scroll){
@@ -328,6 +328,12 @@ function initCCompose(){
     catch(x){err.textContent=x.message} e.target.value="";
   });
 }
+document.addEventListener("click",async e=>{
+  const b=e.target.closest("[data-kauto]"); if(!b||!cur) return;
+  b.disabled=true; b.textContent=T("Antwoord wordt geschreven…");
+  try{cur=await call(`/api/coach/clients/${cur.id}/checkins/${b.dataset.kauto}/antwoord`,"POST",{});$("pCheckins").innerHTML=DC.checkinsHTML(cur.checkins)+checkinReplyHTML(cur)}
+  catch(x){alert(x.message);b.disabled=false;b.textContent=T("Automatisch beantwoorden")}
+});
 document.addEventListener("submit",async e=>{
   const f=e.target.closest("[data-kreply]"); if(!f||!cur) return;
   e.preventDefault(); const t=f.elements.tekst.value.trim(); if(!t) return;

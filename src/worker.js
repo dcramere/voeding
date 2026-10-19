@@ -407,6 +407,14 @@ const ROUTES = [
     const r = await c.env.DB.prepare("SELECT auto_checkin, auto_training FROM coaches WHERE id = ?").bind(c.coach.id).first();
     return json({ autoCheckin: !!r.auto_checkin, autoTraining: !!r.auto_training });
   })],
+  ["POST", /^\/coach\/clients\/(\d+)\/checkins\/(\d+)\/antwoord$/, withCoach(async (c) => {
+    // the coach asks for the automatic reply right now (same engine as after a check-in)
+    const row = await ownClient(c, c.params[0]);
+    const k = await c.env.DB.prepare("SELECT datum FROM checkins WHERE id = ? AND client_id = ?").bind(c.params[1], row.id).first();
+    if (!k) fail(404, "Check-in niet gevonden.");
+    await autoCheckinReply(c.env, row.id, k.datum, c.now);
+    return getClient(c);
+  })],
   ["PUT", "/coach/taal", withCoach(async (c) => { await setTaal(c, "coaches", c.coach.id); return json({ ok: true }); }, { billing: true })],
   ["POST", "/coach/signup", coachSignup],
   ["POST", "/coach/checkout", withCoach(coachCheckout, { billing: true })],

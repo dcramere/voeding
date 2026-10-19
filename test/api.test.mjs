@@ -883,10 +883,16 @@ test("catch-up: unanswered check-ins of the last 7 days get their reply on the n
   const w = client();
   await w("/api/login", "POST", { email: "otto@t.nl", password: "otto-pass-123" }, { "cf-connecting-ip": "10.4.4.1" });
   assert.equal((await w("/api/me")).data.feedback.length, 0, "Otto checked in while automatic replies were off");
+  // the coach can also ask for the reply right away
+  const ottoId = (await coach("/api/coach/clients")).data.find((x) => x.email === "otto@t.nl").id;
+  const kid = (await coach(`/api/coach/clients/${ottoId}`)).data.checkins[0].id;
+  assert.equal((await coach(`/api/coach/clients/${ottoId}/checkins/999999/antwoord`, "POST", {})).status, 404);
+  const now = await coach(`/api/coach/clients/${ottoId}/checkins/${kid}/antwoord`, "POST", {});
+  assert.equal(now.data.feedback.length, 1); assert.equal(now.data.feedback[0].auto, 1);
   await coach("/api/coach/instellingen", "PUT", { autoCheckin: true });
   assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
   const fb = (await w("/api/me")).data.feedback;
-  assert.equal(fb.length, 1); assert.ok(fb[0].checkin_id);
+  assert.equal(fb.length, 1, "already answered by the button, the catch-up adds nothing"); assert.ok(fb[0].checkin_id);
   assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
   assert.equal((await w("/api/me")).data.feedback.length, 1, "answered once");
 });

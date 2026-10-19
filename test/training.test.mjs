@@ -88,3 +88,27 @@ test("rendering escapes notes and shows deload set counts", () => {
   assert.ok(ov.includes("Push A") && ov.includes("Rustdag"));
   assert.match(TR.bodyMap(TR.EX.incline_db_press), /bm-p/);
 });
+
+test("automatic adjustment: lighter week after a hard check-in, target weights", () => {
+  const today = "2026-10-20";
+  assert.equal(TR.bijsturing([], today), null);
+  const sore = [{ datum: "2026-10-18", energie: 3, honger: 4, slaap: 5, stress: 4, naleving: 1, opmerking: "Very sore after 3 consecutive training days" }];
+  const b = TR.bijsturing(sore, today);
+  assert.equal(b.reden, "spierpijn of pijn"); assert.equal(b.dagenOver, 5);
+  assert.equal(TR.bijsturing(sore, "2026-10-25"), null, "ends after 7 days");
+  assert.equal(TR.bijsturing([{ datum: today, energie: 2, slaap: 2, stress: 2, opmerking: "" }], today).reden, "weinig energie en slechte slaap");
+  assert.equal(TR.bijsturing([{ datum: today, energie: 4, slaap: 4, stress: 2, opmerking: "great week" }], today), null);
+  // fewer sets only in the current week of the program
+  const start = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10), P = { id: "ppl12", start };
+  const reps = [10, 8, 8, 6], week = TR.weekOf(start, "ppl12");
+  TR.setBijsturing({ licht: true, reden: "spierpijn of pijn", datum: start, dagenOver: 5 }, P);
+  assert.deepEqual(TR.setsFor(reps, week, "ppl12"), [10, 8, 8]);
+  assert.deepEqual(TR.setsFor(reps, week + 1, "ppl12"), reps);
+  TR.setBijsturing(null, P);
+  assert.deepEqual(TR.setsFor(reps, week, "ppl12"), reps);
+  // target weights: one step up when all reps were done, ~10% lighter in a lighter week, none for bodyweight
+  const db = { eq: "Dumbbell" }, bb = { eq: "Barbell" }, bw = { eq: "Lichaamsgewicht" };
+  assert.equal(TR.doelKg(20, db, true, false), 22); assert.equal(TR.doelKg(60, bb, true, false), 62.5);
+  assert.equal(TR.doelKg(60, bb, false, false), 60); assert.equal(TR.doelKg(60, bb, true, true), 55);
+  assert.equal(TR.doelKg(null, bb, true, false), null); assert.equal(TR.doelKg(10, bw, true, false), 10);
+});

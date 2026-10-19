@@ -262,6 +262,7 @@ function renderTraining(){
     return;
   }
   if(trWeek==null) trWeek=TR.weekOf(P.start,P.id);
+  TR.setBijsturing(coach.autoTraining===false?null:TR.bijsturing(c.checkins),P);
   $("pTrAssign").innerHTML=`<div class="actions" style="margin:0 0 6px;justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:400">${T("Startdatum")}<input type="date" id="trStart" value="${P.start}" style="width:auto;padding:6px 8px"></label><button class="btn small danger" type="button" data-tr-remove>${T("Programma verwijderen")}</button></div>`;
   $("pTrOverview").innerHTML=TR.overviewHTML(P,c.workouts,trWeek,{coach:true});
   const w=trSel&&c.workouts.find(x=>x.week===trSel.week&&x.dag===trSel.dag);
@@ -561,6 +562,7 @@ $("connectBox").addEventListener("click",async e=>{
 function renderInstellingen(){
   renderConnect();
   $("autoCheckin").checked=!!coach.autoCheckin;
+  $("autoTraining").checked=coach.autoTraining!==false;
   $("cAv").innerHTML=DC.avatarHTML(coach.avatar,coach.naam,88); $("cAvDel").hidden=!coach.avatar;
   const m=coach.merk||{}, f=$("fMerk");
   f.elements.naam.value=m.naam||""; f.elements.kleur.value=m.kleur||"#f4d03f"; f.elements.kleurHex.value=m.kleur||""; f.elements.logo.value="";
@@ -598,6 +600,9 @@ $("cAvInput").addEventListener("change",async e=>{
   e.target.value="";
 });
 $("cAvDel").addEventListener("click",async()=>{try{coach.avatar=(await call("/api/coach/avatar","DELETE")).avatar;renderInstellingen()}catch(x){alert(x.message)}});
+$("autoTraining").addEventListener("change",async e=>{
+  try{coach.autoTraining=(await call("/api/coach/instellingen","PUT",{autoTraining:e.target.checked})).autoTraining}catch(x){alert(x.message);e.target.checked=!e.target.checked}
+});
 $("autoCheckin").addEventListener("change",async e=>{
   try{coach.autoCheckin=(await call("/api/coach/instellingen","PUT",{autoCheckin:e.target.checked})).autoCheckin}catch(x){alert(x.message);e.target.checked=!e.target.checked}
 });

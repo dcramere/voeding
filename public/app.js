@@ -214,6 +214,7 @@ document.addEventListener("input",e=>{
 });
 
 function renderAll(){
+  TR.setBijsturing(me.autoTraining===false?null:TR.bijsturing(me.checkins),me.programma);
   $("hello").innerHTML=me.naam?`${DC.esc(me.naam.split(" ")[0])} ${DC.avatarHTML(me.avatar,me.naam,28)}`:"";
   $("avMine").innerHTML=DC.avatarHTML(me.avatar,me.naam,72); $("avDel").hidden=!me.avatar;
   renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining();

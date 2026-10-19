@@ -96,7 +96,29 @@ function phaseOf(w,progId){
   return PHASES.find(p=>w>=p.van&&w<=p.tot)||PHASES[0];
 }
 // the deload week keeps the first ~60% of each exercise's sets
-const setsFor=(reps,week,progId)=>phaseOf(week,progId).deload?reps.slice(0,Math.ceil(reps.length*0.6)):reps;
+// ---------- automatic adjustment from the latest check-in ----------
+// Soreness/pain in the comment, low energy with poor sleep, or high stress with poor sleep → a lighter week
+// (about a third fewer sets per exercise and ~10% lighter target weights) for 7 days after that check-in.
+const PIJN=/pijn|spierpijn|stijf|blessure|sore|ache|stiff|pain|injur|\bdor\b|dolorid|lesão|dolor|agujet|lesión/i;
+function bijsturing(checkins,today){
+  const k=(checkins||[])[0]; if(!k) return null;
+  const age=Math.round((new Date((today||DC.today())+"T12:00:00")-new Date(k.datum+"T12:00:00"))/864e5);
+  if(age<0||age>=7) return null;
+  const reden=PIJN.test(k.opmerking||"")?N_("spierpijn of pijn"):k.energie<=2&&k.slaap<=2?N_("weinig energie en slechte slaap"):k.stress>=4&&k.slaap<=2?N_("veel stress en slechte slaap"):null;
+  return reden?{licht:true,reden,datum:k.datum,dagenOver:7-age}:null;
+}
+let actief=null; // {licht, week} for the program currently on screen
+function setBijsturing(b,P){actief=b&&b.licht&&P?{...b,week:weekOf(P.start,P.id),prog:P.id}:null}
+const isLicht=(week,progId)=>!!(actief&&actief.week===week&&actief.prog===progId&&!phaseOf(week,progId).deload);
+const setsFor=(reps,week,progId)=>phaseOf(week,progId).deload?reps.slice(0,Math.ceil(reps.length*0.6))
+  :isLicht(week,progId)?reps.slice(0,Math.max(1,Math.ceil(reps.length*2/3))):reps;
+// weight to aim for: +1 step when every rep was done last time, ~10% lighter in a lighter week
+const kgStap=e=>/dumbbell|kettlebell/i.test(e.eq)?2:/lichaamsgewicht|bodyweight|band/i.test(e.eq)?0:2.5;
+function doelKg(kg,e,hitAll,licht){
+  const st=kgStap(e); if(kg==null||!(kg>0)||!st) return kg;
+  if(licht) return Math.max(st,Math.round(kg*0.9/st)*st);
+  return hitAll?kg+st:kg;
+}
 const weekOf=(start,progId)=>Math.min((PROGRAMS[progId]||PROGRAMS.ppl12).weken,Math.max(1,Math.floor(DC.daysSince(start)/7)+1));
 // coach-built program from the API → registry (its own exercises are added to the library)
 function registerProgram(def){
@@ -159,10 +181,15 @@ function lastPerformance(workouts,exId,except){
   return list[0]?{w:list[0],sets:list[0].sets[exId].filter(s=>s.ok)}:null;
 }
 function bestSet(sets){let b=null;(sets||[]).forEach(s=>{if(s.ok&&s.kg>0&&s.reps>0&&(!b||e1rm(s.kg,s.reps)>e1rm(b.kg,b.reps)))b=s});return b}
-function suggestion(prev,targets){
+const hitAllOf=(prev,targets)=>!!(prev&&prev.sets.length&&targets.every((t,i)=>prev.sets[i]&&prev.sets[i].reps>=t));
+function suggestion(prev,targets,licht){
   if(!prev||!prev.sets.length) return "";
-  const hitAll=targets.every((t,i)=>prev.sets[i]&&prev.sets[i].reps>=t);
-  return hitAll?T("Alle herhalingen gehaald: probeer 2,5 kg (of één stap) zwaarder."):"";
+  if(licht) return T("Lichtere week: het doelgewicht staat ongeveer 10% lager.");
+  return hitAllOf(prev,targets)?T("Alle herhalingen gehaald: het doelgewicht staat een stap hoger."):"";
+}
+function bijsturingHTML(b,coach){
+  if(!b) return "";
+  return `<div class="banner tr-adjust"><span><b>${T("Lichtere week")}</b> · ${T(coach?"Aangepast na de check-in van {d} ({r}): ongeveer een derde minder sets en lichtere doelgewichten, nog {n} dagen.":"Aangepast na uw check-in van {d} ({r}): ongeveer een derde minder sets en lichtere doelgewichten, nog {n} dagen. Herstel is ook training.",{d:DC.dateNL(b.datum,{day:"numeric",month:"short"}),r:T(b.reden),n:b.dagenOver})}</span></div>`;
 }
 function stats(prog,workouts){
   const done=(workouts||[]).filter(w=>w.afgerond);
@@ -199,6 +226,7 @@ function overviewHTML(P,workouts,week,o){
       <div><b>${T("Week {n}",{n:week})}</b> <span>${T("van {n}",{n:prog.weken})}${week===cur?" · "+T("deze week"):""}</span></div>
       <button class="btn small ghost" type="button" data-tr-week="${week+1}" ${week>=prog.weken?"disabled":""} aria-label="${T("Volgende week")}">›</button>
     </div>
+    ${week===cur?bijsturingHTML(actief,o.coach):""}
     <div class="phase"><b>${T("Fase: {x}",{x:ph.naam})}</b><span>${ph.rir}</span><p>${ph.tekst}</p></div>
     <div class="days">${prog.dagen.map((x,i)=>{
       const w=byKey(x.key), done=w&&w.afgerond, started=w&&!done&&Object.values(w.sets||{}).some(a=>a.some(s=>s.ok));
@@ -229,11 +257,12 @@ function workoutHTML(P,workouts,wo,o){
     <h1>${day.naam}</h1>
     <p class="sub">${day.focus?day.focus+" · ":""}${Tn(day.ex.length,"1 oefening","{n} oefeningen")} · ±${minutes(day,wo.week,P.id)} min</p>
     ${ro?"":`<div class="wo-progress" aria-hidden="true"><i style="width:${total?done/total*100:0}%"></i></div><p class="wo-status"><span data-wo-count>${T("{a} van {b} sets",{a:done,b:total})}</span><span data-wo-saved></span></p>`}
+    ${!ro&&isLicht(wo.week,P.id)?bijsturingHTML(actief):""}
     ${wo.afgerond&&!ro?`<div class="banner"><span><b>${T("Afgerond op {d}.",{d:DC.dateNL(wo.datum,{day:"numeric",month:"long"})})}</b> ${T("U kunt uw sets nog aanpassen.")}</span></div>`:""}
     ${ro?"":`<details class="tips"><summary>${TIPS[day.type]?(day.type==="push"?T("Tips voor push-dagen"):day.type==="pull"?T("Tips voor pull-dagen"):T("Tips voor benen-dagen")):T("Tips voor deze training")}</summary><ul>${(TIPS[day.type]||TIPS.algemeen).map(t=>`<li>${t}</li>`).join("")}</ul></details>`}
     ${day.ex.map((x,i)=>{
       const e=EX[x.id], reps=setsFor(x.reps,wo.week,P.id), logged=(wo.sets||{})[x.id]||[];
-      const prev=lastPerformance(workouts,x.id,wo), sug=suggestion(prev,reps);
+      const licht=isLicht(wo.week,P.id), prev=lastPerformance(workouts,x.id,wo), sug=suggestion(prev,reps,licht), hit=hitAllOf(prev,reps);
       const prevTxt=prev?`${T("Vorige keer (week {n}):",{n:prev.w.week})} ${prev.sets.map(s=>`${kgFmt(s.kg)}×${s.reps}`).join(" · ")}`:"";
       return `<article class="ex" data-ex="${x.id}">
         <div class="ex-h">${bodyMap(e)}<div>
@@ -243,7 +272,7 @@ function workoutHTML(P,workouts,wo,o){
         ${prevTxt&&!ro?`<p class="ex-prev">${prevTxt}${sug?`<br><b>${sug}</b>`:""}</p>`:""}
         <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>kg</th><th>${e.unit==="stappen"?T("Stappen"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
         ${reps.map((t,si)=>{
-          const s=logged[si]||{}, pk=prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null);
+          const s=logged[si]||{}, pk=doelKg(prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null),e,hit,licht);
           return ro?`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td><td>${s.ok?kgFmt(s.kg):"–"}</td><td>${s.ok?(s.reps??"–"):"–"}</td></tr>`
           :`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td>
             <td><input type="text" inputmode="decimal" data-set="${x.id}:${si}:kg" value="${s.kg??""}" placeholder="${pk!=null?kgFmt(pk):"kg"}" aria-label="${T("Gewicht set {n}",{n:si+1})}"></td>
@@ -293,6 +322,6 @@ function progressionHTML(P,workouts){
     <p class="sub" style="font-size:13px;margin-top:8px">${T("Geschatte 1RM via de Epley-formule op de beste set per training.")}</p>`;
 }
 
-window.TR={EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
+window.TR={bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
   overviewHTML,workoutHTML,summaryHTML,coachGridHTML,progressionHTML};
 })();

@@ -2,4 +2,6 @@
 // same formulas as the plan the client sees.
 import "./core-shim.js";
 import "../public/core.js";
+import "../public/training.js";
 export const DC = globalThis.window.DC;
+export const TR = globalThis.window.TR;

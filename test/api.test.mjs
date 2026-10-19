@@ -88,7 +88,7 @@ before(async () => {
   dev = spawn("npx", ["wrangler", "dev", "--config", "wrangler.test.jsonc", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
     "--var", `SETUP_CODE:${SETUP}`, "--var", "STRIPE_SECRET_KEY:sk_test_mock", "--var", `STRIPE_API_BASE:http://127.0.0.1:${STRIPE_PORT}`,
     "--var", "STRIPE_PRICE_CLIENT:price_client", "--var", "STRIPE_PRICE_COACH:price_coach", "--var", `STRIPE_WEBHOOK_SECRET:${WHSEC}`,
-    "--var", `VAPID_PUBLIC:${VAPID_PUB}`, "--var", `VAPID_PRIVATE_JWK:${VAPID_JWK}`, "--var", `PUSH_TEST_ORIGIN:http://127.0.0.1:${PUSH_PORT}`,
+    "--var", `VAPID_PUBLIC:${VAPID_PUB}`, "--var", `VAPID_PRIVATE_JWK:${VAPID_JWK}`, "--var", `PUSH_TEST_ORIGIN:http://127.0.0.1:${PUSH_PORT}`, "--var", "AUTO_INHAAL_WACHT:0",
     "--test-scheduled", "--show-interactive-dev-session=false"],
     // output goes to a file (TEST_SERVER_LOG=path) or is discarded: an unread pipe fills up and blocks wrangler
     { stdio: process.env.TEST_SERVER_LOG ? ["ignore", openSync(process.env.TEST_SERVER_LOG, "w"), openSync(process.env.TEST_SERVER_LOG, "a")] : "ignore", detached: true });
@@ -877,4 +877,16 @@ test("self-service: data export, account deletion cancels Stripe, health, owner 
   const two = client();
   await two("/api/coach/login", "POST", { email: "three@t.nl", password: "coach-three-pass" }, { "cf-connecting-ip": "10.9.9.8" }); // active, non-owner coach
   assert.equal((await two("/api/coach/admin/systeem")).status, 403);
+});
+
+test("catch-up: unanswered check-ins of the last 7 days get their reply on the next scheduler run", async () => {
+  const w = client();
+  await w("/api/login", "POST", { email: "otto@t.nl", password: "otto-pass-123" }, { "cf-connecting-ip": "10.4.4.1" });
+  assert.equal((await w("/api/me")).data.feedback.length, 0, "Otto checked in while automatic replies were off");
+  await coach("/api/coach/instellingen", "PUT", { autoCheckin: true });
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  const fb = (await w("/api/me")).data.feedback;
+  assert.equal(fb.length, 1); assert.ok(fb[0].checkin_id);
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  assert.equal((await w("/api/me")).data.feedback.length, 1, "answered once");
 });

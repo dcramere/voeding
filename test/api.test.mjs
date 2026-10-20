@@ -983,3 +983,63 @@ test("meal plan from the intake: own foods, same pot for lunch and dinner, once 
   assert.equal((await v("/api/metingen", "POST", { datum: "2026-10-10", gewicht: 70 })).data.maaltijdplan, undefined);
   await coach("/api/coach/instellingen", "PUT", { autoPlan: true });
 });
+
+test("blood tests: consent, manual entry, judged against the lab range, urgent values, coach brief, edit, isolation, delete", async () => {
+  const u = client(), other = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Bea Bloed", email: "bea@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "bea-pass-1234", privacy: true });
+  const inv2 = await coach("/api/coach/clients", "POST", { naam: "Olga Ander", email: "olga-bloed@t.nl" });
+  await other("/api/invite", "POST", { token: tokenOf(inv2.data.link), password: "olga-pass-1234", privacy: true });
+  await u("/api/profiel", "PUT", { naam: "Bea Bloed", profiel: PROFIEL });
+  const waarden = [
+    { naam: "Ferritine", waarde: "12", eenheid: "µg/L", ref_tekst: "15 - 150" },
+    { naam: "Hemoglobine", waarde: "8,1", eenheid: "mmol/L", ref_tekst: "7.5 - 10.0" },
+    { naam: "LDL cholesterol", waarde: 3.1, eenheid: "mmol/L", ref_tekst: "< 3.0" },
+    { naam: "Vitamine D (25-OH)", waarde: 85, eenheid: "nmol/L", ref_tekst: "> 50" },
+    { naam: "Urine kleur", waarde: "geel", eenheid: "" },
+  ];
+  // consent first; the coach sees nothing yet
+  assert.equal((await u("/api/bloed", "POST", { datum: "2026-10-01", waarden })).status, 403);
+  assert.equal((await u("/api/bloed/akkoord", "POST", { akkoord: false })).status, 400);
+  assert.ok((await u("/api/bloed/akkoord", "POST", { akkoord: true })).data.bloedAkkoord > 0);
+  assert.equal((await u("/api/bloed", "POST", { datum: "2026-10-01", waarden: [] })).status, 400);
+  assert.equal((await u("/api/bloed", "POST", { datum: "2099-01-01", waarden })).status, 400, "future date");
+  const drain = async () => { let all = [], n; do { n = (await coach("/api/push/pending")).data.notificaties || []; all = all.concat(n); } while (n.length); return all; };
+  await drain();
+  const r = await u("/api/bloed", "POST", { datum: "2026-10-01", lab: "Lab Suriname", waarden });
+  assert.equal(r.status, 201);
+  const b = r.data.bloed[0], by = (n) => b.waarden.find((w) => w.naam.startsWith(n));
+  assert.equal(by("Ferritine").status, "laag"); assert.match(by("Ferritine").uitleg, /ijzer/i);
+  assert.equal(by("Hemoglobine").waarde, 8.1, "decimal comma"); assert.equal(by("Hemoglobine").status, "normaal");
+  assert.equal(by("LDL").status, "hoog"); assert.equal(by("Vitamine D").status, "normaal");
+  assert.equal(by("Urine").status, "onbekend"); assert.equal(by("Urine").tekst, "geel");
+  assert.equal(b.beoordeeld, 4); assert.equal(b.buiten, 2); assert.equal(b.urgent, false);
+  assert.match(b.samenvatting, /2 van de 4/, "template summary without AI");
+  assert.equal(b.coachNotitie, undefined, "the coach brief is not sent to the client");
+  const n = await drain();
+  assert.ok(n.some((x) => /Bea Bloed heeft een bloedonderzoek/.test(x.titel) && x.url.endsWith("/bloed")), JSON.stringify(n));
+  // English for an English-speaking client
+  const en = await u("/api/me", "GET", undefined, { "x-taal": "en" });
+  assert.match(en.data.bloed[0].waarden.find((w) => w.status === "laag").uitleg, /iron/i);
+  // second test: trend against the first, urgent value flags the coach
+  const r2 = await u("/api/bloed", "POST", { datum: "2026-10-15", waarden: [{ naam: "Ferritin", waarde: 20, eenheid: "µg/L", ref_tekst: "15-150" }, { naam: "Kalium", waarde: 6.8, eenheid: "mmol/L", ref_tekst: "3.5 - 5.0" }] });
+  const nieuw = r2.data.bloed[0];
+  assert.equal(nieuw.datum, "2026-10-15", "newest first");
+  assert.deepEqual(nieuw.waarden[0].vorige, { waarde: 12, datum: "2026-10-01" });
+  assert.equal(nieuw.urgent, true);
+  assert.ok((await drain()).some((x) => /^Let op/.test(x.titel)));
+  // coach: list with brief, correction, upload needs consent confirmation, isolation, original files
+  const cv = await coach(`/api/coach/clients/${inv.data.id}`);
+  assert.equal(cv.data.bloed.length, 2); assert.ok(cv.data.bloed[0].coachNotitie.includes("Bea Bloed"));
+  const fix = await coach(`/api/coach/clients/${inv.data.id}/bloed/${nieuw.id}`, "PUT", { waarden: [{ naam: "Kalium", waarde: 4.2, eenheid: "mmol/L", ref_tekst: "3.5 - 5.0" }] });
+  assert.equal(fix.status, 200); assert.equal(fix.data.bloed[0].urgent, false); assert.equal(fix.data.bloed[0].datum, "2026-10-15", "date kept");
+  const up = await coach(`/api/coach/clients/${inv.data.id}/bloed/upload`, "POST", new Uint8Array(100), { "content-type": "application/pdf" });
+  assert.equal(up.status, 400, "coach must confirm consent");
+  assert.equal((await u("/api/bloed/upload", "POST", new Uint8Array(100), { "content-type": "application/pdf" })).status, 503, "no AI in tests");
+  assert.equal((await other(`/api/bloed/${nieuw.id}`, "PUT", { waarden })).status, 404);
+  assert.equal((await other(`/api/bloed/${nieuw.id}/bestand/0`)).status, 404);
+  assert.equal((await other(`/api/bloed/${nieuw.id}`, "DELETE")).data.bloed.length, 0);
+  // export, delete
+  assert.equal((await u("/api/account/export")).data.bloedonderzoek.length, 2);
+  assert.equal((await u(`/api/bloed/${nieuw.id}`, "DELETE")).data.bloed.length, 1);
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}/bloed/${b.id}`, "DELETE")).data.bloed.length, 0);
+});

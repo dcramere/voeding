@@ -71,9 +71,9 @@ function callStrings(src, names) {
 }
 
 // ---------- browser scripts ----------
-const JS = ["core.js", "training.js", "voeding.js", "chat.js", "app.js", "coach.js", "landing.js", "storefront.js"];
+const JS = ["core.js", "training.js", "voeding.js", "chat.js", "bloed.js", "app.js", "coach.js", "landing.js", "storefront.js"];
 function scriptKeys() {
-  return JS.flatMap((f) => callStrings(read("public/" + f), ["T", "Tn", "N_"]));
+  return [...JS.flatMap((f) => callStrings(read("public/" + f), ["T", "Tn", "N_"])), ...callStrings(read("src/bloed.js"), ["N_"])];
 }
 
 // ---------- Worker ----------

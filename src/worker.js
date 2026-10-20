@@ -1,6 +1,7 @@
 // DCRAMERE Voeding — API (/api/*) + static assets (public/)
 import { tr, pickLang, valid as validLang } from "./i18n.js";
 import { DC, TR } from "./core.js";
+import { matchMarker, parseRef, beoordeel, urgent, ALGEMEEN } from "./bloed.js";
 
 const DAY = 86400;
 const SESSION_TTL = 30 * DAY;
@@ -398,6 +399,12 @@ const ROUTES = [
   ["GET", /^\/fotos\/(\d+)$/, withClient(clientGetFoto)],
   ["DELETE", /^\/fotos\/(\d+)$/, withClient(clientDelFoto)],
   ["POST", "/checkins", withClient(clientAddCheckin)],
+  ["POST", "/bloed/akkoord", withClient(bloedAkkoord)],
+  ["POST", "/bloed/upload", withClient((c) => bloedUpload(c, c.client, "client")), RAW],
+  ["POST", "/bloed", withClient((c) => bloedNieuw(c, c.client, "client"))],
+  ["PUT", /^\/bloed\/(\d+)$/, withClient((c) => bloedWijzig(c, c.client, "client", c.params[0]))],
+  ["DELETE", /^\/bloed\/(\d+)$/, withClient((c) => bloedVerwijder(c, c.client, "client", c.params[0]))],
+  ["GET", /^\/bloed\/(\d+)\/bestand\/(\d+)$/, withClient((c) => bloedBestand(c, c.client.id, c.params[0], c.params[1]))],
   ["POST", "/wachtwoord", withClient(clientChangePassword)],
   // coach
   ["GET", "/coach/status", coachStatus],
@@ -451,6 +458,11 @@ const ROUTES = [
   ["GET", /^\/coach\/fotos\/(\d+)$/, withCoach(coachGetFoto)],
   ["DELETE", /^\/coach\/clients\/(\d+)\/fotos\/(\d+)$/, withCoach(coachDelFoto)],
   ["GET", /^\/coach\/clients\/(\d+)\/dagboek$/, withCoach(coachGetDagboek)],
+  ["POST", /^\/coach\/clients\/(\d+)\/bloed\/upload$/, withCoach(async (c) => bloedUpload(c, await ownClient(c, c.params[0]), "coach")), RAW],
+  ["POST", /^\/coach\/clients\/(\d+)\/bloed$/, withCoach(async (c) => bloedNieuw(c, await ownClient(c, c.params[0]), "coach"))],
+  ["PUT", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedWijzig(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
+  ["DELETE", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedVerwijder(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
+  ["GET", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)\/bestand\/(\d+)$/, withCoach(async (c) => bloedBestand(c, (await ownClient(c, c.params[0])).id, c.params[1], c.params[2]))],
   ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
   ["GET", "/coach/programmas", withCoach(listProgrammas)],
   ["PUT", "/coach/merk", withCoach(putMerk)],
@@ -530,6 +542,7 @@ async function exportData(env, coachId) {
     cl.workouts = wo.map((w) => ({ ...w, sets: JSON.parse(w.sets) }));
     cl.producten = await productenOf(env, cl.id);
     cl.dagboek = (await env.DB.prepare("SELECT datum, maaltijd, naam, bron, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? ORDER BY datum, id").bind(cl.id).all()).results;
+    cl.bloedonderzoek = (await env.DB.prepare("SELECT datum, lab, waarden, door, created_at FROM bloedonderzoek WHERE client_id = ? ORDER BY datum").bind(cl.id).all()).results.map((b) => ({ ...b, waarden: JSON.parse(b.waarden) }));
   }
   return { clients };
 }
@@ -615,6 +628,7 @@ async function clientMe(c) {
     avatar: avatarUrl("client", cl), coachAvatar: coach ? avatarUrl("coach", coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
+    bloedAkkoord: cl.bloed_akkoord || null, bloed: await bloedLijst(env, cl.id, pickLang(c.req, c.url), "client"),
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
     programmaDef: cl.programma ? await customDefOut(env, JSON.parse(cl.programma).id, cl.coach_id) : null,
     abonnement: cl.abo_status ? { status: cl.abo_status, einde: cl.abo_einde } : null,
@@ -886,7 +900,8 @@ async function getClient(c) {
   const ongelezen = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'client' AND gelezen IS NULL").bind(row.id).first()).n;
   const feedback = (await c.env.DB.prepare("SELECT id, tekst, checkin_id, created_at, auto FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id").bind(row.id).all()).results;
   const programmaDef = row.programma ? await customDefOut(c.env, JSON.parse(row.programma).id, row.coach_id) : null;
-  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback, programmaDef });
+  const bloed = await bloedLijst(c.env, row.id, pickLang(c.req, c.url), "coach");
+  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback, programmaDef, bloed, bloedAkkoord: row.bloed_akkoord || null });
 }
 
 async function coachExport(c) {
@@ -966,6 +981,7 @@ async function deleteClientData(env, id) {
   await deleteAllFotos(c.env, row.id);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM bloedonderzoek WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM workouts WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM producten WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM dagboek WHERE client_id = ?").bind(row.id),
@@ -1058,7 +1074,7 @@ async function removeFoto(c, clientId, fotoId) {
 }
 
 async function deleteAllFotos(env, clientId) {
-  for (const prefix of [`c/${clientId}/`, `m/${clientId}/`, `avatar/client/${clientId}/`]) await deletePrefix(env, prefix);
+  for (const prefix of [`c/${clientId}/`, `m/${clientId}/`, `b/${clientId}/`, `avatar/client/${clientId}/`]) await deletePrefix(env, prefix);
 }
 async function deletePrefix(env, prefix) {
   let cursor;
@@ -1089,6 +1105,251 @@ async function coachGetFoto(c) {
 async function coachDelFoto(c) {
   const row = await ownClient(c, c.params[0]);
   return removeFoto(c, row.id, c.params[1]);
+}
+
+// ---------- blood tests ----------
+// The client (or the coach, with the client's consent) uploads a lab report as PDF or photo. Workers AI reads the values;
+// they are judged against the lab's own reference range (src/bloed.js) and an automatic, non-diagnostic summary is written
+// for the client (their language) and a practical one for the coach. Files stay private in R2 under b/<client>/.
+const MAX_BLOED = 10 * 1024 * 1024;
+const BLOED_PER_DAG = 20; // AI runs (uploads + re-analyses) per client per day
+const isPdf = (b) => b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46; // %PDF
+const bloedRij = (r) => ({ ...r, bestanden: JSON.parse(r.bestanden || "[]"), waarden: JSON.parse(r.waarden || "[]"), samenvatting: r.samenvatting ? JSON.parse(r.samenvatting) : null });
+const vandaag = (now) => new Date(now * 1000).toISOString().slice(0, 10);
+
+function cleanWaarden(list) {
+  if (!Array.isArray(list)) fail(400, "Ongeldige waarden.");
+  if (list.length > 120) fail(400, "Te veel waarden (max. 120).");
+  const n = (x) => { if (x === null || x === undefined || x === "") return null; const v = +String(x).trim().replace(",", "."); return Number.isFinite(v) ? v : null; };
+  const out = [];
+  for (const w of list) {
+    if (!w || typeof w !== "object") continue;
+    const naam = String(w.naam || "").trim().slice(0, 80);
+    if (!naam) continue;
+    const waarde = n(w.waarde), tekst = waarde == null ? String(w.tekst || w.waarde || "").trim().slice(0, 40) : "";
+    if (waarde == null && !tekst) continue;
+    out.push({ naam, waarde, tekst, eenheid: String(w.eenheid || "").trim().slice(0, 20), ref_min: n(w.ref_min), ref_max: n(w.ref_max),
+      ref_tekst: String(w.ref_tekst || "").trim().slice(0, 40), vlag: String(w.vlag || "").trim().slice(0, 4) });
+  }
+  return out;
+}
+
+// assessment per value, the explanation in the reader's language and the same marker in an earlier report
+function bloedAnalyse(rij, eerder, lang) {
+  const unit = (u) => String(u || "").toLowerCase().replace(/\s/g, "").replace(/[µμ]/g, "u"), sameUnit = (a, b) => unit(a) === unit(b);
+  const waarden = rij.waarden.map((w) => {
+    const m = matchMarker(w.naam), status = beoordeel(w), uit = status === "laag" || status === "hoog";
+    let vorige = null;
+    if (m && w.waarde != null) for (let i = eerder.length - 1; i >= 0 && !vorige; i--) {
+      const v = eerder[i].waarden.find((x) => x.waarde != null && sameUnit(x.eenheid, w.eenheid) && matchMarker(x.naam)?.code === m.code);
+      if (v) vorige = { waarde: v.waarde, datum: eerder[i].datum };
+    }
+    const ref = parseRef(w);
+    return { ...w, ref_min: ref.min, ref_max: ref.max, code: m ? m.code : null, status, urgent: m ? urgent(m.code, w.waarde, w.eenheid) : false,
+      uitleg: uit ? tr(lang, m ? m[status] : ALGEMEEN) : null, vorige };
+  });
+  return { waarden, totaal: waarden.length, beoordeeld: waarden.filter((w) => w.status !== "onbekend").length,
+    buiten: waarden.filter((w) => w.status === "laag" || w.status === "hoog").length, urgent: waarden.some((w) => w.urgent) };
+}
+
+async function bloedLijst(env, clientId, lang, rol) {
+  const { results } = await env.DB.prepare("SELECT * FROM bloedonderzoek WHERE client_id = ? ORDER BY datum, id").bind(clientId).all();
+  const rijen = results.map(bloedRij);
+  return rijen.map((r, i) => {
+    const s = r.samenvatting || {};
+    return { id: r.id, datum: r.datum, lab: r.lab || "", door: r.door, created_at: r.created_at,
+      bestanden: r.bestanden.map((b, n) => ({ n, naam: b.naam || "", type: b.type })), ...bloedAnalyse(r, rijen.slice(0, i), lang),
+      samenvatting: (s.client && s.client.tekst) || null, ...(rol === "coach" ? { coachNotitie: (s.coach && s.coach.tekst) || null } : {}) };
+  }).reverse();
+}
+
+const BLOED_PROMPT = `You read laboratory blood test reports. Return ONLY a JSON object, no other text:
+{"datum": date the blood was drawn as "YYYY-MM-DD" or null, "lab": laboratory name or "",
+ "waarden": [{"naam": test name exactly as printed, "waarde": the result as a number with a dot as decimal separator, or as text when it is not a plain number (e.g. "<0.5", "negative"),
+   "eenheid": unit as printed or "", "ref": reference range exactly as printed or "", "vlag": "H" or "L" when the report marks the result as high or low, else ""}]}
+Include every test result in the report, in the order printed. Leave out the patient's name, address, ID numbers and the doctor's name.
+If this is not a laboratory report return {"fout": "geen labrapport"}.`;
+
+async function aiBloed(env, buf, type) {
+  let messages;
+  if (type === "application/pdf") {
+    let tekst = "";
+    try {
+      const [doc] = await env.AI.toMarkdown([{ name: "rapport.pdf", blob: new Blob([buf], { type }) }]);
+      tekst = doc && doc.format !== "error" ? String(doc.data || "") : "";
+    } catch (e) { console.error("blood pdf failed", e); }
+    if (tekst.replace(/\s/g, "").length < 40) fail(422, "Deze PDF bevat geen leesbare tekst (bijvoorbeeld een scan). Upload in plaats daarvan foto's van de pagina's.");
+    messages = [{ role: "system", content: BLOED_PROMPT }, { role: "user", content: tekst.slice(0, 40000) }];
+  } else {
+    let b64 = ""; for (let i = 0; i < buf.length; i += 0x8000) b64 += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    messages = [{ role: "user", content: [{ type: "text", text: BLOED_PROMPT }, { type: "image_url", image_url: { url: `data:${type};base64,${btoa(b64)}` } }] }];
+  }
+  let out;
+  try {
+    const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages, max_tokens: 4000, temperature: 0 });
+    out = typeof res.response === "object" && res.response ? res.response : JSON.parse(String(res.response).match(/\{[\s\S]*\}/)[0]);
+  } catch (e) {
+    console.error("blood read failed", e);
+    fail(502, "Het rapport kon niet worden gelezen. Probeer een scherpere foto of vul de waarden handmatig in.");
+  }
+  if (out.fout) fail(422, "In dit bestand is geen laboratoriumrapport te herkennen.");
+  return out;
+}
+
+async function bloedLimiet(c, clientId) {
+  const key = `bloed:${clientId}`;
+  const used = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE k = ? AND ts > ?").bind(key, c.now - DAY).first();
+  if (used.n >= BLOED_PER_DAG) fail(429, "Het maximum aantal analyses voor vandaag is bereikt. Probeer het morgen opnieuw.");
+  await c.env.DB.prepare("INSERT INTO login_attempts (k, ts) VALUES (?, ?)").bind(key, c.now).run();
+}
+
+const BLOED_STATUS = { laag: "LOW", hoog: "HIGH", normaal: "within range", onbekend: "no reference range" };
+// automatic summaries: AI when available, otherwise a plain template; both are stored with their language
+async function bloedSamenvatting(env, clientId, id, hint) {
+  const cl = await env.DB.prepare("SELECT id, naam, taal, profiel, coach_id FROM clients WHERE id = ?").bind(clientId).first();
+  const coach = await env.DB.prepare("SELECT naam, taal FROM coaches WHERE id = ?").bind(cl.coach_id).first();
+  const { results } = await env.DB.prepare("SELECT * FROM bloedonderzoek WHERE client_id = ? ORDER BY datum, id").bind(clientId).all();
+  const rijen = results.map(bloedRij), i = rijen.findIndex((r) => r.id === id);
+  if (i < 0) return;
+  const rij = rijen[i], a = bloedAnalyse(rij, rijen.slice(0, i), "en");
+  const P = cl.profiel ? JSON.parse(cl.profiel) : null;
+  const leeftijd = P && P.geboorte ? Math.floor((Date.parse(rij.datum) - Date.parse(P.geboorte)) / (365.25 * 864e5)) : null;
+  const doel = P ? { "-0.2": "lose fat", "-0.1": "lose weight gradually", "0": "maintain weight", "0.1": "build muscle" }[String(P.doel)] : null;
+  const regel = (w) => `- ${w.naam}: ${w.waarde ?? w.tekst} ${w.eenheid}`.trimEnd() + `, lab reference ${w.ref_tekst || [w.ref_min, w.ref_max].filter((x) => x != null).join("-") || "not given"}, ${w.urgent ? "URGENT, " : ""}${BLOED_STATUS[w.status]}`
+    + (w.vorige ? `, previous test ${w.vorige.datum}: ${w.vorige.waarde}` : "");
+  const buiten = a.waarden.filter((w) => w.status === "laag" || w.status === "hoog");
+  const feiten = [
+    `Client: ${cl.naam.split(" ")[0]}${P ? `, ${P.geslacht === "v" ? "female" : "male"}` : ""}${leeftijd ? `, ${leeftijd} years` : ""}${doel ? `, goal: ${doel}` : ""}.`,
+    `Blood test of ${rij.datum}${rij.lab ? ` (${rij.lab})` : ""}: ${a.totaal} values, ${a.beoordeeld} with a reference range, ${a.buiten} outside the lab's reference range.`,
+    buiten.length ? `Outside the range:\n${buiten.map(regel).join("\n")}` : "All values with a reference range are within it.",
+    `Other values:\n${a.waarden.filter((w) => !buiten.includes(w)).slice(0, 40).map(regel).join("\n")}`,
+    a.waarden.some((w) => w.vorige) ? "Previous values are given where an earlier test had the same marker." : "There is no earlier test to compare with: do not mention changes or a previous test.",
+  ].join("\n");
+  const lijst = (lang) => buiten.map((w) => `${w.naam} ${w.waarde ?? w.tekst}${w.eenheid ? " " + w.eenheid : ""} (${w.status === "laag" ? tr(lang, "laag") : tr(lang, "hoog")})`).join(", ");
+  const sjabloon = (lang, rol) => {
+    const t = (s, v) => tr(lang, s, v), zin = [];
+    if (rol === "coach") zin.push(t("{naam}: {b} van de {n} beoordeelde waarden vallen buiten het referentiebereik van het laboratorium.", { naam: cl.naam, b: a.buiten, n: a.beoordeeld }));
+    else zin.push(t("{g} van de {n} beoordeelde waarden vallen binnen het referentiebereik van het laboratorium.", { g: a.beoordeeld - a.buiten, n: a.beoordeeld }));
+    if (buiten.length) zin.push(t("Buiten het bereik: {lijst}.", { lijst: lijst(lang) }), t("Hieronder staat per waarde wat dit kan betekenen. Bespreek afwijkende waarden altijd met de arts."));
+    else zin.push(t("Er zijn geen waarden buiten het bereik gevonden."));
+    return zin.join(" ");
+  };
+  const ai = async (lang, rol) => {
+    if (!env.AI) return null;
+    const system = rol === "client"
+      ? `You write a short, clear summary of a blood test report for a coaching client. It is shown in their nutrition and training app.
+Write in ${lang === "nl" ? "Dutch (formal 'u')" : TAAL_NAAM[lang] || "English"}. 80-160 words, plain language, short paragraphs, plain text: no headings, no markdown, no emoji.
+Start directly with the overall picture (how many values are within the lab's reference range), without an introduction such as "Here is a summary". Then explain the values outside the range in simple words and what they commonly relate to in nutrition, lifestyle or training, with one or two practical food or lifestyle tips where they fit. Mention clear changes compared with the previous test.
+Rules: you are not a doctor. Never diagnose a disease or condition, never say what the client "has" (write "can point to" or "is often linked to"), never recommend medication or supplement doses. Only use the values given and state them exactly; call a value low or high only when it is marked LOW or HIGH. End by advising them to discuss values outside the range with their doctor.${a.urgent ? " Some values are marked URGENT: start by saying they should contact their doctor today about these values." : ""}`
+      : `You write a short brief for a nutrition and training coach (${coach.naam}) about their client's blood test.
+Write in ${TAAL_NAAM[lang] || "English"}. 70-150 words, plain text; you may use short lines starting with "- ". No headings, no markdown bold.
+Cover: the values outside the range and what they mean for the client's nutrition and training (for example iron-rich food, energy intake, recovery, training load, hydration), what to keep an eye on, and whether the client should see a doctor.
+Start directly with the findings: no greeting, no "Dear", no sign-off. Refer to the client by first name.
+Rules: no diagnoses (write "can point to", not "indicates deficiency"), no medication or supplement doses. Only use the values given and state them exactly; call a value low or high only when it is marked LOW or HIGH.${a.urgent ? " Some values are marked URGENT: start by saying the client should contact their doctor today." : ""}`;
+    try {
+      const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [{ role: "system", content: system }, { role: "user", content: feiten }], max_tokens: 500, temperature: 0.3 });
+      const txt = String(typeof res.response === "string" ? res.response : "").replace(/\*\*|^#+\s*/gm, "").trim();
+      return txt.length >= 60 ? txt.slice(0, 2000) : null;
+    } catch (e) { console.error("blood summary AI failed", e); return null; }
+  };
+  const lc = cl.taal || hint || "nl", lk = (coach && coach.taal) || "nl";
+  const [tc, tk] = await Promise.all([ai(lc, "client"), ai(lk, "coach")]);
+  const samenvatting = { client: { taal: lc, tekst: tc || sjabloon(lc, "client"), ai: !!tc }, coach: { taal: lk, tekst: tk || sjabloon(lk, "coach"), ai: !!tk } };
+  await env.DB.prepare("UPDATE bloedonderzoek SET samenvatting = ? WHERE id = ?").bind(JSON.stringify(samenvatting), id).run();
+  return a;
+}
+
+// the other side hears about a new report; urgent values are flagged to the coach
+async function bloedMelden(c, cl, door, a) {
+  if (!a) return;
+  if (door === "client") await notify(c.env, "coach", cl.coach_id, a.urgent
+    ? { titel: "Let op: bloedonderzoek van {naam}", v: { naam: cl.naam }, tekst: "Eén of meer waarden zijn sterk afwijkend. De cliënt krijgt het advies vandaag contact op te nemen met de arts.", url: `/coach/#/client/${cl.id}/bloed` }
+    : { titel: "{naam} heeft een bloedonderzoek geüpload", v: { naam: cl.naam, b: a.buiten, n: a.beoordeeld }, tekst: "{b} van de {n} beoordeelde waarden vallen buiten het referentiebereik. Het rapport staat klaar.", url: `/coach/#/client/${cl.id}/bloed` }, c.now);
+  else await notify(c.env, "client", cl.id, { titel: "Uw bloedonderzoek is geanalyseerd", tekst: "Uw coach heeft uw bloedonderzoek toegevoegd. De samenvatting staat onder Voortgang.", url: "/app/?v=voortgang" }, c.now);
+}
+
+async function bloedUpload(c, cl, door) {
+  if (door === "client" && !cl.bloed_akkoord) fail(403, "Geef eerst toestemming voor het verwerken van uw bloedonderzoek.");
+  if (door === "coach" && c.url.searchParams.get("akkoord") !== "1") fail(400, "Bevestig dat de cliënt toestemming heeft gegeven.");
+  if (!c.env.AI) fail(503, "Automatisch uitlezen is hier niet beschikbaar. Vul de waarden handmatig in.");
+  if (Number(c.req.headers.get("content-length")) > MAX_BLOED) fail(413, "Het bestand is te groot (max. 10 MB).");
+  const buf = new Uint8Array(await c.req.arrayBuffer());
+  if (buf.length > MAX_BLOED) fail(413, "Het bestand is te groot (max. 10 MB).");
+  const type = buf.length > 12 ? (isPdf(buf) ? "application/pdf" : imageType(buf)) : null;
+  if (!type) fail(415, "Upload een PDF of een foto (JPEG, PNG of WebP).");
+  const bij = Number(c.url.searchParams.get("bij")) || 0;
+  const oud = bij ? await c.env.DB.prepare("SELECT * FROM bloedonderzoek WHERE id = ? AND client_id = ?").bind(bij, cl.id).first() : null;
+  if (bij && !oud) fail(404, "Bloedonderzoek niet gevonden.");
+  await bloedLimiet(c, cl.id);
+  const uit = await aiBloed(c.env, buf, type);
+  const waarden = cleanWaarden((Array.isArray(uit.waarden) ? uit.waarden : []).slice(0, 120)
+    .map((w) => ({ naam: w && w.naam, waarde: w && w.waarde, eenheid: w && w.eenheid, ref_tekst: w && w.ref, vlag: w && w.vlag })));
+  if (!waarden.length) fail(422, "Er zijn geen bloedwaarden in dit bestand gevonden. Probeer een scherpere foto of vul de waarden handmatig in.");
+  const key = `b/${cl.id}/${randomToken(12)}`;
+  await c.env.FOTOS.put(key, buf, { httpMetadata: { contentType: type } });
+  const bestand = { key, type, bytes: buf.length, naam: String(c.url.searchParams.get("naam") || "").slice(0, 100) };
+  let id = bij;
+  if (oud) {
+    const r = bloedRij(oud), namen = new Set(r.waarden.map((w) => w.naam.toLowerCase()));
+    const alle = [...r.waarden, ...waarden.filter((w) => !namen.has(w.naam.toLowerCase()))].slice(0, 120);
+    await c.env.DB.prepare("UPDATE bloedonderzoek SET bestanden = ?, waarden = ?, lab = COALESCE(NULLIF(lab, ''), ?), updated_at = ? WHERE id = ?")
+      .bind(JSON.stringify([...r.bestanden, bestand].slice(0, 10)), JSON.stringify(alle), String(uit.lab || "").slice(0, 100), c.now, id).run();
+  } else {
+    const d = vandaag(c.now), datum = isDate(uit.datum) && uit.datum <= d && uit.datum >= "2000-01-01" ? uit.datum : d;
+    id = (await c.env.DB.prepare("INSERT INTO bloedonderzoek (client_id, datum, lab, bestanden, waarden, door, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+      .bind(cl.id, datum, String(uit.lab || "").slice(0, 100), JSON.stringify([bestand]), JSON.stringify(waarden), door, c.now, c.now).first()).id;
+  }
+  const a = await bloedSamenvatting(c.env, cl.id, id, door === "client" ? pickLang(c.req, c.url) : null);
+  if (!oud) await bloedMelden(c, cl, door, a);
+  return json({ id, bloed: await bloedLijst(c.env, cl.id, pickLang(c.req, c.url), door) }, 201);
+}
+
+// manual entry, or a correction of the values the AI read; the summary is written again
+function bloedVelden(c, oud) {
+  const datum = c.body.datum === undefined && oud ? oud.datum : c.body.datum;
+  if (!isDate(datum) || datum > vandaag(c.now + DAY)) fail(400, "Kies een geldige datum.");
+  const waarden = cleanWaarden(c.body.waarden);
+  if (!waarden.length) fail(400, "Vul minimaal één waarde in.");
+  return { datum, lab: c.body.lab === undefined && oud ? oud.lab || "" : str(c.body.lab, 100, "Laboratorium"), waarden };
+}
+async function bloedNieuw(c, cl, door) {
+  if (door === "client" && !cl.bloed_akkoord) fail(403, "Geef eerst toestemming voor het verwerken van uw bloedonderzoek.");
+  const v = bloedVelden(c, null);
+  await bloedLimiet(c, cl.id);
+  const { id } = await c.env.DB.prepare("INSERT INTO bloedonderzoek (client_id, datum, lab, waarden, door, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id")
+    .bind(cl.id, v.datum, v.lab, JSON.stringify(v.waarden), door, c.now, c.now).first();
+  await bloedMelden(c, cl, door, await bloedSamenvatting(c.env, cl.id, id, door === "client" ? pickLang(c.req, c.url) : null));
+  return json({ id, bloed: await bloedLijst(c.env, cl.id, pickLang(c.req, c.url), door) }, 201);
+}
+async function bloedWijzig(c, cl, door, id) {
+  const oud = await c.env.DB.prepare("SELECT * FROM bloedonderzoek WHERE id = ? AND client_id = ?").bind(id, cl.id).first();
+  if (!oud) fail(404, "Bloedonderzoek niet gevonden.");
+  const v = bloedVelden(c, oud);
+  await bloedLimiet(c, cl.id);
+  await c.env.DB.prepare("UPDATE bloedonderzoek SET datum = ?, lab = ?, waarden = ?, updated_at = ? WHERE id = ?").bind(v.datum, v.lab, JSON.stringify(v.waarden), c.now, id).run();
+  await bloedSamenvatting(c.env, cl.id, id, door === "client" ? pickLang(c.req, c.url) : null);
+  return json({ bloed: await bloedLijst(c.env, cl.id, pickLang(c.req, c.url), door) });
+}
+async function bloedVerwijder(c, cl, door, id) {
+  const oud = await c.env.DB.prepare("SELECT bestanden FROM bloedonderzoek WHERE id = ? AND client_id = ?").bind(id, cl.id).first();
+  if (oud) {
+    await c.env.DB.prepare("DELETE FROM bloedonderzoek WHERE id = ?").bind(id).run();
+    const keys = JSON.parse(oud.bestanden || "[]").map((b) => b.key);
+    if (keys.length) await c.env.FOTOS.delete(keys);
+  }
+  return json({ bloed: await bloedLijst(c.env, cl.id, pickLang(c.req, c.url), door) });
+}
+async function bloedBestand(c, clientId, id, n) {
+  const row = await c.env.DB.prepare("SELECT bestanden FROM bloedonderzoek WHERE id = ? AND client_id = ?").bind(id, clientId).first();
+  const b = row && JSON.parse(row.bestanden || "[]")[n];
+  const obj = b && await c.env.FOTOS.get(b.key);
+  if (!obj) fail(404, "Bestand niet gevonden.");
+  return new Response(obj.body, { headers: { "content-type": b.type, "content-length": String(b.bytes), "cache-control": "private, max-age=3600", "content-disposition": "inline", "x-content-type-options": "nosniff" } });
+}
+async function bloedAkkoord(c) {
+  if (c.body.akkoord !== true) fail(400, "Geef toestemming om verder te gaan.");
+  await c.env.DB.prepare("UPDATE clients SET bloed_akkoord = COALESCE(bloed_akkoord, ?) WHERE id = ?").bind(c.now, c.client.id).run();
+  return json({ bloedAkkoord: c.client.bloed_akkoord || c.now });
 }
 
 // ---------- training ----------
@@ -2281,6 +2542,7 @@ async function clientExport(c) {
     dagboek: await q("SELECT datum, maaltijd, naam, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? ORDER BY datum, id"),
     producten: await q("SELECT naam, merk, barcode, kcal, eiwit, koolh, vet, vezels, portie_naam, portie_g FROM producten WHERE client_id = ?"),
     berichten: await q("SELECT van, tekst, foto_key IS NOT NULL AS foto, datetime(created_at, 'unixepoch') AS tijd FROM berichten WHERE client_id = ? ORDER BY id"),
+    bloedonderzoek: (await q("SELECT datum, lab, waarden, samenvatting FROM bloedonderzoek WHERE client_id = ? ORDER BY datum")).map((b) => ({ datum: b.datum, lab: b.lab, waarden: JSON.parse(b.waarden), samenvatting: b.samenvatting ? JSON.parse(b.samenvatting).client.tekst : null })),
     progressiefotos: (await q("SELECT datum, pose FROM fotos WHERE client_id = ? ORDER BY datum")).map((f) => ({ ...f, opmerking: tr(pickLang(c.req, c.url), "De foto zelf kunt u bekijken en opslaan in de app (Voortgang).") })),
   };
   return new Response(JSON.stringify(data, null, 2), { headers: {

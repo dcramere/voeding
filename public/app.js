@@ -70,6 +70,11 @@ function renderProgress(){
   }
   $("prog").innerHTML=h;
 }
+let bloedUI=null;
+function renderBloed(){
+  if(!bloedUI) bloedUI=BL.mount($("bloed"),{base:"/api/bloed",get:()=>me,set:l=>{me.bloed=l},onAkkoord:t=>{me.bloedAkkoord=t}});
+  else bloedUI.render();
+}
 function renderCheckin(){
   const k=lastCheckin(), first=!me.metingen.length;
   $("t-meting").textContent=first?T("Uw eerste meting"):T("Check-in");
@@ -217,7 +222,7 @@ function renderAll(){
   TR.setBijsturing(me.autoTraining===false?null:TR.bijsturing(me.checkins),me.programma);
   $("hello").innerHTML=me.naam?`${DC.esc(me.naam.split(" ")[0])} ${DC.avatarHTML(me.avatar,me.naam,28)}`:"";
   $("avMine").innerHTML=DC.avatarHTML(me.avatar,me.naam,72); $("avDel").hidden=!me.avatar;
-  renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining();
+  renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining(); renderBloed();
   const fp=$("fProfiel");
   fp.elements.naam.value=me.naam||"";
   DC.fillProfiel(fp,me.profiel);

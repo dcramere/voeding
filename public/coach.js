@@ -102,9 +102,10 @@ function inviteHTML(naam,link){
 }
 
 // ---------- list ----------
+const coachIconBadge=()=>CHAT.appBadge(clients.reduce((t,c)=>t+(c.ongelezen||0),0));
 async function loadList(){
   clients=await call("/api/coach/clients");
-  renderList(); renderOnboard();
+  renderList(); renderOnboard(); coachIconBadge();
 }
 // ---------- onboarding checklist ----------
 const onboardKey=()=>"dc-onboard-hide-"+coach.id;
@@ -326,7 +327,7 @@ async function loadCChat(scroll){
   if(!cur) return;
   const id=cur.id, r=await call(`/api/coach/clients/${id}/berichten`);
   if(!cur||cur.id!==id) return;
-  cchat=r.berichten; cur.ongelezen=0; $("paneBadge").hidden=true;
+  cchat=r.berichten; cur.ongelezen=0; $("paneBadge").hidden=true; {const l=clients.find(x=>x.id===cur.id); if(l){l.ongelezen=0;coachIconBadge()}}
   const el=$("cChat"), atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80;
   el.innerHTML=CHAT.messagesHTML(cchat,"coach",cFoto,cur.checkins,{avatar:cur.avatar,naam:cur.naam});
   if(scroll||atBottom) el.scrollTop=el.scrollHeight;

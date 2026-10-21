@@ -1068,3 +1068,35 @@ test("intake: training place, session length and favourite exercises → a tailo
   assert.equal(r.data.dagen.length, 4);
   assert.equal((await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { programma: { id: r.data.id, start: "2026-10-19" } })).status, 200);
 });
+
+test("phone extras: daily overview at the client's local hour, icon badge count, translated manifest shortcuts", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Dana Dag", email: "dana@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "dana-pass-1234", privacy: true });
+  await u("/api/profiel", "PUT", { naam: "Dana Dag", profiel: { ...PROFIEL, trainingsdagen: [0, 1, 2, 3, 4, 5] } });
+  await u("/api/metingen", "POST", { datum: "2026-09-01", gewicht: 70 });
+  assert.equal((await u("/api/dagoverzicht", "PUT", { uur: 3, tz: 0 })).status, 400);
+  // pick the offset that makes "now" 07:xx local for Dana, so the hourly run sends it right away
+  const tz = (new Date().getUTCHours() - 7) * 60;
+  assert.equal((await u("/api/dagoverzicht", "PUT", { uur: 7, tz })).data.dagoverzicht, 7);
+  assert.equal((await u("/api/me")).data.dagoverzicht, 7);
+  const drain = async () => { let all = [], n; do { n = (await u("/api/push/pending")).data.notificaties || []; all = all.concat(n); } while (n.length); return all; };
+  await drain();
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  const sent = (await drain()).filter((n) => n.titel === "Uw dag in het kort");
+  const dow = new Date(Date.now() - tz * 60000).getUTCDay();
+  assert.equal(sent.length, 1, "sent once");
+  assert.match(sent[0].tekst, dow === 6 ? /kcal · \d+ g eiwit · rustdag$/ : /kcal · \d+ g eiwit · trainingsdag$/);
+  assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
+  assert.equal((await drain()).filter((n) => n.titel === "Uw dag in het kort").length, 0, "not twice on the same day");
+  assert.equal((await u("/api/dagoverzicht", "PUT", { uur: null })).data.dagoverzicht, null);
+  // badge: a due check-in (first weigh-in long ago, no check-in) + unread coach messages
+  assert.equal((await u("/api/push/pending")).data.badge, 1);
+  await coach(`/api/coach/clients/${inv.data.id}/berichten`, "POST", { tekst: "Hoi Dana" });
+  assert.equal((await u("/api/push/pending")).data.badge, 2);
+  // manifest shortcuts in the user's language
+  const en = await (await fetch(`${BASE}/manifest.webmanifest`, { headers: { cookie: "dc-taal=en" } })).json();
+  assert.equal(en.lang, "en"); assert.deepEqual(en.shortcuts.map((s) => s.url), ["/app/?v=checkin", "/app/?v=dagboek", "/app/?v=training", "/app/?v=coach"]);
+  assert.equal(en.shortcuts[1].name, "Diary"); assert.equal(en.start_url, "/app/");
+  const cm = await (await fetch(`${BASE}/coach.webmanifest`, { headers: { cookie: "dc-taal=es" } })).json();
+  assert.equal(cm.scope, "/coach/"); assert.equal(cm.shortcuts.length, 3);
+});

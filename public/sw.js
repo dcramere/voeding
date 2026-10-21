@@ -8,7 +8,12 @@ self.addEventListener("push", (e) => {
     let list = [];
     try {
       const r = await fetch("/api/push/pending", { credentials: "include" });
-      if (r.ok) list = (await r.json()).notificaties || [];
+      if (r.ok) {
+        const data = await r.json();
+        list = data.notificaties || [];
+        // number on the app icon (installed apps); ignored where unsupported
+        if (typeof data.badge === "number" && self.navigator.setAppBadge) await (data.badge ? self.navigator.setAppBadge(data.badge) : self.navigator.clearAppBadge()).catch(() => {});
+      }
     } catch (err) { /* offline: show the generic notification below */ }
     // browsers (iOS in particular) require a visible notification for every push
     if (!list.length) {

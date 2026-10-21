@@ -42,6 +42,7 @@ export default {
       try { return await storefrontPage(env, url, pickLang(req, url)); }
       catch (e) { console.error(e); ctx.waitUntil(logFout(env, url.pathname, e)); return new Response(tr(pickLang(req, url), "Er ging iets mis."), { status: 500 }); }
     }
+    if (url.pathname === "/manifest.webmanifest" || url.pathname === "/coach.webmanifest") return manifest(req, env, url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
       return await route(req, env, url, ctx);
@@ -80,6 +81,7 @@ export class Scheduler {
 async function runHourly(env, now, force) {
   await backupIfDue(env, now);
   await autoCheckinInhalen(env, now);
+  await dagoverzichten(env, now);
   const hour = new Date(now * 1000).getUTCHours();
   if (force || env.HERINNERING_UUR === "altijd" || hour === Number(env.HERINNERING_UUR || 12)) {
     await sendReminders(env, now);
@@ -405,6 +407,7 @@ const ROUTES = [
   ["DELETE", /^\/fotos\/(\d+)$/, withClient(clientDelFoto)],
   ["POST", "/checkins", withClient(clientAddCheckin)],
   ["POST", "/bloed/akkoord", withClient(bloedAkkoord)],
+  ["PUT", "/dagoverzicht", withClient(putDagoverzicht)],
   ["POST", "/bloed/upload", withClient((c) => bloedUpload(c, c.client, "client")), RAW],
   ["POST", "/bloed", withClient((c) => bloedNieuw(c, c.client, "client"))],
   ["PUT", /^\/bloed\/(\d+)$/, withClient((c) => bloedWijzig(c, c.client, "client", c.params[0]))],
@@ -633,6 +636,7 @@ async function clientMe(c) {
     avatar: avatarUrl("client", cl), coachAvatar: coach ? avatarUrl("coach", coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
+    dagoverzicht: cl.dagoverzicht ?? null,
     bloedAkkoord: cl.bloed_akkoord || null, bloed: await bloedLijst(env, cl.id, pickLang(c.req, c.url), "client"),
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
     programmaDef: cl.programma ? await customDefOut(env, JSON.parse(cl.programma).id, cl.coach_id) : null,
@@ -2189,7 +2193,88 @@ async function pushPending(c) {
     if (results.length) await c.env.DB.prepare(`UPDATE notificaties SET bezorgd = ? WHERE id IN (${results.map(() => "?").join(",")})`).bind(c.now, ...results.map((r) => r.id)).run();
     out.push(...results);
   }
-  return json({ notificaties: out });
+  return json({ notificaties: out, badge: await badgeCount(c.env, await sessionRoles(c), c.now) });
+}
+
+// number on the app icon: client = unread coach messages + a due check-in; coach = unread client messages
+async function badgeCount(env, roles, now) {
+  let n = 0;
+  for (const [role, id] of roles) {
+    if (role === "coach") n += (await env.DB.prepare("SELECT COUNT(*) AS n FROM berichten b JOIN clients cl ON cl.id = b.client_id WHERE cl.coach_id = ? AND b.van = 'client' AND b.gelezen IS NULL").bind(id).first()).n;
+    else {
+      const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM berichten WHERE client_id = ? AND van = 'coach' AND gelezen IS NULL) AS ongelezen,
+        (SELECT MAX(datum) FROM checkins WHERE client_id = ?) AS checkin, (SELECT MIN(datum) FROM metingen WHERE client_id = ?) AS start`).bind(id, id, id).first();
+      const age = (d) => (d ? now - Date.parse(d + "T12:00:00Z") / 1000 : Infinity);
+      n += r.ongelezen + (r.start && age(r.checkin) >= CHECKIN_ELKE - DAY / 2 && age(r.start) >= CHECKIN_ELKE - DAY / 2 ? 1 : 0);
+    }
+  }
+  return n;
+}
+
+// installed-app manifests with long-press shortcuts in the user's language (dc-taal cookie / browser language)
+async function manifest(req, env, url) {
+  const lang = pickLang(req, url), coach = url.pathname.startsWith("/coach");
+  const base = await (await env.ASSETS.fetch(new Request(new URL(url.pathname, url.origin)))).json();
+  const icon = [{ src: "/img/icon-192.png", sizes: "192x192", type: "image/png" }];
+  const sc = (name, u) => ({ name, short_name: name, url: u, icons: icon });
+  base.lang = lang;
+  if (coach) {
+    base.description = tr(lang, "Coachdashboard: cliënten, check-ins, programma's en winkel.");
+    base.shortcuts = [sc(tr(lang, "Cliënten"), "/coach/#/"), sc(tr(lang, "Aanvragen"), "/coach/#/aanvragen"), sc(tr(lang, "Programma's"), "/coach/#/programmas")];
+  } else {
+    base.description = tr(lang, "Uw persoonlijke voedings- en trainingsplan.");
+    base.shortcuts = [sc(tr(lang, "Check-in"), "/app/?v=checkin"), sc(tr(lang, "Dagboek"), "/app/?v=dagboek"), sc(tr(lang, "Training"), "/app/?v=training"), sc(tr(lang, "Coach"), "/app/?v=coach")];
+  }
+  return new Response(JSON.stringify(base), { headers: { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "public, max-age=3600", vary: "cookie, accept-language" } });
+}
+
+// ---------- daily overview notification ----------
+async function putDagoverzicht(c) {
+  const uur = c.body.uur === null || c.body.uur === undefined || c.body.uur === "" ? null : Number(c.body.uur);
+  if (uur !== null && (!Number.isInteger(uur) || uur < 5 || uur > 12)) fail(400, "Kies een tijd tussen 5:00 en 12:00.");
+  const tz = Number.isInteger(Number(c.body.tz)) && Math.abs(Number(c.body.tz)) <= 840 ? Number(c.body.tz) : c.client.tz;
+  await c.env.DB.prepare("UPDATE clients SET dagoverzicht = ?, tz = ? WHERE id = ?").bind(uur, tz, c.client.id).run();
+  return json({ dagoverzicht: uur });
+}
+// today's target, protein and workout for one client (null when there is no profile or weigh-in yet)
+async function dagoverzichtVoor(env, cl, datum) {
+  const P = profielOut(cl), metingen = await metingenOf(env, cl.id), laatste = metingen[metingen.length - 1];
+  if (!P || !laatste) return null;
+  const A = DC.analyse(P, laatste), D = DC.dagTargets(P, A);
+  const dow = new Date(datum + "T12:00:00Z").getUTCDay(), trainingsdag = (P.trainingsdagen || []).includes(dow);
+  const doel = D ? (trainingsdag ? D.train : D.rust) : { kcal: A.kcal, prot: A.prot };
+  let training = null;
+  if (cl.programma && trainingsdag) {
+    const pr = JSON.parse(cl.programma), def = await programDef(env, pr.id, cl.coach_id);
+    if (def && datum >= pr.start) {
+      const week = Math.min(def.weken, Math.floor((Date.parse(datum) - Date.parse(pr.start)) / (7 * 864e5)) + 1);
+      const klaar = new Set((await env.DB.prepare("SELECT dag FROM workouts WHERE client_id = ? AND programma = ? AND week = ? AND afgerond IS NOT NULL").bind(cl.id, pr.id, week).all()).results.map((w) => w.dag));
+      const namen = def.custom ? def.data.dagen.map((d) => [d.key, d.naam]) : TR.PROGRAMS[pr.id].dagen.map((d) => [d.key, d.naam]);
+      const volgende = namen.find(([k]) => !klaar.has(k));
+      if (volgende) training = { naam: volgende[1], week };
+    }
+  }
+  return { kcal: doel.kcal, eiwit: doel.prot, trainingsdag, training };
+}
+const DAG_TEKST = [{ tekst: "Vandaag: {kcal} kcal · {eiwit} g eiwit · training {naam} (week {week})" },
+  { tekst: "Vandaag: {kcal} kcal · {eiwit} g eiwit · trainingsdag" }, { tekst: "Vandaag: {kcal} kcal · {eiwit} g eiwit · rustdag" }];
+async function dagoverzichten(env, now) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM clients WHERE dagoverzicht IS NOT NULL AND actief = 1 AND (abo_status IS NULL OR abo_status IN ('active','trialing','past_due'))`).all();
+    for (const cl of results) {
+      const lokaal = new Date((now - cl.tz * 60) * 1000), datum = lokaal.toISOString().slice(0, 10);
+      if (lokaal.getUTCHours() !== cl.dagoverzicht || cl.dagoverzicht_laatst === datum) continue;
+      await env.DB.prepare("UPDATE clients SET dagoverzicht_laatst = ? WHERE id = ?").bind(datum, cl.id).run();
+      const d = await dagoverzichtVoor(env, cl, datum);
+      if (!d) continue;
+      const v = { kcal: d.kcal, eiwit: d.eiwit, naam: d.training && d.training.naam, week: d.training && d.training.week };
+      await notify(env, "client", cl.id, {
+        titel: "Uw dag in het kort", v, url: "/app/?v=plan",
+        tekst: DAG_TEKST[d.training ? 0 : d.trainingsdag ? 1 : 2].tekst,
+      }, now);
+    }
+  } catch (e) { console.error("daily overview failed", e); }
 }
 
 // ---------- adaptive targets ----------

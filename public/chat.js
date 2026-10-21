@@ -69,5 +69,9 @@ async function disablePush(){
 const PUSH_TEXT={on:T("Meldingen staan aan op dit apparaat."),off:T("Meldingen staan uit op dit apparaat."),denied:T("Meldingen zijn geblokkeerd. Zet ze aan in de instellingen van uw telefoon of browser."),
   "ios-install":T("Op een iPhone werken meldingen alleen als de app op uw beginscherm staat: tik op Deel → Zet op beginscherm en open de app vandaar."),unsupported:T("Deze browser ondersteunt geen pushmeldingen.")};
 
-window.CHAT={messagesHTML,composerHTML,autoGrow,pushState,enablePush,disablePush,PUSH_TEXT};
+// number on the installed app's icon (iOS 16.4+ home-screen apps, Android/desktop Chrome); silently ignored elsewhere
+function appBadge(n){
+  try{if(!("setAppBadge" in navigator))return; (n>0?navigator.setAppBadge(n):navigator.clearAppBadge()).catch(()=>{})}catch(e){}
+}
+window.CHAT={appBadge,messagesHTML,composerHTML,autoGrow,pushState,enablePush,disablePush,PUSH_TEXT};
 })();

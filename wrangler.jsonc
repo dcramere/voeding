@@ -6,7 +6,7 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/", "/c/*"]
+    "run_worker_first": ["/api/*", "/", "/c/*", "/manifest.webmanifest", "/coach.webmanifest"]
   },
   "d1_databases": [
     {

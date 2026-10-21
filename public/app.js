@@ -76,6 +76,7 @@ function renderBloed(){
   else bloedUI.render();
 }
 function renderCheckin(){
+  iconBadge();
   const k=lastCheckin(), first=!me.metingen.length;
   $("t-meting").textContent=first?T("Uw eerste meting"):T("Check-in");
   $("weekTitle").hidden=$("weekSub").hidden=$("fCheckin").hidden=first;
@@ -132,7 +133,9 @@ function openChat(){
   stopChatPoll(); chatPoll=setInterval(()=>{if(!document.hidden) loadChat().catch(()=>{})},15000);
 }
 function stopChatPoll(){if(chatPoll){clearInterval(chatPoll);chatPoll=null}}
-function setBadge(n){const b=$("chatBadge");b.hidden=!n;b.textContent=n>9?"9+":n}
+function setBadge(n){const b=$("chatBadge");b.hidden=!n;b.textContent=n>9?"9+":n;if(me){me.ongelezen=n;iconBadge()}}
+// app icon: unread messages + a due check-in (only once the client has started)
+const iconBadge=()=>CHAT.appBadge((me.ongelezen||0)+(me.metingen&&me.metingen.length&&checkinDue()?1:0));
 setInterval(()=>{if(me&&!document.hidden&&!$("v-coach").classList.contains("on"))DC.api("/api/berichten/ongelezen").then(r=>setBadge(r.n)).catch(()=>{})},60000);
 async function renderPush(){
   const st=await CHAT.pushState().catch(()=>"unsupported");
@@ -141,6 +144,16 @@ async function renderPush(){
   $("pushBtn").textContent=st==="on"?T("Meldingen uitzetten"):T("Meldingen aanzetten");
   $("pushBtn").dataset.state=st;
 }
+// daily overview: hour in the client's own time; the UTC offset goes along so the server sends it at that local hour
+$("dagoverzicht").addEventListener("change",async e=>{
+  const m=$("dagMsg"); m.className="flash"; m.textContent="";
+  try{
+    const uur=e.target.value===""?null:+e.target.value;
+    me.dagoverzicht=(await DC.api("/api/dagoverzicht","PUT",{uur,tz:new Date().getTimezoneOffset()})).dagoverzicht;
+    const st=await CHAT.pushState().catch(()=>"unsupported");
+    m.textContent=uur==null?T("Dagelijks overzicht staat uit."):st==="on"?T("Opgeslagen. U krijgt elke ochtend om {t} uw overzicht.",{t:String(uur).padStart(2,"0")+":00"}):T("Opgeslagen. Zet hierboven ook de meldingen aan om het overzicht te ontvangen.");
+  }catch(x){m.className="flash err";m.textContent=x.message}
+});
 $("pushBtn").addEventListener("click",async()=>{
   const b=$("pushBtn"); b.disabled=true; $("pushMsg").textContent="";
   try{if(b.dataset.state==="on")await CHAT.disablePush();else await CHAT.enablePush("client")}catch(e){$("pushMsg").textContent=e.message}
@@ -233,6 +246,7 @@ function renderAll(){
   if(me.coach) $("coachNaam").textContent=me.coach;
   DC.applyBrand(me.merk);
   setBadge(me.ongelezen||0); renderPush();
+  $("dagoverzicht").value=me.dagoverzicht==null?"":String(me.dagoverzicht);
   const ab=me.abonnement;
   $("aboBlock").hidden=!ab;
   if(ab) $("aboInfo").textContent=(ab.status==="active"||ab.status==="trialing"?T("Uw maandabonnement is actief"):ab.status==="past_due"?T("De laatste betaling is niet gelukt; werk uw betaalgegevens bij"):T("Status: {x}",{x:ab.status}))+(ab.einde?". "+T("Huidige periode loopt tot {d}.",{d:new Date(ab.einde*1000).toLocaleDateString(I18N.locale,{day:"numeric",month:"long",year:"numeric"})}):".");

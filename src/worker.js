@@ -1,7 +1,7 @@
 // DCRAMERE Voeding — API (/api/*) + static assets (public/)
 import { tr, pickLang, valid as validLang } from "./i18n.js";
 import { DC, TR } from "./core.js";
-import { matchMarker, parseRef, beoordeel, urgent, ALGEMEEN, ADVIES } from "./bloed.js";
+import { matchMarker, parseRef, beoordeel, urgent, ALGEMEEN, ADVIES, SWAPS } from "./bloed.js";
 
 const DAY = 86400;
 const SESSION_TTL = 30 * DAY;
@@ -472,6 +472,7 @@ const ROUTES = [
   ["PUT", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedWijzig(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
   ["DELETE", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedVerwijder(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
   ["POST", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)\/advies$/, withCoach(async (c) => bloedAdviesMaken(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
+  ["POST", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)\/maaltijdplan$/, withCoach(async (c) => bloedMaaltijdplan(c, await ownClient(c, c.params[0]), c.params[1]))],
   ["GET", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)\/bestand\/(\d+)$/, withCoach(async (c) => bloedBestand(c, (await ownClient(c, c.params[0])).id, c.params[1], c.params[2]))],
   ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
   ["GET", "/coach/programmas", withCoach(listProgrammas)],
@@ -1433,6 +1434,80 @@ Rules: go through every food and drink in their current diet and list each one t
     } catch (e) { console.error("blood plan AI failed", e); out = null; }
   }
   return { taal: lang, gemaakt: now, ai: !!out, ...(out || sjabloon()) };
+}
+// Proposal (not saved): the client's meal plan (or the basis the dashboard sends: today's automatic menu) adjusted to the
+// recommendation plan. The coach previews it and then applies it or opens it in the meal plan editor.
+async function bloedMaaltijdplan(c, cl, id) {
+  const row = await c.env.DB.prepare("SELECT * FROM bloedonderzoek WHERE id = ? AND client_id = ?").bind(id, cl.id).first();
+  if (!row) fail(404, "Bloedonderzoek niet gevonden.");
+  if (!row.advies) fail(400, "Maak eerst het aanbevelingsplan.");
+  const basis = cl.maaltijdplan ? JSON.parse(cl.maaltijdplan) : c.body.basis ? await cleanMaaltijdplan(c.env, c.body.basis, cl.id) : null;
+  if (!basis) fail(400, "Er is nog geen maaltijdplan om aan te passen.");
+  await bloedLimiet(c, cl.id);
+  const advies = JSON.parse(row.advies), lang = advies.taal || cl.taal || "nl";
+  const P = cl.profiel ? JSON.parse(cl.profiel) : {}, I = cl.intake ? JSON.parse(cl.intake) : {}, excl = new Set(P.excl || []);
+  const eigen = (await c.env.DB.prepare("SELECT id, naam FROM producten WHERE client_id = ?").bind(cl.id).all()).results;
+  const toegestaan = new Map([...Object.entries(DC.FOODS).filter(([k, f]) => !f.custom && !excl.has(k)).map(([k, f]) => [k, tr("en", f.n)]), ...eigen.map((p) => [`p${p.id}`, p.naam])]);
+  const a = bloedAnalyse(bloedRij(row), [], "en"), bevindingen = a.waarden.filter((w) => w.code && (w.status === "laag" || w.status === "hoog")).map((w) => `${w.code}:${w.status}`);
+  // meals cooked in one pot (identical items) stay identical: index of the earlier twin, or -1
+  const sig = (m) => JSON.stringify(m.items.map((x) => [x.key, x.g]));
+  const zelfdePot = (i) => basis.maaltijden.findIndex((m, j) => j !== i && sig(m) === sig(basis.maaltijden[i]));
+  // keep the meal structure and the coach's fixed items; only items the client may eat
+  const opschonen = (voorstel) => ({ maaltijden: basis.maaltijden.map((m, i) => {
+    const v = voorstel.maaltijden && voorstel.maaltijden[i];
+    const items = (v && Array.isArray(v.items) ? v.items : []).map((x) => ({ key: String(x && x.key || ""), g: Math.round(Number(x && x.g)) }))
+      .filter((x) => toegestaan.has(x.key) && x.g >= 1 && x.g <= 2000).slice(0, 12)
+      .map((x) => ({ ...x, vast: !!(m.items.find((b) => b.key === x.key) || {}).vast }));
+    return { ...m, items: items.length ? items : m.items };
+  }) });
+  // same pot: both twins get the version that was changed
+  const potGelijk = (v) => v.maaltijden.forEach((m, i) => { const t = zelfdePot(i); if (t >= 0 && t < i) {
+    const bron = sig(v.maaltijden[t]) !== sig(basis.maaltijden[t]) ? t : i, items = v.maaltijden[bron].items;
+    v.maaltijden[t] = { ...v.maaltijden[t], items }; v.maaltijden[i] = { ...m, items }; } });
+  let voorstel = null, ai = false;
+  if (c.env.AI) {
+    const system = `You adjust a client's meal plan to their blood test recommendation plan. Return ONLY a JSON object, no other text:
+{"maaltijden": [the same meals in the same order, each {"items": [{"key": food key, "g": grams}]}]}
+Rules: keep every meal (same number, same order); make 2 to 6 targeted changes that follow the recommendation plan; keep everything else exactly as it is.
+- Remove or swap every food from the "less or swap" list that appears in the plan.
+- A swap REPLACES the old food: remove it and put the new food in its place with about the same calories. Never put two protein sources or two starch sources of the same kind in one meal.
+- Meals marked "same pot" must stay identical to each other.
+- Keep the total calories of each meal about the same (portions are scaled to the daily target afterwards).
+- Use ONLY keys from the list of allowed foods; never use foods the client is allergic to.`;
+    const feiten = [
+      `Allowed foods (key: name): ${[...toegestaan].map(([k, n]) => `${k}: ${n}`).join("; ")}.`,
+      `Allergies: ${I.allergieen || "none given"}.`,
+      `Current meal plan:\n${basis.maaltijden.map((m, i) => `${i + 1}. ${m.naam}${m.train ? " (training days only)" : ""}${zelfdePot(i) >= 0 ? ` (same pot as meal ${zelfdePot(i) + 1})` : ""}: ${m.items.map((x) => `${x.key} ${x.g} g`).join(", ")}`).join("\n")}`,
+      `Recommendation plan. Eat more: ${(advies.meer || []).map((x) => `${x.wat}${x.hoe ? ` (${x.hoe})` : ""}`).join("; ") || "-"}. Less or swap: ${(advies.minder || []).map((x) => `${x.wat}${x.vervang ? ` → ${x.vervang}` : ""}`).join("; ") || "-"}.`,
+    ].join("\n");
+    try {
+      const res = await c.env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [{ role: "system", content: system }, { role: "user", content: feiten }], max_tokens: 1500, temperature: 0.2 });
+      const j = typeof res.response === "object" && res.response ? res.response : JSON.parse(String(res.response).match(/\{[\s\S]*\}/)[0]);
+      voorstel = opschonen(j);
+      potGelijk(voorstel);
+      ai = JSON.stringify(voorstel) !== JSON.stringify(opschonen(basis));
+      if (!ai) voorstel = null;
+    } catch (e) { console.error("meal plan proposal AI failed", e); voorstel = null; }
+  }
+  // fixed swaps per finding: all of them without AI; with AI only the ones that must always happen (honey, coconut oil)
+  const MOET = new Set(["honing", "kokosolie"]);
+  const swaps = (v, alleenMoet) => {
+    for (const f of bevindingen) for (const [van, naar, alleen] of SWAPS[f] || []) {
+      if (!toegestaan.has(naar) || (alleenMoet && !MOET.has(van))) continue;
+      for (const m of v.maaltijden) {
+        if (alleen && m.dagboek !== alleen) continue;
+        const it = m.items.find((x) => x.key === van);
+        if (!it) continue;
+        if (m.items.some((x) => x.key === naar)) { m.items = m.items.filter((x) => x !== it); continue; }
+        // same calories: 7 g honey becomes about 40 g berries
+        it.g = Math.min(2000, Math.max(1, Math.round(it.g * DC.FOODS[van].k / DC.FOODS[naar].k / 5) * 5 || it.g)); it.key = naar; it.vast = false;
+      }
+    }
+    potGelijk(v);
+  };
+  if (voorstel) swaps(voorstel, true);
+  else { voorstel = JSON.parse(JSON.stringify(basis)); swaps(voorstel, false); }
+  return json({ basis, voorstel: await cleanMaaltijdplan(c.env, voorstel, cl.id), ai });
 }
 async function bloedAkkoord(c) {
   if (c.body.akkoord !== true) fail(400, "Geef toestemming om verder te gaan.");

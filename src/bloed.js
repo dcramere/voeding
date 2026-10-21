@@ -127,3 +127,11 @@ export const ADVIES = {
   "crp:hoog": { meer: [N_("Vette vis, noten, olijfolie en elke dag groente en fruit.")], minder: [N_("Bewerkte en gefrituurde producten.")] },
   "testo:laag": { meer: [N_("Gezonde vetten, genoeg calorieën en 7 tot 9 uur slaap.")], minder: [N_("Een te groot calorietekort en alcohol.")] },
 };
+
+// Food swaps in a meal plan per finding, used when no AI is available: [from, to, only in this diary meal (optional)]
+export const SWAPS = {
+  "glucose:hoog": [["honing", "bessen"]], "hba1c:hoog": [["honing", "bessen"]], "trig:hoog": [["honing", "bessen"]],
+  "chol:hoog": [["kokosolie", "olijfolie"], ["eend", "kip"]], "ldl:hoog": [["kokosolie", "olijfolie"], ["eend", "kip"]],
+  "hb:laag": [["kip", "gehakt", "avond"]], "ferritine:laag": [["kip", "gehakt", "avond"]], "ijzer:laag": [["kip", "gehakt", "avond"]],
+  "vitd:laag": [["kip", "zalm", "lunch"], ["witvis", "zalm"]], "crp:hoog": [["witvis", "zalm"]],
+};

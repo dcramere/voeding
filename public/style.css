@@ -643,3 +643,15 @@ html.i18n-wait body{visibility:hidden}
 .bl-advies li,.p-advies li{margin:3px 0}
 .bl-advies li small,.p-advies li small{display:block;color:var(--muted);font-size:12px}
 @media print{.p-advies h4{color:#8a6a0a!important;font-size:10.5pt}.p-advies ul{font-size:9.5pt}.p-advies li{break-inside:avoid}.p-advies li small{color:#666!important;font-size:8.5pt}}
+.mp-voorstel{border-top:1px solid var(--gold-dim);margin-top:12px;padding-top:4px}
+.mp-voorstel ul{font-size:14px}
+.mp-diff{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+.mp-diff th{text-align:left;vertical-align:top;padding:6px 10px 6px 0;white-space:nowrap;font-weight:600}
+.mp-diff td{padding:6px 0;border-bottom:1px solid var(--line);line-height:1.7}
+.mp-add{color:var(--ok);font-weight:600}
+.mp-del{color:var(--warn);text-decoration:line-through}
+.mp-chg{color:var(--gold);font-weight:600}
+.mp-totals{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px}
+.mp-totals>div>small{display:block;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.mp-totals small small,.mp-totals div div small{display:none}
+@media (max-width:640px){.mp-totals{grid-template-columns:1fr}}

@@ -63,7 +63,12 @@ function reportHTML(r,o,open){
   h+=`<section class="bl-advies"><h3>${T("Aanbevelingsplan")}</h3>${r.advies
       ?`${adviesHTML(r.advies)}<p class="fine" style="margin:8px 0 0">${T("Gemaakt op {d} op basis van deze uitslag en het huidige eetpatroon.",{d:DC.dateNL(new Date(r.advies.gemaakt*1000).toISOString().slice(0,10))})}</p>`
       :`<p class="sub" style="margin:0 0 8px">${o.coach?T("Een plan met concrete voedingsaanpassingen op basis van deze uitslag en wat de cliënt nu eet (intake, maaltijdplan en dagboek)."):T("Een plan met concrete aanpassingen op basis van deze uitslag en wat u nu eet.")}</p>`}
-    <div class="actions" style="margin-top:8px"><button class="btn small${r.advies?" ghost":""}" type="button" data-bl-advies="${r.id}"${o.busyAdvies?" disabled":""}>${o.busyAdvies===r.id?T("Bezig met opstellen…"):r.advies?T("Opnieuw maken"):T("Aanbevelingsplan maken")}</button></div></section>`;
+    <div class="actions" style="margin-top:8px">${o.coach&&r.advies&&o.mpHook?`<button class="btn small" type="button" data-bl-mp="${r.id}"${o.mp&&o.mp.busy?" disabled":""}>${o.mp&&o.mp.busy&&o.mp.id===r.id?T("Voorstel maken…"):T("Toepassen op maaltijdplan")}</button>`:""}<button class="btn small${r.advies?" ghost":""}" type="button" data-bl-advies="${r.id}"${o.busyAdvies?" disabled":""}>${o.busyAdvies===r.id?T("Bezig met opstellen…"):r.advies?T("Opnieuw maken"):T("Aanbevelingsplan maken")}</button></div>
+    ${o.mp&&o.mp.id===r.id&&o.mp.voorstel?`<div class="mp-voorstel"><h4>${T("Voorbeeld van het aangepaste maaltijdplan")}</h4>
+      ${o.mpHook.previewHTML(o.mp.basis,o.mp.voorstel)}
+      <p class="fine">${T("Nog niet opgeslagen. De porties worden daarna, zoals altijd, automatisch op het dagdoel afgestemd.")}</p>
+      <div class="actions"><button class="btn small" type="button" data-bl-mp-ok>${T("Toepassen")}</button><button class="btn small ghost" type="button" data-bl-mp-edit>${T("Eerst aanpassen in de editor")}</button><button class="btn small ghost" type="button" data-bl-mp-weg>${T("Annuleren")}</button></div></div>`:""}
+    </section>`;
   h+=`<details class="bl-all"><summary>${T("Alle waarden ({n})",{n:r.totaal})}</summary><div class="table-scroll"><table class="bl-table"><thead><tr><th>${T("Test")}</th><th class="n">${T("Uitslag")}</th><th>${T("Referentie")}</th><th></th></tr></thead><tbody>
     ${r.waarden.map(w=>`<tr><td>${esc(w.naam)}${trend(w)}</td><td class="n">${valStr(w)} <small>${esc(w.eenheid)}</small></td><td><small>${refStr(w)}</small></td><td>${pill(w)}</td></tr>`).join("")}</tbody></table></div></details>`;
   h+=`<div class="actions bl-foot">${r.bestanden.map(b=>`<a class="btn small ghost" href="${o.src(r.id,b.n)}" target="_blank" rel="noopener">${r.bestanden.length>1?T("Origineel {n}",{n:b.n+1}):T("Origineel bekijken")}</a>`).join("")}
@@ -145,9 +150,9 @@ async function upload(url,blob){
 
 // mounts the section in root. ctx: {coach, base (API path without trailing slash), get() → {bloed, bloedAkkoord}, set(list), onAkkoord(ts), api, info() → {naam, coach, merk}}
 function mount(root,ctx){
-  const st={editing:null,busy:false,data:null};
+  const st={editing:null,busy:false,data:null,mp:null};
   const src=(id,n)=>`${ctx.base}/${id}/bestand/${n}`;
-  const render=()=>{const d=ctx.get();if(d!==st.data){st.data=d;st.editing=null}root.innerHTML=html(d.bloed||[],{coach:ctx.coach,akkoord:d.bloedAkkoord,src,editing:st.editing,busy:st.busy,busyAdvies:st.busyAdvies})};
+  const render=()=>{const d=ctx.get();if(d!==st.data){st.data=d;st.editing=null;st.mp=null}root.innerHTML=html(d.bloed||[],{coach:ctx.coach,akkoord:d.bloedAkkoord,src,editing:st.editing,busy:st.busy,busyAdvies:st.busyAdvies,mp:st.mp,mpHook:ctx.mp})};
   const msg=t=>{const m=root.querySelector("[data-bl-msg]");if(m)m.textContent=t||""};
   const api=ctx.api||DC.api;
   root.addEventListener("click",async e=>{
@@ -161,6 +166,18 @@ function mount(root,ctx){
       try{ctx.set((await api(`${ctx.base}/${t.dataset.blAdvies}/advies`,"POST",{})).bloed)}catch(x){alert(x.message)}
       st.busyAdvies=null; render();
     }
+    else if(t.dataset.blMp){
+      st.mp={id:+t.dataset.blMp,busy:true}; render();
+      try{const v=await api(`${ctx.base}/${t.dataset.blMp}/maaltijdplan`,"POST",{basis:ctx.mp.basis()});st.mp={id:+t.dataset.blMp,...v}}
+      catch(x){st.mp=null;alert(x.message)}
+      render();
+    }
+    else if(t.hasAttribute("data-bl-mp-ok")){
+      if(!confirm(T("Het huidige maaltijdplan van de cliënt vervangen door dit voorstel?"))) return;
+      try{const plan=st.mp.voorstel;st.mp=null;await ctx.mp.apply(plan)}catch(x){alert(x.message)}
+    }
+    else if(t.hasAttribute("data-bl-mp-edit")){const plan=st.mp.voorstel;st.mp=null;ctx.mp.edit(plan)}
+    else if(t.hasAttribute("data-bl-mp-weg")){st.mp=null;render()}
     else if(t.dataset.blPdf){const r=ctx.get().bloed.find(x=>x.id===+t.dataset.blPdf);if(r)printReport(r,ctx.info(),t.hasAttribute("data-bl-coach"))}
     else if(t.dataset.blEdit){const r=ctx.get().bloed.find(x=>x.id===+t.dataset.blEdit);st.editing={id:r.id,datum:r.datum,lab:r.lab,rows:r.waarden};render()}
     else if(t.hasAttribute("data-bl-cancel")){st.editing=null;render()}

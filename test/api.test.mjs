@@ -1130,3 +1130,40 @@ test("blood test recommendation plan: guidance per finding, kidney rule, cleared
   assert.equal(ok.meer.length, 0); assert.match(ok.focus[0], /binnen het referentiebereik/);
   assert.ok((await u("/api/account/export")).data.bloedonderzoek[0].aanbevelingsplan);
 });
+
+test("blood plan → meal plan proposal: preview only, swaps with equal calories, same pot kept, apply via the normal save", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Mia Maal", email: "mia-maal@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "mia-pass-1234", privacy: true });
+  await u("/api/profiel", "PUT", { naam: "Mia Maal", profiel: PROFIEL });
+  await u("/api/metingen", "POST", { datum: "2026-10-01", gewicht: 70 });
+  await u("/api/bloed/akkoord", "POST", { akkoord: true });
+  const pot = [{ key: "kip", g: 150 }, { key: "rijstgekookt", g: 150 }, { key: "groente", g: 200, vast: true }];
+  const plan = { maaltijden: [
+    { naam: "Ontbijt", dagboek: "ontbijt", items: [{ key: "havermout", g: 60 }, { key: "honing", g: 7 }] },
+    { naam: "Lunch", dagboek: "lunch", items: pot }, { naam: "Avond", dagboek: "avond", items: pot } ] };
+  const id = (await u("/api/bloed", "POST", { datum: "2026-10-10", waarden: [
+    { naam: "Glucose", waarde: 7.2, eenheid: "mmol/L", ref_tekst: "4.0 - 6.1" }, { naam: "Ferritine", waarde: 10, eenheid: "µg/L", ref_tekst: "15 - 150" }] })).data.id;
+  const url = `/api/coach/clients/${inv.data.id}/bloed/${id}/maaltijdplan`;
+  assert.equal((await coach(url, "POST", {})).status, 400, "recommendation plan first");
+  await coach(`/api/coach/clients/${inv.data.id}/bloed/${id}/advies`, "POST", {});
+  assert.equal((await coach(url, "POST", {})).status, 400, "no meal plan and no basis");
+  // starting from a basis (the automatic menu in the dashboard) works without saving anything
+  assert.equal((await coach(url, "POST", { basis: plan })).status, 200);
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`)).data.maaltijdplan, null, "preview is not saved");
+  await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { maaltijdplan: plan });
+  const r = await coach(url, "POST", {});
+  assert.equal(r.status, 200); assert.equal(r.data.ai, false);
+  const [ontbijt, lunch, avond] = r.data.voorstel.maaltijden;
+  assert.ok(!ontbijt.items.some((x) => x.key === "honing"), "honey goes with high glucose");
+  const bes = ontbijt.items.find((x) => x.key === "bessen");
+  assert.ok(bes && bes.g >= 35 && bes.g <= 50, "same calories: " + JSON.stringify(bes));
+  assert.ok(avond.items.some((x) => x.key === "gehakt"), "iron: red meat at dinner");
+  assert.deepEqual(lunch.items, avond.items, "lunch and dinner stay one pot");
+  assert.equal(avond.items.find((x) => x.key === "groente").vast, true, "fixed items stay fixed");
+  assert.deepEqual(r.data.basis.maaltijden.map((m) => m.items.map((x) => x.key)), plan.maaltijden.map((m) => m.items.map((x) => x.key)), "basis = the current plan");
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`)).data.maaltijdplan.maaltijden[0].items[1].key, "honing", "still not saved");
+  // apply = the normal save; the client gets it
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { maaltijdplan: r.data.voorstel })).status, 200);
+  assert.ok((await u("/api/me")).data.profiel.maaltijdplan.maaltijden[2].items.some((x) => x.key === "gehakt"));
+  assert.equal((await u(url.replace(`/coach/clients/${inv.data.id}`, ""), "POST", {})).status, 404, "coach only");
+});

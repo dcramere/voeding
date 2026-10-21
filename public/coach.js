@@ -221,7 +221,11 @@ function renderClient(){
   $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins)+checkinReplyHTML(c);
   $("paneBadge").hidden=!c.ongelezen; $("paneBadge").textContent=c.ongelezen>9?"9+":c.ongelezen;
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
-  if(!bloedUI) bloedUI=BL.mount($("pBloed"),{coach:true,get:()=>cur,info:()=>({naam:cur.naam,coach:coach.naam,merk:coach.merk}),set:l=>{cur.bloed=l},api:call,get base(){return `/api/coach/clients/${cur.id}/bloed`}});
+  if(!bloedUI) bloedUI=BL.mount($("pBloed"),{coach:true,get:()=>cur,mp:{
+    basis:()=>cur.maaltijdplan?null:mpVanAutomatisch(),
+    previewHTML:mpDiffHTML,
+    apply:async plan=>{cur=await call("/api/coach/clients/"+cur.id,"PUT",{maaltijdplan:plan});mpEdit=null;renderClient();setPane("plan");$("pMaaltijdplan").scrollIntoView({behavior:"smooth",block:"start"})},
+    edit:plan=>{mpEdit={id:cur.id,plan:JSON.parse(JSON.stringify(plan))};renderClient();setPane("plan");$("pMaaltijdplan").scrollIntoView({behavior:"smooth",block:"start"})}},info:()=>({naam:cur.naam,coach:coach.naam,merk:coach.merk}),set:l=>{cur.bloed=l},api:call,get base(){return `/api/coach/clients/${cur.id}/bloed`}});
   else bloedUI.render();
   renderFotos();
   renderTraining();
@@ -405,6 +409,21 @@ function mpPreview(plan){
   return (D?["rust","train"]:[null]).map(dag=>{const pd=DC.planData(P,m,cur.menu,dag), r=x=>Math.round(x);
     return `<div><b>${dag==="train"?T("Trainingsdag"):dag==="rust"?T("Rustdag"):T("Dagmenu")}</b> ${DC.fmt(r(pd.S.k))} / ${DC.fmt(pd.A.kcal)} kcal · ${T("Eiwit")} ${r(pd.S.p)}/${pd.A.prot} g · ${T("Koolhydraten")} ${r(pd.S.c)}/${pd.A.carb} g · ${T("Vet")} ${r(pd.S.f)}/${pd.A.fat} g
       <small>${pd.meals.map(ml=>`${esc(ml.name)}: ${ml.items.map(i=>`${i.g} g ${esc(DC.FOODS[i.key].s)}`).join(", ")}`).join(" · ")}</small></div>`}).join("");
+}
+// before → after per meal (added, removed, other amount), with the scaled day totals of both
+function mpDiffHTML(basis,voorstel){
+  const naam=k=>esc((DC.FOODS[k]||{}).s||(DC.FOODS[k]||{}).n||k);
+  let n=0;
+  const rows=voorstel.maaltijden.map((m,i)=>{
+    const oud=(basis.maaltijden[i]||{items:[]}).items, nu=m.items;
+    n+=nu.filter(x=>{const o=oud.find(y=>y.key===x.key);return !o||o.g!==x.g}).length+oud.filter(o=>!nu.some(x=>x.key===o.key)).length;
+    const it=[...nu.map(x=>{const o=oud.find(y=>y.key===x.key);return !o?`<span class="mp-add">+ ${x.g} g ${naam(x.key)}</span>`:o.g!==x.g?`<span class="mp-chg">${naam(x.key)} ${o.g} → ${x.g} g</span>`:`<span>${x.g} g ${naam(x.key)}</span>`}),
+      ...oud.filter(o=>!nu.some(x=>x.key===o.key)).map(o=>`<span class="mp-del">${o.g} g ${naam(o.key)}</span>`)];
+    return `<tr><th>${esc(m.naam)}${m.train?` <small>(${T("trainingsdag")})</small>`:""}</th><td>${it.join(" · ")}</td></tr>`;
+  }).join("");
+  if(!n) return `<p class="sub">${T("Er zijn geen passende wijzigingen gevonden voor dit maaltijdplan.")}</p>`;
+  return `<p class="sub" style="margin:4px 0">${Tn(n,"1 wijziging: groen is nieuw, doorgestreept verdwijnt, goud is een andere hoeveelheid.","{n} wijzigingen: groen is nieuw, doorgestreept verdwijnt, goud is een andere hoeveelheid.")}</p><div class="table-scroll"><table class="mp-diff">${rows}</table></div>
+    <div class="mp-totals"><div><small>${T("Nu")}</small>${mpPreview(basis)}</div><div><small>${T("Nieuw")}</small>${mpPreview(voorstel)}</div></div>`;
 }
 function renderMp(){
   const el=$("pMaaltijdplan"), c=cur, plan=c.maaltijdplan, m=DC.latest(c.metingen);

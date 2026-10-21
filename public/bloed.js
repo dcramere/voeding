@@ -40,6 +40,16 @@ function consentHTML(){
     <div class="actions"><button class="btn" type="button" data-bl-consent-ok>${T("Doorgaan")}</button></div>
     <div class="err" role="status" data-bl-msg></div></div>`;
 }
+// recommendation plan: blood findings × current diet (made on request, stored with the report)
+function adviesHTML(a){
+  const li=(arr,f)=>arr&&arr.length?`<ul>${arr.map(f).join("")}</ul>`:"";
+  return `${a.focus&&a.focus.length?`<h4>${T("Waar we op letten")}</h4>${li(a.focus,x=>`<li>${esc(x)}</li>`)}`:""}
+    ${a.meer&&a.meer.length?`<h4>${T("Meer eten")}</h4>${li(a.meer,x=>`<li><b>${esc(x.wat)}</b>${x.hoe?` — ${esc(x.hoe)}`:""}${x.waarom?`<small>${esc(x.waarom)}</small>`:""}</li>`)}`:""}
+    ${a.minder&&a.minder.length?`<h4>${T("Minder of vervangen")}</h4>${li(a.minder,x=>`<li><b>${esc(x.wat)}</b>${x.vervang?` → ${esc(x.vervang)}`:""}${x.waarom?`<small>${esc(x.waarom)}</small>`:""}</li>`)}`:""}
+    ${a.dag&&a.dag.length?`<h4>${T("Voorbeelddag")}</h4>${li(a.dag,x=>`<li><b>${esc(x.maaltijd)}:</b> ${esc(x.voorstel)}</li>`)}`:""}
+    ${a.leefstijl&&a.leefstijl.length?`<h4>${T("Leefstijl")}</h4>${li(a.leefstijl,x=>`<li>${esc(x)}</li>`)}`:""}
+    ${a.arts&&a.arts.length?`<h4>${T("Bespreken met uw arts")}</h4>${li(a.arts,x=>`<li>${esc(x)}</li>`)}`:""}`;
+}
 function reportHTML(r,o,open){
   const buiten=r.waarden.filter(w=>w.status==="laag"||w.status==="hoog");
   const kop=`${DC.dateNL(r.datum)}${r.lab?`<span class="sep">·</span>${esc(r.lab)}`:""}`;
@@ -50,6 +60,10 @@ function reportHTML(r,o,open){
   if(o.coach&&r.coachNotitie) h+=`<h3>${T("Voor u als coach")}</h3><p class="bl-text">${esc(r.coachNotitie)}</p>`;
   if(buiten.length) h+=`<h3>${T("Buiten het referentiebereik")}</h3><ul class="bl-out">${buiten.map(w=>`<li><div class="bl-out-h"><b>${esc(w.naam)}</b> ${pill(w)}</div>
     <div class="bl-out-v">${valStr(w)} ${esc(w.eenheid)} <small>${T("bereik {r}",{r:refStr(w)||"–"})}</small> ${trend(w)}</div>${w.uitleg?`<p>${esc(w.uitleg)}</p>`:""}</li>`).join("")}</ul>`;
+  h+=`<section class="bl-advies"><h3>${T("Aanbevelingsplan")}</h3>${r.advies
+      ?`${adviesHTML(r.advies)}<p class="fine" style="margin:8px 0 0">${T("Gemaakt op {d} op basis van deze uitslag en het huidige eetpatroon.",{d:DC.dateNL(new Date(r.advies.gemaakt*1000).toISOString().slice(0,10))})}</p>`
+      :`<p class="sub" style="margin:0 0 8px">${o.coach?T("Een plan met concrete voedingsaanpassingen op basis van deze uitslag en wat de cliënt nu eet (intake, maaltijdplan en dagboek)."):T("Een plan met concrete aanpassingen op basis van deze uitslag en wat u nu eet.")}</p>`}
+    <div class="actions" style="margin-top:8px"><button class="btn small${r.advies?" ghost":""}" type="button" data-bl-advies="${r.id}"${o.busyAdvies?" disabled":""}>${o.busyAdvies===r.id?T("Bezig met opstellen…"):r.advies?T("Opnieuw maken"):T("Aanbevelingsplan maken")}</button></div></section>`;
   h+=`<details class="bl-all"><summary>${T("Alle waarden ({n})",{n:r.totaal})}</summary><div class="table-scroll"><table class="bl-table"><thead><tr><th>${T("Test")}</th><th class="n">${T("Uitslag")}</th><th>${T("Referentie")}</th><th></th></tr></thead><tbody>
     ${r.waarden.map(w=>`<tr><td>${esc(w.naam)}${trend(w)}</td><td class="n">${valStr(w)} <small>${esc(w.eenheid)}</small></td><td><small>${refStr(w)}</small></td><td>${pill(w)}</td></tr>`).join("")}</tbody></table></div></details>`;
   h+=`<div class="actions bl-foot">${r.bestanden.map(b=>`<a class="btn small ghost" href="${o.src(r.id,b.n)}" target="_blank" rel="noopener">${r.bestanden.length>1?T("Origineel {n}",{n:b.n+1}):T("Origineel bekijken")}</a>`).join("")}
@@ -99,6 +113,7 @@ function printHTML(r,info,metCoach){
     ${r.samenvatting?`<h2>${T("Samenvatting")}</h2><p class="p-text">${esc(r.samenvatting)}</p>`:""}
     ${metCoach&&r.coachNotitie?`<h2>${T("Voor de coach")}</h2><p class="p-text">${esc(r.coachNotitie)}</p>`:""}
     ${buiten.length?`<h2>${T("Buiten het referentiebereik")}</h2>${buiten.map(w=>`<div class="p-bl-out"><b>${esc(w.naam)}</b> · ${valStr(w)} ${esc(w.eenheid)} <span class="p-bl-st">${status(w)}</span> <small>${T("bereik {r}",{r:refStr(w)||"–"})}${w.vorige?" · "+T("vorige: {v} ({d})",{v:fmtN(w.vorige.waarde),d:DC.dateNL(w.vorige.datum,{day:"numeric",month:"short",year:"numeric"})}):""}</small>${w.uitleg?`<p>${esc(w.uitleg)}</p>`:""}</div>`).join("")}`:""}
+    ${r.advies?`<h2>${T("Aanbevelingsplan")}</h2><div class="p-advies">${adviesHTML(r.advies)}</div>`:""}
     <h2>${T("Alle waarden")}</h2>
     <table class="p-bl-table"><thead><tr><th>${T("Test")}</th><th class="n">${T("Uitslag")}</th><th>${T("Eenheid")}</th><th>${T("Referentie")}</th><th>${T("Beoordeling")}</th><th>${T("Vorige")}</th></tr></thead><tbody>
       ${r.waarden.map(w=>`<tr class="${w.status==="laag"||w.status==="hoog"?"uit":""}"><td>${esc(w.naam)}</td><td class="n">${valStr(w)}</td><td>${esc(w.eenheid)}</td><td>${refStr(w)}</td><td>${status(w)}</td><td>${tr(w)}</td></tr>`).join("")}</tbody></table>
@@ -132,7 +147,7 @@ async function upload(url,blob){
 function mount(root,ctx){
   const st={editing:null,busy:false,data:null};
   const src=(id,n)=>`${ctx.base}/${id}/bestand/${n}`;
-  const render=()=>{const d=ctx.get();if(d!==st.data){st.data=d;st.editing=null}root.innerHTML=html(d.bloed||[],{coach:ctx.coach,akkoord:d.bloedAkkoord,src,editing:st.editing,busy:st.busy})};
+  const render=()=>{const d=ctx.get();if(d!==st.data){st.data=d;st.editing=null}root.innerHTML=html(d.bloed||[],{coach:ctx.coach,akkoord:d.bloedAkkoord,src,editing:st.editing,busy:st.busy,busyAdvies:st.busyAdvies})};
   const msg=t=>{const m=root.querySelector("[data-bl-msg]");if(m)m.textContent=t||""};
   const api=ctx.api||DC.api;
   root.addEventListener("click",async e=>{
@@ -141,6 +156,11 @@ function mount(root,ctx){
       if(!root.querySelector("[data-bl-consent]").checked){msg(T("Vink het vakje aan om toestemming te geven."));return}
       try{ctx.onAkkoord((await api("/api/bloed/akkoord","POST",{akkoord:true})).bloedAkkoord);render()}catch(x){msg(x.message)}
     }else if(t.hasAttribute("data-bl-new")){st.editing={id:null,rows:[]};render();root.querySelector("[data-bl-form] [name=naam]")?.focus()}
+    else if(t.dataset.blAdvies){
+      st.busyAdvies=+t.dataset.blAdvies; render();
+      try{ctx.set((await api(`${ctx.base}/${t.dataset.blAdvies}/advies`,"POST",{})).bloed)}catch(x){alert(x.message)}
+      st.busyAdvies=null; render();
+    }
     else if(t.dataset.blPdf){const r=ctx.get().bloed.find(x=>x.id===+t.dataset.blPdf);if(r)printReport(r,ctx.info(),t.hasAttribute("data-bl-coach"))}
     else if(t.dataset.blEdit){const r=ctx.get().bloed.find(x=>x.id===+t.dataset.blEdit);st.editing={id:r.id,datum:r.datum,lab:r.lab,rows:r.waarden};render()}
     else if(t.hasAttribute("data-bl-cancel")){st.editing=null;render()}

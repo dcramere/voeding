@@ -1,7 +1,7 @@
 // DCRAMERE Voeding — API (/api/*) + static assets (public/)
 import { tr, pickLang, valid as validLang } from "./i18n.js";
 import { DC, TR } from "./core.js";
-import { matchMarker, parseRef, beoordeel, urgent, ALGEMEEN } from "./bloed.js";
+import { matchMarker, parseRef, beoordeel, urgent, ALGEMEEN, ADVIES } from "./bloed.js";
 
 const DAY = 86400;
 const SESSION_TTL = 30 * DAY;
@@ -412,6 +412,7 @@ const ROUTES = [
   ["POST", "/bloed", withClient((c) => bloedNieuw(c, c.client, "client"))],
   ["PUT", /^\/bloed\/(\d+)$/, withClient((c) => bloedWijzig(c, c.client, "client", c.params[0]))],
   ["DELETE", /^\/bloed\/(\d+)$/, withClient((c) => bloedVerwijder(c, c.client, "client", c.params[0]))],
+  ["POST", /^\/bloed\/(\d+)\/advies$/, withClient((c) => bloedAdviesMaken(c, c.client, "client", c.params[0]))],
   ["GET", /^\/bloed\/(\d+)\/bestand\/(\d+)$/, withClient((c) => bloedBestand(c, c.client.id, c.params[0], c.params[1]))],
   ["POST", "/wachtwoord", withClient(clientChangePassword)],
   // coach
@@ -470,6 +471,7 @@ const ROUTES = [
   ["POST", /^\/coach\/clients\/(\d+)\/bloed$/, withCoach(async (c) => bloedNieuw(c, await ownClient(c, c.params[0]), "coach"))],
   ["PUT", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedWijzig(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
   ["DELETE", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedVerwijder(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
+  ["POST", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)\/advies$/, withCoach(async (c) => bloedAdviesMaken(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
   ["GET", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)\/bestand\/(\d+)$/, withCoach(async (c) => bloedBestand(c, (await ownClient(c, c.params[0])).id, c.params[1], c.params[2]))],
   ["GET", /^\/coach\/clients\/(\d+)\/berichten$/, withCoach(coachGetBerichten)],
   ["GET", "/coach/programmas", withCoach(listProgrammas)],
@@ -1168,7 +1170,7 @@ async function bloedLijst(env, clientId, lang, rol) {
     const s = r.samenvatting || {};
     return { id: r.id, datum: r.datum, lab: r.lab || "", door: r.door, created_at: r.created_at,
       bestanden: r.bestanden.map((b, n) => ({ n, naam: b.naam || "", type: b.type })), ...bloedAnalyse(r, rijen.slice(0, i), lang),
-      samenvatting: (s.client && s.client.tekst) || null, ...(rol === "coach" ? { coachNotitie: (s.coach && s.coach.tekst) || null } : {}) };
+      samenvatting: (s.client && s.client.tekst) || null, advies: r.advies ? JSON.parse(r.advies) : null, ...(rol === "coach" ? { coachNotitie: (s.coach && s.coach.tekst) || null } : {}) };
   }).reverse();
 }
 
@@ -1335,7 +1337,7 @@ async function bloedWijzig(c, cl, door, id) {
   if (!oud) fail(404, "Bloedonderzoek niet gevonden.");
   const v = bloedVelden(c, oud);
   await bloedLimiet(c, cl.id);
-  await c.env.DB.prepare("UPDATE bloedonderzoek SET datum = ?, lab = ?, waarden = ?, updated_at = ? WHERE id = ?").bind(v.datum, v.lab, JSON.stringify(v.waarden), c.now, id).run();
+  await c.env.DB.prepare("UPDATE bloedonderzoek SET datum = ?, lab = ?, waarden = ?, advies = NULL, updated_at = ? WHERE id = ?").bind(v.datum, v.lab, JSON.stringify(v.waarden), c.now, id).run();
   await bloedSamenvatting(c.env, cl.id, id, door === "client" ? pickLang(c.req, c.url) : null);
   return json({ bloed: await bloedLijst(c.env, cl.id, pickLang(c.req, c.url), door) });
 }
@@ -1354,6 +1356,83 @@ async function bloedBestand(c, clientId, id, n) {
   const obj = b && await c.env.FOTOS.get(b.key);
   if (!obj) fail(404, "Bestand niet gevonden.");
   return new Response(obj.body, { headers: { "content-type": b.type, "content-length": String(b.bytes), "cache-control": "private, max-age=3600", "content-disposition": "inline", "x-content-type-options": "nosniff" } });
+}
+// Recommendation plan: the blood findings (with nutrition guidance per finding) combined with what the client eats now
+// (intake, coach meal plan, food diary of the last 14 days), allergies and excluded foods. AI tailors it; without AI the
+// guidance lines are the plan. Stored with the report; cleared when the values are corrected.
+async function bloedAdviesMaken(c, cl, door, id) {
+  const row = await c.env.DB.prepare("SELECT id FROM bloedonderzoek WHERE id = ? AND client_id = ?").bind(id, cl.id).first();
+  if (!row) fail(404, "Bloedonderzoek niet gevonden.");
+  await bloedLimiet(c, cl.id);
+  const lang = cl.taal || pickLang(c.req, c.url);
+  const advies = await bloedAdvies(c.env, cl, id, lang, c.now);
+  await c.env.DB.prepare("UPDATE bloedonderzoek SET advies = ? WHERE id = ?").bind(JSON.stringify(advies), id).run();
+  if (door === "coach") await notify(c.env, "client", cl.id, { titel: "Uw aanbevelingsplan staat klaar", tekst: "Uw coach heeft op basis van uw bloedonderzoek en eetpatroon een aanbevelingsplan voor u gemaakt. U vindt het onder Voortgang.", url: "/app/?v=voortgang" }, c.now);
+  return json({ bloed: await bloedLijst(c.env, cl.id, pickLang(c.req, c.url), door) });
+}
+async function bloedAdvies(env, cl, id, lang, now) {
+  const { results } = await env.DB.prepare("SELECT * FROM bloedonderzoek WHERE client_id = ? ORDER BY datum, id").bind(cl.id).all();
+  const rijen = results.map(bloedRij), i = rijen.findIndex((r) => r.id === id);
+  const a = bloedAnalyse(rijen[i], rijen.slice(0, i), "en");
+  const buiten = a.waarden.filter((w) => w.status === "laag" || w.status === "hoog");
+  const regels = []; const gezien = new Set();
+  for (const w of buiten) { const r = w.code && ADVIES[`${w.code}:${w.status}`]; if (r && !gezien.has(r)) { gezien.add(r); regels.push([w, r]); } }
+  const eiwitStop = regels.some(([, r]) => r.eiwitStop);
+  const t = (x, v) => tr(lang, x, v), en = (x) => tr("en", x);
+  // what they eat now
+  const P = cl.profiel ? JSON.parse(cl.profiel) : null, I = cl.intake ? JSON.parse(cl.intake) : {};
+  const foodNaam = (k) => (DC.FOODS[k] ? tr("en", DC.FOODS[k].n) : k);
+  const plan = cl.maaltijdplan ? JSON.parse(cl.maaltijdplan) : null;
+  const vanaf = new Date((now - 14 * DAY) * 1000).toISOString().slice(0, 10);
+  const top = (await env.DB.prepare("SELECT naam, COUNT(*) AS n FROM dagboek WHERE client_id = ? AND datum >= ? GROUP BY naam ORDER BY n DESC LIMIT 15").bind(cl.id, vanaf).all()).results;
+  const gem = await env.DB.prepare("SELECT COUNT(DISTINCT datum) AS dagen, SUM(kcal) AS kcal, SUM(eiwit) AS eiwit, SUM(koolh) AS koolh, SUM(vet) AS vet FROM dagboek WHERE client_id = ? AND datum >= ?").bind(cl.id, vanaf).first();
+  const metingen = await metingenOf(env, cl.id), laatste = metingen[metingen.length - 1];
+  const A = P && laatste ? DC.analyse(profielOut(cl), laatste) : null;
+  const leeftijd = P && P.geboorte ? Math.floor((now * 1000 - Date.parse(P.geboorte)) / (365.25 * 864e5)) : null;
+  const sjabloon = () => ({
+    focus: buiten.length ? buiten.map((w) => `${w.naam}: ${t(w.status === "laag" ? "te laag" : "te hoog")}`) : [t("Alle beoordeelde waarden vallen binnen het referentiebereik. Houd uw huidige voedingsplan aan.")],
+    meer: regels.flatMap(([, r]) => r.meer.map((x) => ({ wat: t(x), hoe: "", waarom: "" }))),
+    minder: regels.flatMap(([, r]) => r.minder.map((x) => ({ wat: t(x), vervang: "", waarom: "" }))),
+    dag: [], leefstijl: [],
+    arts: buiten.length ? [t("Bespreek de waarden buiten het referentiebereik met uw arts.")] : [],
+  });
+  let out = null;
+  if (env.AI && buiten.length) {
+    const feiten = [
+      `Client: ${P ? (P.geslacht === "v" ? "female" : "male") : ""}${leeftijd ? `, ${leeftijd} years` : ""}${P ? `, goal: ${{ "-0.2": "lose fat", "-0.1": "lose weight gradually", "0": "maintain weight", "0.1": "build muscle" }[String(P.doel)]}` : ""}${P && P.trainingsdagen ? `, trains ${P.trainingsdagen.length} days per week` : ""}.`,
+      A ? `Daily target: about ${A.kcal} kcal, protein ${A.prot} g. Keep the plan within this.` : "",
+      `Allergies or intolerances: ${I.allergieen || "none given"}. Foods they do not eat: ${P && P.excl && P.excl.length ? P.excl.map(foodNaam).join(", ") : "none given"}. Never recommend these.`,
+      `Blood test ${rijen[i].datum}, values outside the lab's reference range:\n${buiten.map((w) => `- ${w.naam}: ${w.waarde ?? w.tekst} ${w.eenheid} (${w.status === "laag" ? "LOW" : "HIGH"}, lab range ${w.ref_tekst || [w.ref_min, w.ref_max].filter((x) => x != null).join("-")})${w.urgent ? " URGENT" : ""}`).join("\n")}`,
+      regels.length ? `Nutrition guidance for these findings:\n${regels.map(([w, r]) => `- ${w.naam}: more: ${r.meer.map(en).join(" ")} Less: ${r.minder.map(en).join(" ") || "-"}`).join("\n")}` : "",
+      eiwitStop ? "Kidney values are out of range: do NOT recommend more protein or protein shakes." : "",
+      `Current diet in their own words: ${I.eten ? `"${String(I.eten).slice(0, 800)}"` : "not given"}. Cooking: ${I.koken || "not given"}.`,
+      I.producten && I.producten.length ? `Foods they often eat or like: ${I.producten.map(foodNaam).join(", ")}.` : "",
+      plan ? `Their coach's meal plan: ${plan.maaltijden.map((m) => `${m.naam}: ${m.items.map((x) => `${x.g} g ${foodNaam(x.key)}`).join(", ")}`).join("; ")}.` : "",
+      top.length ? `Food diary last 14 days (${gem.dagen} days logged, average ${Math.round(gem.kcal / gem.dagen)} kcal, ${Math.round(gem.eiwit / gem.dagen)} g protein per day). Most logged: ${top.map((x) => `${x.naam} (${x.n}x)`).join(", ")}.` : "Food diary: nothing logged in the last 14 days.",
+    ].filter(Boolean).join("\n");
+    const system = `You are a certified nutritionist writing a practical recommendation plan for a coaching client, based on their blood test and their current diet.
+Write all text values in ${lang === "nl" ? "Dutch (formal 'u')" : TAAL_NAAM[lang] || "English"}. Return ONLY a JSON object, no other text:
+{"focus": [2-4 short focus points, each naming the value and the goal],
+ "meer": [3-6 items {"wat": food or habit to add, "hoe": concrete portion and frequency fitted to their meals, "waarom": which value it helps, short}],
+ "minder": [2-5 items {"wat": something they eat now that works against their values (only things in their current diet when known), "vervang": a concrete swap from foods they like, "waarom": short}],
+ "dag": [4-6 items {"maaltijd": meal name, "voorstel": an example of that meal built from their own foods, with portions}],
+ "leefstijl": [1-3 short lifestyle tips],
+ "arts": [1-2 points to discuss with their doctor]}
+Rules: go through every food and drink in their current diet and list each one that works against their values in "minder" (for example sweet spreads, sugary drinks, sweetened snacks, fried food); build on what they already eat and like; make swaps rather than a whole new diet; in the example day replace foods instead of adding extra ones; respect allergies and foods they do not eat; stay within the daily target; follow the nutrition guidance given. No medication, no supplement doses, no diagnoses ("can help", not "cures"). Food only; if a supplement may be relevant, say to discuss it with the doctor.${eiwitStop ? " Do not recommend extra protein." : ""}`;
+    try {
+      const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [{ role: "system", content: system }, { role: "user", content: feiten }], max_tokens: 1800, temperature: 0.3 });
+      const j = typeof res.response === "object" && res.response ? res.response : JSON.parse(String(res.response).match(/\{[\s\S]*\}/)[0]);
+      const txt = (x, n) => String(x == null ? "" : x).replace(/\*\*/g, "").trim().slice(0, n);
+      const lijst = (x, n) => (Array.isArray(x) ? x : []).slice(0, n);
+      out = { focus: lijst(j.focus, 5).map((x) => txt(x, 200)).filter(Boolean),
+        meer: lijst(j.meer, 7).map((x) => ({ wat: txt(x && x.wat, 150), hoe: txt(x && x.hoe, 250), waarom: txt(x && x.waarom, 200) })).filter((x) => x.wat),
+        minder: lijst(j.minder, 6).map((x) => ({ wat: txt(x && x.wat, 150), vervang: txt(x && x.vervang, 250), waarom: txt(x && x.waarom, 200) })).filter((x) => x.wat),
+        dag: lijst(j.dag, 7).map((x) => ({ maaltijd: txt(x && x.maaltijd, 60), voorstel: txt(x && x.voorstel, 300) })).filter((x) => x.maaltijd && x.voorstel),
+        leefstijl: lijst(j.leefstijl, 4).map((x) => txt(x, 250)).filter(Boolean), arts: lijst(j.arts, 3).map((x) => txt(x, 250)).filter(Boolean) };
+      if (!out.meer.length && !out.minder.length) out = null;
+    } catch (e) { console.error("blood plan AI failed", e); out = null; }
+  }
+  return { taal: lang, gemaakt: now, ai: !!out, ...(out || sjabloon()) };
 }
 async function bloedAkkoord(c) {
   if (c.body.akkoord !== true) fail(400, "Geef toestemming om verder te gaan.");
@@ -2632,7 +2711,7 @@ async function clientExport(c) {
     dagboek: await q("SELECT datum, maaltijd, naam, gram, kcal, eiwit, koolh, vet FROM dagboek WHERE client_id = ? ORDER BY datum, id"),
     producten: await q("SELECT naam, merk, barcode, kcal, eiwit, koolh, vet, vezels, portie_naam, portie_g FROM producten WHERE client_id = ?"),
     berichten: await q("SELECT van, tekst, foto_key IS NOT NULL AS foto, datetime(created_at, 'unixepoch') AS tijd FROM berichten WHERE client_id = ? ORDER BY id"),
-    bloedonderzoek: (await q("SELECT datum, lab, waarden, samenvatting FROM bloedonderzoek WHERE client_id = ? ORDER BY datum")).map((b) => ({ datum: b.datum, lab: b.lab, waarden: JSON.parse(b.waarden), samenvatting: b.samenvatting ? JSON.parse(b.samenvatting).client.tekst : null })),
+    bloedonderzoek: (await q("SELECT datum, lab, waarden, samenvatting, advies FROM bloedonderzoek WHERE client_id = ? ORDER BY datum")).map((b) => ({ datum: b.datum, lab: b.lab, waarden: JSON.parse(b.waarden), samenvatting: b.samenvatting ? JSON.parse(b.samenvatting).client.tekst : null, aanbevelingsplan: b.advies ? JSON.parse(b.advies) : null })),
     progressiefotos: (await q("SELECT datum, pose FROM fotos WHERE client_id = ? ORDER BY datum")).map((f) => ({ ...f, opmerking: tr(pickLang(c.req, c.url), "De foto zelf kunt u bekijken en opslaan in de app (Voortgang).") })),
   };
   return new Response(JSON.stringify(data, null, 2), { headers: {

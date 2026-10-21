@@ -636,3 +636,10 @@ html.i18n-wait body{visibility:hidden}
 .opmaat>summary{cursor:pointer;font-weight:600;font-size:14px}
 .opmaat[open]>summary{margin-bottom:8px}
 .opmaat .note{margin:8px 0}
+.bl-advies{border:1px solid var(--gold-dim);border-radius:8px;padding:4px 16px 12px;margin:14px 16px 0;background:var(--gold-soft)}
+.bl-advies h3{margin:12px 0 4px!important}
+.bl-advies h4,.p-advies h4{font-size:13px;margin:12px 0 4px;color:var(--gold)}
+.bl-advies ul,.p-advies ul{margin:0;padding-left:18px;font-size:14px;line-height:1.55}
+.bl-advies li,.p-advies li{margin:3px 0}
+.bl-advies li small,.p-advies li small{display:block;color:var(--muted);font-size:12px}
+@media print{.p-advies h4{color:#8a6a0a!important;font-size:10.5pt}.p-advies ul{font-size:9.5pt}.p-advies li{break-inside:avoid}.p-advies li small{color:#666!important;font-size:8.5pt}}

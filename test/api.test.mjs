@@ -1100,3 +1100,33 @@ test("phone extras: daily overview at the client's local hour, icon badge count,
   const cm = await (await fetch(`${BASE}/coach.webmanifest`, { headers: { cookie: "dc-taal=es" } })).json();
   assert.equal(cm.scope, "/coach/"); assert.equal(cm.shortcuts.length, 3);
 });
+
+test("blood test recommendation plan: guidance per finding, kidney rule, cleared on correction, client notified", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Rik Raad", email: "rik-raad@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "rik-pass-1234", privacy: true });
+  await u("/api/intake", "PUT", { doel: "Gezonder", eten: "Brood met hagelslag, rijst met kip", producten: ["kip", "rijst", "brood", "honing"] });
+  await u("/api/bloed/akkoord", "POST", { akkoord: true });
+  const r = await u("/api/bloed", "POST", { datum: "2026-10-10", waarden: [
+    { naam: "Ferritine", waarde: 12, eenheid: "µg/L", ref_tekst: "15 - 150" }, { naam: "LDL", waarde: 4, eenheid: "mmol/L", ref_tekst: "< 3.0" },
+    { naam: "Creatinine", waarde: 130, eenheid: "µmol/L", ref_tekst: "60 - 110" }, { naam: "TSH", waarde: 2, eenheid: "mU/L", ref_tekst: "0.4 - 4" }] });
+  const id = r.data.bloed[0].id;
+  assert.equal(r.data.bloed[0].advies, null, "made on request");
+  assert.equal((await u(`/api/bloed/9999/advies`, "POST", {})).status, 404);
+  const a = (await u(`/api/bloed/${id}/advies`, "POST", {})).data.bloed[0].advies;
+  assert.equal(a.ai, false); assert.equal(a.taal, "nl");
+  assert.equal(a.focus.length, 3, "one focus point per finding outside the range");
+  assert.ok(a.meer.some((x) => /rood vlees/i.test(x.wat)) && a.meer.some((x) => /oplosbare vezels/.test(x.wat)), "iron and cholesterol guidance");
+  assert.ok(a.minder.some((x) => /Extra eiwit/.test(x.wat)), "kidney value: no extra protein");
+  assert.equal(new Set(a.meer.map((x) => x.wat)).size, a.meer.length, "no duplicate guidance");
+  // the coach makes it again → the client is told; correcting the values clears the plan
+  const drain = async () => { let all = [], n; do { n = (await u("/api/push/pending")).data.notificaties || []; all = all.concat(n); } while (n.length); return all; };
+  await drain();
+  const cv = await coach(`/api/coach/clients/${inv.data.id}/bloed/${id}/advies`, "POST", {});
+  assert.ok(cv.data.bloed[0].advies);
+  assert.ok((await drain()).some((n) => n.titel === "Uw aanbevelingsplan staat klaar"));
+  const fix = await u(`/api/bloed/${id}`, "PUT", { waarden: [{ naam: "Ferritine", waarde: 40, eenheid: "µg/L", ref_tekst: "15 - 150" }] });
+  assert.equal(fix.data.bloed[0].advies, null);
+  const ok = (await u(`/api/bloed/${id}/advies`, "POST", {})).data.bloed[0].advies;
+  assert.equal(ok.meer.length, 0); assert.match(ok.focus[0], /binnen het referentiebereik/);
+  assert.ok((await u("/api/account/export")).data.bloedonderzoek[0].aanbevelingsplan);
+});

@@ -101,3 +101,29 @@ export function urgent(code, waarde, eenheid) {
     default: return false;
   }
 }
+
+// Nutrition guidance per finding (marker code + direction), used for the recommendation plan: the AI tailors it to
+// what the client eats; without AI these lines are the plan. eiwitStop: do not advise extra protein (kidney values).
+const IJZER = { meer: [N_("Mager rood vlees of eend 2 tot 3 keer per week."), N_("Peulvruchten zoals kidneybonen en dhal, met fruit of groente rijk aan vitamine C (papaya, ananas, paprika) in dezelfde maaltijd.")],
+  minder: [N_("Koffie en thee bij de maaltijd: drink ze liever een uur ervoor of erna.")] };
+const CHOL = { meer: [N_("Havermout, peulvruchten en groente voor meer oplosbare vezels."), N_("Vette vis zoals zalm 2 keer per week, en noten of olijfolie als vetbron.")],
+  minder: [N_("Verzadigd vet: vet vlees, roomboter, kokosolie, vleeswaren en gefrituurd eten.")] };
+const SUIKER = { meer: [N_("Vezelrijke koolhydraten (peulvruchten, havermout, volkorenbrood) verdeeld over de dag, steeds met eiwit en groente.")],
+  minder: [N_("Snelle suikers: frisdrank, vruchtensap, honing, snoep, zoet gebak en grote porties witte rijst.")] };
+const LEVER = { meer: [N_("Groente, volkorenproducten en mager eiwit als basis van elke maaltijd.")], minder: [N_("Alcohol, suiker en frisdrank. Geleidelijk afvallen helpt de lever.")] };
+const NIER = { eiwitStop: true, meer: [N_("Voldoende water, verdeeld over de dag.")], minder: [N_("Extra eiwit en eiwitshakes, tot u dit met uw arts heeft besproken.")] };
+export const ADVIES = {
+  "hb:laag": IJZER, "ferritine:laag": IJZER, "ijzer:laag": IJZER,
+  "chol:hoog": CHOL, "ldl:hoog": CHOL,
+  "hdl:laag": { meer: [N_("Gezonde vetten: vette vis, noten, avocado en olijfolie.")], minder: [N_("Suiker en witmeel. Meer beweging en niet roken verhogen het HDL ook.")] },
+  "trig:hoog": { meer: [N_("Volkorenproducten, peulvruchten en groente, en 2 keer per week vette vis.")], minder: [N_("Suiker, honing, frisdrank, vruchtensap, witbrood en alcohol.")] },
+  "glucose:hoog": SUIKER, "hba1c:hoog": SUIKER,
+  "vitd:laag": { meer: [N_("Vette vis zoals zalm en eieren, en dagelijks 15 tot 20 minuten veilig zonlicht op armen en benen.")], minder: [] },
+  "b12:laag": { meer: [N_("Dagelijks vlees, vis, eieren of zuivel zoals kwark en yoghurt.")], minder: [] },
+  "folaat:laag": { meer: [N_("Dagelijks groene bladgroente, peulvruchten en volkorenproducten.")], minder: [] },
+  "alat:hoog": LEVER, "asat:hoog": LEVER, "ggt:hoog": LEVER,
+  "urinezuur:hoog": { meer: [N_("Ruim water (2 tot 3 liter per dag) en magere zuivel.")], minder: [N_("Alcohol (vooral bier), frisdrank, orgaanvlees en grote porties schaal- en schelpdieren.")] },
+  "kreat:hoog": NIER, "egfr:laag": NIER,
+  "crp:hoog": { meer: [N_("Vette vis, noten, olijfolie en elke dag groente en fruit.")], minder: [N_("Bewerkte en gefrituurde producten.")] },
+  "testo:laag": { meer: [N_("Gezonde vetten, genoeg calorieën en 7 tot 9 uur slaap.")], minder: [N_("Een te groot calorietekort en alcohol.")] },
+};

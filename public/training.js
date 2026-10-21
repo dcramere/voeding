@@ -54,7 +54,31 @@ const EX={
   walking_lunges:{n:"Weighted Walking Lunges",eq:"Dumbbell",m:["quads","glutes"],s:["adductors"],rust:120,unit:"stappen",cue:"Lange passen, de achterste knie bijna op de grond. Tel het totale aantal stappen."},
   db_split_squat:{n:"Dumbbell Quad Split Squat",eq:"Dumbbell",m:["quads"],s:["glutes"],rust:90,side:true,cue:"Achterste voet op een bank, voorste voet iets dichterbij voor quadfocus. Zak recht naar beneden."},
   seated_calf_partials:{n:"Seated Calf Partials (Top)",eq:"Machine",m:["calves"],s:[],rust:60,cue:"De eerste sets volledig; de hoge reeksen zijn korte, snelle herhalingen in het bovenste deel van de beweging."},
-  smith_calf_raise:{n:"Smith Calf Raise",eq:"Smith",m:["calves"],s:[],rust:60,cue:"Voorvoeten op een verhoging. Volledige rek onderin en 1 tel pauze bovenin."}
+  smith_calf_raise:{n:"Smith Calf Raise",eq:"Smith",m:["calves"],s:[],rust:60,cue:"Voorvoeten op een verhoging. Volledige rek onderin en 1 tel pauze bovenin."},
+  // common basics (also for home and bodyweight training; used by the intake and the tailored program)
+  bb_bench_press:{n:"Barbell Bench Press",eq:"Barbell",m:["chest"],s:["fdelt","triceps"],rust:150,cue:"Schouderbladen samen en omlaag, voeten stevig op de grond. Laat de stang gecontroleerd zakken naar de onderborst en druk krachtig omhoog."},
+  push_ups:{n:"Push-ups",eq:"Lichaamsgewicht",m:["chest"],s:["fdelt","triceps"],rust:75,cue:"Handen iets breder dan de schouders, lichaam in één rechte lijn. Te zwaar? Doe ze met de knieën op de grond of met de handen op een bank."},
+  dips:{n:"Dips",eq:"Lichaamsgewicht",m:["triceps","chest"],s:["fdelt"],rust:90,cue:"Zak gecontroleerd tot de bovenarmen ongeveer horizontaal zijn en druk uzelf weer omhoog. Thuis kan het tussen twee stevige stoelen of op een bank."},
+  db_shoulder_press:{n:"Standing Dumbbell Shoulder Press",eq:"Dumbbell",m:["fdelt"],s:["sdelt","triceps"],rust:90,cue:"Buik en billen aangespannen. Druk de dumbbells vanaf schouderhoogte recht omhoog zonder de onderrug hol te trekken."},
+  standing_db_lateral:{n:"Standing Dumbbell Lateral Raise",eq:"Dumbbell",m:["sdelt"],s:[],rust:60,cue:"Lichte buiging in de ellebogen. Hef de dumbbells zijwaarts tot schouderhoogte zonder mee te zwaaien."},
+  pull_ups:{n:"Pull-ups",eq:"Lichaamsgewicht",m:["lats"],s:["biceps","upperback"],rust:120,cue:"Begin met gestrekte armen en trek de borst richting de stang. Lukt het nog niet? Gebruik een elastiek of doe alleen het langzaam zakken."},
+  inverted_row:{n:"Inverted Row",eq:"Lichaamsgewicht",m:["upperback","lats"],s:["biceps","rdelt"],rust:90,cue:"Onder een stevige tafel of stang, lichaam recht. Trek de borst naar de rand en knijp de schouderbladen samen."},
+  db_row:{n:"One Arm Dumbbell Row",eq:"Dumbbell",m:["lats","upperback"],s:["biceps","rdelt"],rust:90,side:true,cue:"Steun met hand en knie op een bank, rug plat. Trek de dumbbell naar de heup en laat hem gecontroleerd zakken."},
+  db_curl:{n:"Dumbbell Curl",eq:"Dumbbell",m:["biceps"],s:["forearms"],rust:60,cue:"Ellebogen stil naast het lichaam. Draai de handpalmen tijdens het omhoog komen naar boven en laat langzaam zakken."},
+  back_squat:{n:"Barbell Back Squat",eq:"Barbell",m:["quads"],s:["glutes","lowerback","adductors"],rust:180,cue:"Stang op de bovenrug, voeten op schouderbreedte. Zak met een rechte rug tot minstens de heupen op kniehoogte zijn en duw krachtig omhoog."},
+  goblet_squat:{n:"Goblet Squat",eq:"Dumbbell",m:["quads"],s:["glutes","adductors"],rust:90,cue:"Houd een dumbbell of kettlebell voor de borst. Zak diep tussen de knieën met een rechte rug."},
+  bw_squat:{n:"Bodyweight Squat",eq:"Lichaamsgewicht",m:["quads"],s:["glutes"],rust:60,cue:"Voeten op schouderbreedte, armen naar voren. Zak zo diep als u goed kunt met de hielen op de grond."},
+  deadlift:{n:"Deadlift",eq:"Barbell",m:["glutes","hams"],s:["lowerback","upperback","quads"],rust:180,cue:"Stang boven het midden van de voet, rug neutraal. Duw de vloer weg en strek heupen en knieën tegelijk; de stang blijft dicht langs de benen."},
+  db_rdl:{n:"Dumbbell Romanian Deadlift",eq:"Dumbbell",m:["hams","glutes"],s:["lowerback"],rust:90,cue:"Knieën licht gebogen, duw de heupen naar achteren tot u rek voelt in de hamstrings. Rug neutraal, dumbbells langs de benen."},
+  hip_thrust:{n:"Barbell Hip Thrust",eq:"Barbell",m:["glutes"],s:["hams"],rust:120,cue:"Bovenrug tegen een bank, stang op de heupen. Duw de heupen omhoog tot het lichaam recht is en knijp bovenin de billen aan."},
+  glute_bridge:{n:"Glute Bridge",eq:"Lichaamsgewicht",m:["glutes"],s:["hams"],rust:60,cue:"Op de rug, voeten plat. Duw de heupen omhoog, houd bovenin 2 tellen vast en zak rustig terug."},
+  bw_lunges:{n:"Reverse Lunges",eq:"Lichaamsgewicht",m:["quads","glutes"],s:["adductors"],rust:75,side:true,cue:"Stap ver naar achteren en zak tot de achterste knie bijna de grond raakt. Duw via de voorste hiel terug omhoog."},
+  kb_swing:{n:"Kettlebell Swing",eq:"Kettlebell",m:["glutes","hams"],s:["lowerback"],rust:90,cue:"Zwaai de kettlebell tussen de benen door en stuw hem met een krachtige heupbeweging naar borsthoogte. De armen sturen alleen."},
+  calf_raise_bw:{n:"Standing Calf Raise",eq:"Lichaamsgewicht",m:["calves"],s:[],rust:45,cue:"Voorvoeten op een traptree. Volledige rek onderin en 1 tel pauze bovenin; houd eventueel een dumbbell vast."},
+  plank:{n:"Plank",eq:"Lichaamsgewicht",m:["abs"],s:[],rust:45,unit:"sec",cue:"Op onderarmen en tenen, lichaam in één rechte lijn. Span buik en billen aan en adem rustig door."},
+  cable_crunch:{n:"Cable Crunch",eq:"Kabel",m:["abs"],s:[],rust:60,cue:"Geknield voor de kabel, touw naast het hoofd. Rol de romp naar beneden door de buik aan te spannen, niet door met de heupen te trekken."},
+  hanging_leg_raise:{n:"Hanging Leg Raise",eq:"Lichaamsgewicht",m:["abs"],s:[],rust:60,cue:"Hang aan een stang en breng de knieën of gestrekte benen omhoog zonder te zwaaien. Laat langzaam zakken."},
+  superman:{n:"Superman",eq:"Lichaamsgewicht",m:["lowerback"],s:["upperback","glutes"],rust:45,cue:"Op de buik, armen gestrekt. Til armen en benen een paar centimeter op, houd 2 tellen vast en zak rustig terug."}
 };
 
 // exercise names stay in English (gym terminology); equipment and cues are translated
@@ -129,7 +153,7 @@ function registerProgram(def){
 }
 const dayOf=(prog,key)=>PROGRAMS[prog].dagen.find(x=>x.key===key);
 const e1rm=(kg,reps)=>kg>0&&reps>0?kg*(1+reps/30):0; // Epley
-const repsLabel=(e,reps)=>reps.join(" · ")+" "+(e.unit==="stappen"?T("stappen"):e.unit||"reps")+(e.side?" "+T("per kant"):"");
+const repsLabel=(e,reps)=>reps.join(" · ")+" "+(e.unit==="stappen"?T("stappen"):e.unit==="sec"?T("sec"):e.unit||"reps")+(e.side?" "+T("per kant"):"");
 const kgFmt=kg=>kg==null||kg===""?"–":fmt(kg,Number.isInteger(+kg)?0:1);
 function minutes(day,week,progId){
   const s=day.ex.reduce((t,x)=>t+setsFor(x.reps,week,progId).length*(45+EX[x.id].rust),0);
@@ -171,6 +195,72 @@ function bodyMap(e){
   return `<svg class="bodymap" viewBox="0 0 120 104" role="img" aria-label="${T("Spieren")}: ${e.m.map(k=>MUSCLE_NL[k]).join(", ")}">${SHAPES.map(([k,g])=>
     `<g class="${k==="base"?"bm-base":lvl[k]===2?"bm-p":lvl[k]===1?"bm-s":"bm-o"}">${g}</g>`).join("")}</svg>`;
 }
+// ---------- tailored program from the intake ----------
+// Slots per day type, most important first; each slot lists candidates from the library (default order).
+// The client's own exercises (intake) win when they fit the slot, the equipment where they train and are not
+// used yet that day; the session length decides how many slots are filled.
+const SLOTS={
+  chest:{c:1,ex:["bb_bench_press","incline_db_press","flat_db_press","smith_incline_press","incline_bb_press","push_ups"]},
+  chest2:{ex:["incline_db_press","flat_db_press","db_barrel_press","push_ups","dips"]},
+  shoulder:{c:1,ex:["seated_db_press_hammer","db_shoulder_press","standing_bb_ohp","push_ups"]},
+  sdelt:{ex:["incline_db_lateral","standing_db_lateral","seated_db_lateral","cable_lateral_single","machine_lateral"]},
+  triceps:{ex:["rope_ext","straight_bar_ext","skull_crushers","incline_skull","dips"]},
+  vpull:{c:1,ex:["wide_pulldown","pull_ups","vbar_pulldown","inverted_row"]},
+  row:{c:1,ex:["seated_row_vbar","bent_bb_row","db_row","tbar_row","inverted_row"]},
+  row2:{ex:["db_row","seated_lat_row","meadows_row","incline_db_high_elbow_row","inverted_row"]},
+  rdelt:{ex:["incline_db_rear_delt","cable_rear_delt_close","rear_delt_btb","superman"]},
+  biceps:{ex:["ez_curl","db_curl","cable_straight_curl","db_preacher_curl","incline_cable_curl"]},
+  squat:{c:1,ex:["back_squat","he_smith_squat","hack_squat","goblet_squat","he_highbar_squat","bw_squat"]},
+  hinge:{c:1,ex:["glute_rdl","deadlift","db_rdl","smith_stiff_leg","kb_swing","glute_bridge"]},
+  quad2:{ex:["leg_press_low","walking_lunges","db_split_squat","goblet_squat","bw_lunges","leg_ext"]},
+  hams:{ex:["seated_leg_curl","db_rdl","glute_bridge"]},
+  glutes:{ex:["hip_thrust","sumo_deads","glute_bridge","kb_swing"]},
+  calves:{ex:["smith_calf_raise","seated_calf_partials","calf_raise_bw"]},
+  abs:{ex:["cable_crunch","hanging_leg_raise","plank"]},
+};
+const DAGTYPES={
+  push:{naam:"Push",focus:N_("Borst, schouders en triceps"),slots:["chest","shoulder","chest2","sdelt","triceps","abs","rdelt"]},
+  pull:{naam:"Pull",focus:N_("Rug, achterkant schouders en biceps"),slots:["vpull","row","row2","rdelt","biceps","abs","biceps"]},
+  legs:{naam:"Legs",focus:N_("Quadriceps, hamstrings, billen en kuiten"),slots:["squat","hinge","quad2","hams","glutes","calves","abs"]},
+  upper:{naam:"Upper",focus:N_("Borst, rug, schouders en armen"),slots:["chest","vpull","shoulder","row","sdelt","biceps","triceps"]},
+  lower:{naam:"Lower",focus:N_("Benen, billen en buik"),slots:["squat","hinge","quad2","hams","glutes","calves","abs"]},
+  full:{naam:"Full body",focus:N_("Het hele lichaam"),slots:["squat","chest","row","hinge","shoulder","vpull","abs"]},
+};
+const LOCATIE={sportschool:null,thuis_db:["Dumbbell","Kettlebell","Lichaamsgewicht","Band"],thuis_geen:["Lichaamsgewicht"]};
+function splitFor(n,ervaring){
+  const nieuw=!ervaring||ervaring==="geen"||ervaring==="beginner";
+  return n<=1?["full"]:n===2?["full","full"]:n===3?(nieuw?["full","full","full"]:["push","pull","legs"])
+    :n===4?["upper","lower","upper","lower"]:n===5?["push","pull","legs","upper","lower"]:["push","pull","legs","push","pull","legs"];
+}
+function opMaat(I,P,naam){
+  I=I||{};
+  const dagenN=Math.min(6,Math.max(1,(P&&P.trainingsdagen&&P.trainingsdagen.length)||3));
+  const split=splitFor(dagenN,I.ervaring), max={"30":4,"45":5,"60":6,"90":7}[I.duur]||6;
+  const mag=LOCATIE[I.locatie]||null, ok=id=>EX[id]&&(!mag||mag.includes(EX[id].eq));
+  const graag=(I.oefeningen||[]).filter(ok), nieuw=!I.ervaring||I.ervaring==="geen"||I.ervaring==="beginner", ervaren=I.ervaring==="ervaren";
+  const reps=(id,c)=>EX[id].unit==="sec"?[30,30,30]:EX[id].eq==="Lichaamsgewicht"&&!c?[15,15,12]
+    :c?(nieuw?[10,10,10]:ervaren?[10,8,6,6]:[10,8,8]):(nieuw?[12,12]:ervaren?[15,12,10]:[12,12,10]);
+  const telling={}, gebruikt={}; // per day type: how often it occurs so far, and exercises used in earlier days of that type
+  const dagen=split.map((type,i)=>{
+    const def=DAGTYPES[type], k=telling[type]=(telling[type]||0)+1, n=split.filter(t=>t===type).length;
+    const vorige=gebruikt[type]=gebruikt[type]||new Set(), dag=new Set(), ex=[];
+    for(const slot of def.slots){
+      if(ex.length>=max) break;
+      const kand=SLOTS[slot].ex.filter(id=>ok(id)&&!dag.has(id));
+      if(!kand.length) continue;
+      // liked first; on a repeat of the same day type prefer something not done in the earlier one
+      const vers=a=>a.filter(id=>!vorige.has(id)), lijst=[...vers(kand.filter(id=>graag.includes(id))),...kand.filter(id=>graag.includes(id)),...vers(kand),...kand];
+      const id=lijst[0]; dag.add(id); vorige.add(id);
+      ex.push({id,reps:reps(id,SLOTS[slot].c)});
+    }
+    return {naam:def.naam+(n>1?" "+"ABC"[k-1]:""),focus:T(def.focus),type,ex};
+  }).filter(d=>d.ex.length);
+  return {naam:T("Op maat: {naam}",{naam:String(naam||"").split(" ")[0]}).slice(0,60),data:{weken:nieuw?8:12,deload:true,dagen,oefeningen:{}}};
+}
+// exercise groups for the intake chips (main muscle → group)
+const GROEP_VAN={chest:"borst",fdelt:"schouders",sdelt:"schouders",rdelt:"schouders",triceps:"armen",biceps:"armen",forearms:"armen",lats:"rug",upperback:"rug",traps:"rug",lowerback:"rug",abs:"buik",quads:"benen",hams:"benen",glutes:"benen",calves:"benen",adductors:"benen"};
+const GROEPEN=[["borst",N_("Borst")],["schouders",N_("Schouders")],["armen",N_("Armen")],["rug",N_("Rug")],["benen",N_("Benen en billen")],["buik",N_("Buik")]];
+const oefenGroepen=()=>GROEPEN.map(([g,l])=>[l,Object.keys(EX).filter(id=>!EX[id].custom&&GROEP_VAN[EX[id].m[0]]===g).sort((a,b)=>EX[a].n.localeCompare(EX[b].n))]);
 const MUSCLE_NL={chest:T("borst"),fdelt:T("voorkant schouders"),sdelt:T("zijkant schouders"),rdelt:T("achterkant schouders"),triceps:T("triceps"),biceps:T("biceps"),forearms:T("onderarmen"),lats:T("lats"),upperback:T("bovenrug"),traps:T("trapezius"),lowerback:T("onderrug"),abs:T("buik"),quads:T("quadriceps"),hams:T("hamstrings"),glutes:T("billen"),calves:T("kuiten"),adductors:T("adductoren")};
 
 // ---------- log analysis ----------
@@ -270,7 +360,7 @@ function workoutHTML(P,workouts,wo,o){
           <p class="ex-target">${repsLabel(e,reps)}</p></div></div>
         ${ro?"":`<p class="ex-cue">${e.cue}</p>`}
         ${prevTxt&&!ro?`<p class="ex-prev">${prevTxt}${sug?`<br><b>${sug}</b>`:""}</p>`:""}
-        <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>kg</th><th>${e.unit==="stappen"?T("Stappen"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
+        <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>kg</th><th>${e.unit==="stappen"?T("Stappen"):e.unit==="sec"?T("Sec"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
         ${reps.map((t,si)=>{
           const s=logged[si]||{}, pk=doelKg(prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null),e,hit,licht);
           return ro?`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td><td>${s.ok?kgFmt(s.kg):"–"}</td><td>${s.ok?(s.reps??"–"):"–"}</td></tr>`
@@ -322,6 +412,6 @@ function progressionHTML(P,workouts){
     <p class="sub" style="font-size:13px;margin-top:8px">${T("Geschatte 1RM via de Epley-formule op de beste set per training.")}</p>`;
 }
 
-window.TR={bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
+window.TR={opMaat,oefenGroepen,splitFor,bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
   overviewHTML,workoutHTML,summaryHTML,coachGridHTML,progressionHTML};
 })();

@@ -22,7 +22,10 @@ test("ppl12: 6 days, every exercise defined with muscles, cue and rest", () => {
     }
   }
   const used = new Set(P.dagen.flatMap((d) => d.ex.map((x) => x.id)));
-  assert.deepEqual([...Object.keys(TR.EX)].filter((k) => !used.has(k)), [], "no unused exercises");
+  // every library exercise is used by the PPL program or can be picked by the tailored program, and has a cue
+  const opMaat = new Set(["bb_bench_press", "push_ups", "dips", "db_shoulder_press", "standing_db_lateral", "pull_ups", "inverted_row", "db_row", "db_curl", "back_squat", "goblet_squat", "bw_squat", "deadlift", "db_rdl", "hip_thrust", "glute_bridge", "bw_lunges", "kb_swing", "calf_raise_bw", "plank", "cable_crunch", "hanging_leg_raise", "superman"]);
+  assert.deepEqual([...Object.keys(TR.EX)].filter((k) => !used.has(k) && !opMaat.has(k)), [], "no unused exercises");
+  for (const k of Object.keys(TR.EX)) assert.ok(TR.EX[k].cue && TR.EX[k].m.length && TR.EX[k].rust, k);
 });
 
 test("worker exercise library matches training.js", async () => {
@@ -111,4 +114,32 @@ test("automatic adjustment: lighter week after a hard check-in, target weights",
   assert.equal(TR.doelKg(20, db, true, false), 22); assert.equal(TR.doelKg(60, bb, true, false), 62.5);
   assert.equal(TR.doelKg(60, bb, false, false), 60); assert.equal(TR.doelKg(60, bb, true, true), 55);
   assert.equal(TR.doelKg(null, bb, true, false), null); assert.equal(TR.doelKg(10, bw, true, false), 10);
+});
+
+test("tailored program from the intake: split, equipment, session length, favourite exercises", () => {
+  const thuis = TR.opMaat({ ervaring: "gevorderd", locatie: "thuis_db", duur: "45", oefeningen: ["goblet_squat", "push_ups", "back_squat"] }, { trainingsdagen: [1, 3, 5] }, "Rifaro Test");
+  assert.equal(thuis.naam, "Op maat: Rifaro");
+  assert.deepEqual(thuis.data.dagen.map((d) => d.type), ["push", "pull", "legs"]);
+  const ids = thuis.data.dagen.flatMap((d) => d.ex.map((x) => x.id));
+  assert.ok(ids.every((id) => ["Dumbbell", "Kettlebell", "Lichaamsgewicht", "Band"].includes(TR.EX[id].eq)), "only home equipment: " + ids.join(","));
+  assert.ok(thuis.data.dagen.every((d) => d.ex.length <= 5), "45 minutes → at most 5 exercises");
+  assert.ok(ids.includes("goblet_squat") && ids.includes("push_ups") && !ids.includes("back_squat"), "favourites that fit are used");
+  for (const d of thuis.data.dagen) assert.equal(new Set(d.ex.map((x) => x.id)).size, d.ex.length, "no duplicates in a day");
+  // beginner, 4 days at the gym → upper/lower, 3 sets, 8 weeks with a deload; A and B days differ
+  const gym = TR.opMaat({ ervaring: "beginner", locatie: "sportschool", duur: "60" }, { trainingsdagen: [1, 2, 4, 5] }, "X");
+  assert.deepEqual(gym.data.dagen.map((d) => d.naam), ["Upper A", "Lower A", "Upper B", "Lower B"]);
+  assert.equal(gym.data.weken, 8); assert.equal(gym.data.deload, true);
+  assert.ok(gym.data.dagen.every((d) => d.ex.every((x) => x.reps.length <= 3)));
+  assert.notDeepEqual(gym.data.dagen[0].ex.map((x) => x.id), gym.data.dagen[2].ex.map((x) => x.id));
+  // no equipment, no profile → 3 full-body days with bodyweight only; plank in seconds
+  const bw = TR.opMaat({ locatie: "thuis_geen", duur: "30" }, null, "Y");
+  assert.equal(bw.data.dagen.length, 3);
+  assert.ok(bw.data.dagen.flatMap((d) => d.ex).every((x) => TR.EX[x.id].eq === "Lichaamsgewicht"));
+  assert.ok(bw.data.dagen.every((d) => d.ex.length <= 4));
+  // six days → push/pull/legs twice; experienced lifters get 4 sets on compounds
+  const zes = TR.opMaat({ ervaring: "ervaren" }, { trainingsdagen: [0, 1, 2, 3, 4, 5, 6] }, "Z");
+  assert.equal(zes.data.dagen.length, 6); assert.equal(zes.data.dagen[0].ex[0].reps.length, 4);
+  // intake chips cover every library exercise exactly once
+  const chips = TR.oefenGroepen().flatMap(([, ids]) => ids);
+  assert.equal(new Set(chips).size, Object.keys(TR.EX).filter((k) => !TR.EX[k].custom).length);
 });

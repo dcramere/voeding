@@ -7,6 +7,11 @@ import { createServer } from "node:http";
 import { createHmac, generateKeyPairSync, createVerify, createPublicKey } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import "./i18n-stub.mjs";
+globalThis.window = globalThis.window || {};
+await import("../public/core.js");
+await import("../public/training.js");
+const TRL = globalThis.window.TR;
 
 const PORT = 8799, BASE = `http://127.0.0.1:${PORT}`, SETUP = "test-setup-code-123";
 const STRIPE_PORT = 8798, WHSEC = "whsec_test_secret", PUSH_PORT = 8797;
@@ -1042,4 +1047,24 @@ test("blood tests: consent, manual entry, judged against the lab range, urgent v
   assert.equal((await u("/api/account/export")).data.bloedonderzoek.length, 2);
   assert.equal((await u(`/api/bloed/${nieuw.id}`, "DELETE")).data.bloed.length, 1);
   assert.equal((await coach(`/api/coach/clients/${inv.data.id}/bloed/${b.id}`, "DELETE")).data.bloed.length, 0);
+});
+
+test("intake: training place, session length and favourite exercises → a tailored program the server accepts", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Tara Training", email: "tara@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "tara-pass-1234", privacy: true });
+  const it = await u("/api/intake", "PUT", { doel: "Sterker worden", ervaring: "gevorderd", locatie: "thuis_db", duur: "45",
+    oefeningen: ["goblet_squat", "push_ups", "push_ups", "nope", "<script>"] });
+  assert.equal(it.status, 200);
+  assert.deepEqual(it.data.oefeningen, ["goblet_squat", "push_ups"], "unknown and duplicate exercises dropped");
+  assert.equal(it.data.locatie, "thuis_db"); assert.equal(it.data.duur, "45");
+  assert.equal((await u("/api/intake", "PUT", { doel: "x", locatie: "maan", duur: "15" })).data.locatie, "", "unknown choices dropped");
+  await u("/api/intake", "PUT", it.data);
+  await u("/api/profiel", "PUT", { naam: "Tara Training", profiel: { ...PROFIEL, trainingsdagen: [1, 3, 5, 6] } });
+  const c = (await coach(`/api/coach/clients/${inv.data.id}`)).data;
+  assert.deepEqual(c.intake.oefeningen, ["goblet_squat", "push_ups"]);
+  const def = TRL.opMaat(c.intake, c.profiel, c.naam);
+  const r = await coach("/api/coach/programmas", "POST", def);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.dagen.length, 4);
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { programma: { id: r.data.id, start: "2026-10-19" } })).status, 200);
 });

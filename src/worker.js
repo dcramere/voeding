@@ -14,7 +14,7 @@ const POSES = ["voor", "achter", "zijkant"];
 // training programs the coach can assign (definitions live in public/training.js)
 const PROGRAMMAS = { ppl12: { weken: 12, dagen: ["pushA", "pullA", "legsA", "pushB", "pullB", "legsB"] } };
 // exercise library ids from public/training.js (a test keeps this list in sync)
-const BASE_EX = new Set(["incline_db_press", "flat_db_press", "smith_incline_press", "incline_bb_press", "db_barrel_press", "incline_db_lateral", "cable_lateral_single", "seated_db_lateral", "machine_lateral", "seated_db_press_hammer", "standing_bb_ohp", "straight_bar_ext", "rope_ext", "skull_crushers", "incline_skull", "wide_pulldown", "vbar_pulldown", "bb_pullover", "seated_row_vbar", "seated_lat_row", "seated_row_high_elbow", "bent_bb_row", "tbar_row", "meadows_row", "incline_db_high_elbow_row", "incline_db_rear_delt", "cable_rear_delt_close", "rear_delt_btb", "cable_rear_delt_partials", "cable_straight_curl", "ez_curl", "db_preacher_curl", "incline_cable_curl", "leg_ext", "seated_leg_curl", "he_smith_squat", "he_highbar_squat", "hack_squat", "leg_press_low", "glute_rdl", "smith_stiff_leg", "sumo_deads", "walking_lunges", "db_split_squat", "seated_calf_partials", "smith_calf_raise"]);
+const BASE_EX = new Set(["incline_db_press", "flat_db_press", "smith_incline_press", "incline_bb_press", "db_barrel_press", "incline_db_lateral", "cable_lateral_single", "seated_db_lateral", "machine_lateral", "seated_db_press_hammer", "standing_bb_ohp", "straight_bar_ext", "rope_ext", "skull_crushers", "incline_skull", "wide_pulldown", "vbar_pulldown", "bb_pullover", "seated_row_vbar", "seated_lat_row", "seated_row_high_elbow", "bent_bb_row", "tbar_row", "meadows_row", "incline_db_high_elbow_row", "incline_db_rear_delt", "cable_rear_delt_close", "rear_delt_btb", "cable_rear_delt_partials", "cable_straight_curl", "ez_curl", "db_preacher_curl", "incline_cable_curl", "leg_ext", "seated_leg_curl", "he_smith_squat", "he_highbar_squat", "hack_squat", "leg_press_low", "glute_rdl", "smith_stiff_leg", "sumo_deads", "walking_lunges", "db_split_squat", "seated_calf_partials", "smith_calf_raise", "bb_bench_press", "push_ups", "dips", "db_shoulder_press", "standing_db_lateral", "pull_ups", "inverted_row", "db_row", "db_curl", "back_squat", "goblet_squat", "bw_squat", "deadlift", "db_rdl", "hip_thrust", "glute_bridge", "bw_lunges", "kb_swing", "calf_raise_bw", "plank", "cable_crunch", "hanging_leg_raise", "superman"]);
 const EQUIP = ["Dumbbell", "Barbell", "Kabel", "Machine", "Smith", "Lichaamsgewicht", "Kettlebell", "Band", "Overig"];
 const MUSCLES = ["chest", "fdelt", "sdelt", "rdelt", "triceps", "biceps", "forearms", "lats", "upperback", "traps", "lowerback", "abs", "quads", "hams", "glutes", "calves", "adductors"];
 const DAYTYPES = ["push", "pull", "legs", "upper", "lower", "full", "other"];
@@ -249,6 +249,8 @@ const INTAKE_KEUZES = {
   ervaring: ["geen", "beginner", "gevorderd", "ervaren"],
   alcohol: ["nooit", "soms", "wekelijks", "dagelijks"],
   koken: ["dagelijks", "avond", "prep", "weinig"],
+  locatie: ["sportschool", "thuis_db", "thuis_geen"],
+  duur: ["30", "45", "60", "90"],
 };
 function cleanIntake(b) {
   if (!b || typeof b !== "object") fail(400, "Intake ontbreekt.");
@@ -267,6 +269,9 @@ function cleanIntake(b) {
     alcohol: keuze("alcohol"),
     eten: str(b.eten, 2000, "Eetgewoonten"),
     koken: keuze("koken"),
+    locatie: keuze("locatie"),
+    duur: keuze("duur"),
+    oefeningen: [...new Set((Array.isArray(b.oefeningen) ? b.oefeningen : []).filter((k) => typeof k === "string" && BASE_EX.has(k)))].slice(0, 60),
     producten: (Array.isArray(b.producten) ? b.producten : []).filter((k) => typeof k === "string" && DC.FOODS[k] && !DC.FOODS[k].custom).slice(0, 60),
   };
   if (!intake.doel) fail(400, "Beschrijf kort wat u wilt bereiken.");

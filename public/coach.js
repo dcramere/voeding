@@ -250,11 +250,25 @@ document.addEventListener("change",async e=>{
     renderFotos(); msg.textContent=T("Foto opgeslagen.");
   }catch(err){slot.classList.remove("busy");msg.className="err";msg.textContent=err.message}
 });
+// tailored program from the intake: opens as an unsaved draft in the program editor
+function opMaatHTML(c,inklap){
+  const I=c.intake; if(!I) return "";
+  const n=Math.min(6,(c.profiel&&c.profiel.trainingsdagen&&c.profiel.trainingsdagen.length)||3);
+  const loc={sportschool:T("sportschool"),thuis_db:T("thuis met dumbbells"),thuis_geen:T("thuis zonder materiaal")}[I.locatie];
+  const info=[Tn(n,"1 training per week","{n} trainingen per week"),loc,I.duur?T("{m} min per training",{m:I.duur}):null,
+    (I.oefeningen||[]).length?Tn(I.oefeningen.length,"1 favoriete oefening","{n} favoriete oefeningen"):null].filter(Boolean).join(" · ");
+  const body=`<p class="sub">${esc(info)}. ${T("Gebaseerd op de trainingsdagen, ervaring, trainingsplek en favoriete oefeningen uit de intake. U bekijkt en past het aan voordat u het opslaat.")}</p>
+    ${I.blessures?`<p class="note">${T("Houd rekening met blessures: {x}",{x:esc(I.blessures)})}</p>`:""}
+    <div class="actions" style="margin-top:0"><button class="btn small" type="button" data-opmaat>${T("Programma op maat maken")}</button></div>`;
+  return inklap?`<details class="opmaat"><summary>${T("Nieuw programma op maat uit de intake")}</summary>${body}</details>`
+    :`<section class="opmaat"><h3>${T("Programma op maat uit de intake")}</h3>${body}</section>`;
+}
 function renderTraining(){
   const c=cur, P=c.programma;
   if(!P){
     $("pTrAssign").innerHTML=`<h2 style="margin-top:0">${T("Trainingsprogramma toewijzen")}</h2>
       <p class="sub">${T("{x} heeft nog geen trainingsprogramma. Na het toewijzen verschijnt het tabblad Training in de app van de cliënt.",{x:esc(c.naam)})}</p>
+      ${opMaatHTML(c)}
       <form id="fTrAssign" class="narrow" novalidate><label>${T("Programma")}<select name="id"><option value="ppl12">${TR.PROGRAMS.ppl12.naam} (${TR.PROGRAMS.ppl12.sub})</option>${mijnProgrammas.map(p=>`<option value="${p.id}">${esc(p.naam)} (${T("{w} weken, {d} dagen",{w:p.weken,d:p.dagen})})</option>`).join("")}</select></label>
       <p class="sub" style="font-size:13px;margin:0">${T("Eigen programma's maakt u onder")} <a href="#/programmas">${T("Programma's")}</a>.</p>
       <label>${T("Startdatum (week 1)")}<input type="date" name="start" value="${DC.today()}" required></label>
@@ -268,7 +282,7 @@ function renderTraining(){
   }
   if(trWeek==null) trWeek=TR.weekOf(P.start,P.id);
   TR.setBijsturing(coach.autoTraining===false?null:TR.bijsturing(c.checkins),P);
-  $("pTrAssign").innerHTML=`<div class="actions" style="margin:0 0 6px;justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:400">${T("Startdatum")}<input type="date" id="trStart" value="${P.start}" style="width:auto;padding:6px 8px"></label><button class="btn small danger" type="button" data-tr-remove>${T("Programma verwijderen")}</button></div>`;
+  $("pTrAssign").innerHTML=`<div class="actions" style="margin:0 0 6px;justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:400">${T("Startdatum")}<input type="date" id="trStart" value="${P.start}" style="width:auto;padding:6px 8px"></label><button class="btn small danger" type="button" data-tr-remove>${T("Programma verwijderen")}</button></div>${opMaatHTML(c,true)}`;
   $("pTrOverview").innerHTML=TR.overviewHTML(P,c.workouts,trWeek,{coach:true});
   const w=trSel&&c.workouts.find(x=>x.week===trSel.week&&x.dag===trSel.dag);
   $("pTrDetail").innerHTML=trSel?(w?`<div class="tr-detail">${TR.workoutHTML(P,c.workouts,w,{readonly:true})}</div>`
@@ -833,6 +847,11 @@ document.addEventListener("click",async e=>{
   }
   const dd=e.target.closest("[data-diary-day]");
   if(dd&&diary){diary.dag=diary.dag===dd.dataset.diaryDay?null:dd.dataset.diaryDay;renderDiary();if(diary.dag)$("pDiaryDay").scrollIntoView({behavior:"smooth",block:"start"});return}
+  if(e.target.closest("[data-opmaat]")&&cur){
+    const def=TR.opMaat(cur.intake,cur.profiel,cur.naam);
+    if(!def.data.dagen.length){alert(T("Er konden geen passende oefeningen worden gekozen."));return}
+    ed=toEditor({naam:def.naam,...def.data}); ed.id=null; location.hash="#/programmas/concept"; return;
+  }
   const trb=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-cell],[data-tr-remove]");
   if(trb&&cur){
     if(trb.dataset.trWeek){trWeek=+trb.dataset.trWeek;trSel=null}

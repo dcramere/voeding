@@ -221,7 +221,7 @@ function renderClient(){
   $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins)+checkinReplyHTML(c);
   $("paneBadge").hidden=!c.ongelezen; $("paneBadge").textContent=c.ongelezen>9?"9+":c.ongelezen;
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
-  if(!bloedUI) bloedUI=BL.mount($("pBloed"),{coach:true,get:()=>cur,set:l=>{cur.bloed=l},api:call,get base(){return `/api/coach/clients/${cur.id}/bloed`}});
+  if(!bloedUI) bloedUI=BL.mount($("pBloed"),{coach:true,get:()=>cur,info:()=>({naam:cur.naam,coach:coach.naam,merk:coach.merk}),set:l=>{cur.bloed=l},api:call,get base(){return `/api/coach/clients/${cur.id}/bloed`}});
   else bloedUI.render();
   renderFotos();
   renderTraining();

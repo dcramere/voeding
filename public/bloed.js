@@ -54,6 +54,8 @@ function reportHTML(r,o,open){
     ${r.waarden.map(w=>`<tr><td>${esc(w.naam)}${trend(w)}</td><td class="n">${valStr(w)} <small>${esc(w.eenheid)}</small></td><td><small>${refStr(w)}</small></td><td>${pill(w)}</td></tr>`).join("")}</tbody></table></div></details>`;
   h+=`<div class="actions bl-foot">${r.bestanden.map(b=>`<a class="btn small ghost" href="${o.src(r.id,b.n)}" target="_blank" rel="noopener">${r.bestanden.length>1?T("Origineel {n}",{n:b.n+1}):T("Origineel bekijken")}</a>`).join("")}
     <label class="btn small ghost"><input type="file" accept="application/pdf,image/*" multiple hidden data-bl-file data-bl-bij="${r.id}"${o.busy?" disabled":""}>${T("Pagina toevoegen")}</label>
+    <button class="btn small" type="button" data-bl-pdf="${r.id}">${T("PDF-rapport")}</button>
+    ${o.coach&&r.coachNotitie?`<button class="btn small ghost" type="button" data-bl-pdf="${r.id}" data-bl-coach>${T("PDF met coachnotities")}</button>`:""}
     <button class="btn small ghost" type="button" data-bl-edit="${r.id}">${T("Waarden corrigeren")}</button>
     <button class="btn small danger" type="button" data-bl-del="${r.id}">${T("Verwijderen")}</button></div>
     <p class="fine">${T("Deze samenvatting is automatisch gemaakt en is geen medische diagnose. Waarden worden beoordeeld met het referentiebereik van het laboratorium. Bespreek uw uitslagen altijd met uw arts.")}${r.door==="coach"?" "+T("Toegevoegd door de coach."):""}</p></details>`;
@@ -85,6 +87,30 @@ function readEditor(f){
   return {datum:f.elements.datum.value,lab:f.elements.lab.value.trim(),waarden};
 }
 
+// printable report (the browser's "Save as PDF"); info: {naam, coach, merk}; metCoach adds the coach brief
+function printHTML(r,info,metCoach){
+  const merk=info.merk||{}, buiten=r.waarden.filter(w=>w.status==="laag"||w.status==="hoog");
+  const status=w=>w.urgent?T("Dringend"):T((STATUS[w.status]||STATUS.onbekend)[1]);
+  const tr=w=>w.vorige?`${fmtN(w.vorige.waarde)} <small>(${DC.dateNL(w.vorige.datum,{day:"numeric",month:"short",year:"numeric"})})</small>`:"–";
+  return `<header class="p-head"><img src="${merk.logo||"/img/logo.webp"}" alt="${esc(merk.naam||"DCRAMERE")}"><div><p class="p-kicker">${T("Rapport bloedonderzoek")}</p><h1>${esc(info.naam||"")}</h1>
+      <p>${T("Afname {d}",{d:DC.dateNL(r.datum)})}${r.lab?`<span class="sep">·</span>${esc(r.lab)}`:""}<span class="sep">·</span>${T("Opgesteld op {d}",{d:DC.dateNL(DC.today())})}<br>Coach: ${esc(info.coach||"")} — ${esc(merk.naam||"DCRAMERE")}</p></div></header>
+    <div class="p-summary"><div><small>${T("Waarden")}</small><b>${r.totaal}</b></div><div><small>${T("Binnen bereik")}</small><b>${r.beoordeeld-r.buiten}</b></div><div><small>${T("Buiten bereik")}</small><b>${r.buiten}</b></div><div><small>${T("Zonder bereik")}</small><b>${r.totaal-r.beoordeeld}</b></div></div>
+    ${r.urgent?`<p class="p-urgent">${T("Eén of meer waarden zijn sterk afwijkend. Neem vandaag nog contact op met uw arts of huisartsenpost.")}</p>`:""}
+    ${r.samenvatting?`<h2>${T("Samenvatting")}</h2><p class="p-text">${esc(r.samenvatting)}</p>`:""}
+    ${metCoach&&r.coachNotitie?`<h2>${T("Voor de coach")}</h2><p class="p-text">${esc(r.coachNotitie)}</p>`:""}
+    ${buiten.length?`<h2>${T("Buiten het referentiebereik")}</h2>${buiten.map(w=>`<div class="p-bl-out"><b>${esc(w.naam)}</b> · ${valStr(w)} ${esc(w.eenheid)} <span class="p-bl-st">${status(w)}</span> <small>${T("bereik {r}",{r:refStr(w)||"–"})}${w.vorige?" · "+T("vorige: {v} ({d})",{v:fmtN(w.vorige.waarde),d:DC.dateNL(w.vorige.datum,{day:"numeric",month:"short",year:"numeric"})}):""}</small>${w.uitleg?`<p>${esc(w.uitleg)}</p>`:""}</div>`).join("")}`:""}
+    <h2>${T("Alle waarden")}</h2>
+    <table class="p-bl-table"><thead><tr><th>${T("Test")}</th><th class="n">${T("Uitslag")}</th><th>${T("Eenheid")}</th><th>${T("Referentie")}</th><th>${T("Beoordeling")}</th><th>${T("Vorige")}</th></tr></thead><tbody>
+      ${r.waarden.map(w=>`<tr class="${w.status==="laag"||w.status==="hoog"?"uit":""}"><td>${esc(w.naam)}</td><td class="n">${valStr(w)}</td><td>${esc(w.eenheid)}</td><td>${refStr(w)}</td><td>${status(w)}</td><td>${tr(w)}</td></tr>`).join("")}</tbody></table>
+    <p class="p-foot">${T("Deze samenvatting is automatisch gemaakt en is geen medische diagnose. Waarden worden beoordeeld met het referentiebereik van het laboratorium. Bespreek uw uitslagen altijd met uw arts.")}</p>`;
+}
+function printReport(r,info,metCoach){
+  const el=document.getElementById("print"); el.innerHTML=printHTML(r,info,metCoach);
+  const old=document.title; document.title=`${T("Bloedonderzoek")} ${info.naam||""} ${r.datum}`.trim(); // default PDF file name
+  const go=()=>{document.body.classList.add("printing");window.print();document.body.classList.remove("printing");document.title=old};
+  const img=el.querySelector("img"); if(img&&!img.complete){img.onload=go;img.onerror=go}else go();
+}
+
 // lab photos: larger than progress photos so small print stays readable; drawing to a canvas drops EXIF/GPS
 async function prepare(file){
   if(file.type==="application/pdf") return file;
@@ -102,7 +128,7 @@ async function upload(url,blob){
   return data;
 }
 
-// mounts the section in root. ctx: {coach, base (API path without trailing slash), get() → {bloed, bloedAkkoord}, set(list), onAkkoord(ts), api}
+// mounts the section in root. ctx: {coach, base (API path without trailing slash), get() → {bloed, bloedAkkoord}, set(list), onAkkoord(ts), api, info() → {naam, coach, merk}}
 function mount(root,ctx){
   const st={editing:null,busy:false,data:null};
   const src=(id,n)=>`${ctx.base}/${id}/bestand/${n}`;
@@ -115,6 +141,7 @@ function mount(root,ctx){
       if(!root.querySelector("[data-bl-consent]").checked){msg(T("Vink het vakje aan om toestemming te geven."));return}
       try{ctx.onAkkoord((await api("/api/bloed/akkoord","POST",{akkoord:true})).bloedAkkoord);render()}catch(x){msg(x.message)}
     }else if(t.hasAttribute("data-bl-new")){st.editing={id:null,rows:[]};render();root.querySelector("[data-bl-form] [name=naam]")?.focus()}
+    else if(t.dataset.blPdf){const r=ctx.get().bloed.find(x=>x.id===+t.dataset.blPdf);if(r)printReport(r,ctx.info(),t.hasAttribute("data-bl-coach"))}
     else if(t.dataset.blEdit){const r=ctx.get().bloed.find(x=>x.id===+t.dataset.blEdit);st.editing={id:r.id,datum:r.datum,lab:r.lab,rows:r.waarden};render()}
     else if(t.hasAttribute("data-bl-cancel")){st.editing=null;render()}
     else if(t.hasAttribute("data-bl-rowadd")){const tb=root.querySelector("[data-bl-form] tbody");tb.insertAdjacentHTML("beforeend",rowHTML({}));tb.lastElementChild.querySelector("input").focus()}
@@ -153,5 +180,5 @@ function mount(root,ctx){
   render();
   return {render};
 }
-window.BL={mount,html};
+window.BL={mount,html,printHTML};
 })();

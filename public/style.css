@@ -424,6 +424,18 @@ ul.tips li{margin:3px 0}
   #print ul.shop input{width:12px;height:12px;accent-color:#8a6a0a}
   #print ul.shop b{color:#111}
   #print p.sub{color:#555;font-size:9.5pt}
+  .p-urgent{border:2px solid #b3261e;color:#b3261e;font-weight:700;padding:8px 12px;border-radius:6px;margin:10px 0}
+  #print .p-text{white-space:pre-wrap;font-size:10pt;line-height:1.5;margin:0}
+  .p-bl-out{break-inside:avoid;border-top:1px solid #e5e5e5;padding:7px 0;font-size:10pt}
+  .p-bl-out small{color:#666;margin-left:4px}
+  .p-bl-out p{margin:3px 0 0;color:#444;font-size:9.5pt}
+  .p-bl-st{display:inline-block;border:1px solid #b3261e;color:#b3261e;border-radius:10px;padding:0 7px;font-size:8pt;margin-left:4px}
+  .p-bl-table{width:100%;border-collapse:collapse;font-size:9pt}
+  .p-bl-table th{text-align:left;color:#666;font-size:7.5pt;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #999;padding:4px 5px}
+  .p-bl-table td{border-bottom:1px solid #e5e5e5;padding:4px 5px;vertical-align:top}
+  .p-bl-table tr{break-inside:avoid}
+  .p-bl-table tr.uit td{color:#b3261e;font-weight:600}
+  .p-bl-table .n{text-align:right;white-space:nowrap}
   .p-foot{margin-top:18px;padding-top:8px;border-top:1px solid #ddd;font-size:8pt;color:#777;text-align:center;letter-spacing:.04em}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}

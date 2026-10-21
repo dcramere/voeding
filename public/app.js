@@ -72,7 +72,7 @@ function renderProgress(){
 }
 let bloedUI=null;
 function renderBloed(){
-  if(!bloedUI) bloedUI=BL.mount($("bloed"),{base:"/api/bloed",get:()=>me,set:l=>{me.bloed=l},onAkkoord:t=>{me.bloedAkkoord=t}});
+  if(!bloedUI) bloedUI=BL.mount($("bloed"),{base:"/api/bloed",get:()=>me,info:()=>({naam:me.naam,coach:me.coach,merk:me.merk}),set:l=>{me.bloed=l},onAkkoord:t=>{me.bloedAkkoord=t}});
   else bloedUI.render();
 }
 function renderCheckin(){

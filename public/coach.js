@@ -287,6 +287,7 @@ function renderTraining(){
   }
   if(trWeek==null) trWeek=TR.weekOf(P.start,P.id);
   TR.setBijsturing(coach.autoTraining===false?null:TR.bijsturing(c.checkins),P);
+  TR.setEenheid(coach.gewichtEenheid);
   $("pTrAssign").innerHTML=`<div class="actions" style="margin:0 0 6px;justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:400">${T("Startdatum")}<input type="date" id="trStart" value="${P.start}" style="width:auto;padding:6px 8px"></label><button class="btn small danger" type="button" data-tr-remove>${T("Programma verwijderen")}</button></div>${opMaatHTML(c,true)}`;
   $("pTrOverview").innerHTML=TR.overviewHTML(P,c.workouts,trWeek,{coach:true});
   const w=trSel&&c.workouts.find(x=>x.week===trSel.week&&x.dag===trSel.dag);
@@ -871,6 +872,11 @@ document.addEventListener("click",async e=>{
     const def=TR.opMaat(cur.intake,cur.profiel,cur.naam);
     if(!def.data.dagen.length){alert(T("Er konden geen passende oefeningen worden gekozen."));return}
     ed=toEditor({naam:def.naam,...def.data}); ed.id=null; location.hash="#/programmas/concept"; return;
+  }
+  const unit=e.target.closest("[data-tr-unit]");
+  if(unit&&cur){ // the coach's own kg/lb view of client training
+    coach.gewichtEenheid=unit.dataset.trUnit; renderTraining();
+    call("/api/coach/eenheid","PUT",{eenheid:coach.gewichtEenheid}).catch(()=>{}); return;
   }
   const trb=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-cell],[data-tr-remove]");
   if(trb&&cur){

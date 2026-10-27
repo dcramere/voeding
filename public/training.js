@@ -137,11 +137,21 @@ const isLicht=(week,progId)=>!!(actief&&actief.week===week&&actief.prog===progId
 const setsFor=(reps,week,progId)=>phaseOf(week,progId).deload?reps.slice(0,Math.ceil(reps.length*0.6))
   :isLicht(week,progId)?reps.slice(0,Math.max(1,Math.ceil(reps.length*2/3))):reps;
 // weight to aim for: +1 step when every rep was done last time, ~10% lighter in a lighter week
-const kgStap=e=>/dumbbell|kettlebell/i.test(e.eq)?2:/lichaamsgewicht|bodyweight|band/i.test(e.eq)?0:2.5;
+// weight unit: weights are stored in kg; kg or lb only changes what is shown and typed
+const LB=2.20462;
+let eenheid="kg";
+const setEenheid=u=>{eenheid=u==="lb"?"lb":"kg"};
+const getEenheid=()=>eenheid;
+const wNum=kg=>eenheid==="lb"?kg*LB:kg;                                   // any kg amount (volume, e1RM) in the chosen unit
+const toon=kg=>kg==null||kg===""?null:eenheid==="lb"?Math.round(+kg*LB*2)/2:+kg; // a set weight as shown (lb in steps of 0.5)
+const naarKg=v=>v==null?null:eenheid==="lb"?Math.round(v/LB*100)/100:v;  // a typed weight → kg
+const eenheidHTML=()=>`<div class="unit-toggle" role="group" aria-label="${T("Gewichtseenheid")}">${["kg","lb"].map(u=>`<button type="button" data-tr-unit="${u}" aria-pressed="${eenheid===u}">${u}</button>`).join("")}</div>`;
+// progression step in the chosen unit: 2 kg dumbbells / 2.5 kg bars and machines, or 5 lb
+const kgStap=e=>/lichaamsgewicht|bodyweight|band/i.test(e.eq)?0:eenheid==="lb"?5:/dumbbell|kettlebell/i.test(e.eq)?2:2.5;
 function doelKg(kg,e,hitAll,licht){
   const st=kgStap(e); if(kg==null||!(kg>0)||!st) return kg;
-  if(licht) return Math.max(st,Math.round(kg*0.9/st)*st);
-  return hitAll?kg+st:kg;
+  const v=eenheid==="lb"?toon(kg):kg;
+  return naarKg(licht?Math.max(st,Math.round(v*0.9/st)*st):hitAll?v+st:v);
 }
 const weekOf=(start,progId)=>Math.min((PROGRAMS[progId]||PROGRAMS.ppl12).weken,Math.max(1,Math.floor(DC.daysSince(start)/7)+1));
 // coach-built program from the API → registry (its own exercises are added to the library)
@@ -154,7 +164,7 @@ function registerProgram(def){
 const dayOf=(prog,key)=>PROGRAMS[prog].dagen.find(x=>x.key===key);
 const e1rm=(kg,reps)=>kg>0&&reps>0?kg*(1+reps/30):0; // Epley
 const repsLabel=(e,reps)=>reps.join(" · ")+" "+(e.unit==="stappen"?T("stappen"):e.unit==="sec"?T("sec"):e.unit||"reps")+(e.side?" "+T("per kant"):"");
-const kgFmt=kg=>kg==null||kg===""?"–":fmt(kg,Number.isInteger(+kg)?0:1);
+const kgFmt=kg=>{const v=toon(kg);return v==null?"–":fmt(v,Number.isInteger(v)?0:1)};
 function minutes(day,week,progId){
   const s=day.ex.reduce((t,x)=>t+setsFor(x.reps,week,progId).length*(45+EX[x.id].rust),0);
   return Math.round(s/60/5)*5;
@@ -310,7 +320,7 @@ function overviewHTML(P,workouts,week,o){
   const next=prog.dagen.find(x=>!(byKey(x.key)||{}).afgerond);
   return `
     <p class="kicker">${prog.naam} · ${prog.sub}</p>
-    <h1>${o.coach?T("Trainingsprogramma"):T("Training")}</h1>
+    <div class="tr-h1"><h1>${o.coach?T("Trainingsprogramma"):T("Training")}</h1>${eenheidHTML()}</div>
     <div class="weekbar">
       <button class="btn small ghost" type="button" data-tr-week="${week-1}" ${week<=1?"disabled":""} aria-label="${T("Vorige week")}">‹</button>
       <div><b>${T("Week {n}",{n:week})}</b> <span>${T("van {n}",{n:prog.weken})}${week===cur?" · "+T("deze week"):""}</span></div>
@@ -344,7 +354,7 @@ function workoutHTML(P,workouts,wo,o){
   return `
     ${ro?"":`<button class="linkbtn" type="button" data-tr-back>← ${T("Training")}</button>`}
     <p class="kicker" style="margin-top:14px">${T("Week {n}",{n:wo.week})} · ${T("Fase {x}",{x:ph.naam})} · ${ph.rir}</p>
-    <h1>${day.naam}</h1>
+    <div class="tr-h1"><h1>${day.naam}</h1>${ro?"":eenheidHTML()}</div>
     <p class="sub">${day.focus?day.focus+" · ":""}${Tn(day.ex.length,"1 oefening","{n} oefeningen")} · ±${minutes(day,wo.week,P.id)} min</p>
     ${ro?"":`<div class="wo-progress" aria-hidden="true"><i style="width:${total?done/total*100:0}%"></i></div><p class="wo-status"><span data-wo-count>${T("{a} van {b} sets",{a:done,b:total})}</span><span data-wo-saved></span></p>`}
     ${!ro&&isLicht(wo.week,P.id)?bijsturingHTML(actief):""}
@@ -360,12 +370,12 @@ function workoutHTML(P,workouts,wo,o){
           <p class="ex-target">${repsLabel(e,reps)}</p></div></div>
         ${ro?"":`<p class="ex-cue">${e.cue}</p>`}
         ${prevTxt&&!ro?`<p class="ex-prev">${prevTxt}${sug?`<br><b>${sug}</b>`:""}</p>`:""}
-        <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>kg</th><th>${e.unit==="stappen"?T("Stappen"):e.unit==="sec"?T("Sec"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
+        <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>${eenheid}</th><th>${e.unit==="stappen"?T("Stappen"):e.unit==="sec"?T("Sec"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
         ${reps.map((t,si)=>{
           const s=logged[si]||{}, pk=doelKg(prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null),e,hit,licht);
           return ro?`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td><td>${s.ok?kgFmt(s.kg):"–"}</td><td>${s.ok?(s.reps??"–"):"–"}</td></tr>`
           :`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td>
-            <td><input type="text" inputmode="decimal" data-set="${x.id}:${si}:kg" value="${s.kg??""}" placeholder="${pk!=null?kgFmt(pk):"kg"}" aria-label="${T("Gewicht set {n}",{n:si+1})}"></td>
+            <td><input type="text" inputmode="decimal" data-set="${x.id}:${si}:kg" value="${s.kg==null?"":toon(s.kg)}" placeholder="${pk!=null?kgFmt(pk):eenheid}" aria-label="${T("Gewicht set {n}",{n:si+1})}"></td>
             <td><input type="text" inputmode="numeric" data-set="${x.id}:${si}:reps" value="${s.reps??""}" placeholder="${t}" aria-label="${T("Herhalingen set {n}",{n:si+1})}"></td>
             <td><button class="set-ok" type="button" data-set-ok="${x.id}:${si}" aria-pressed="${!!s.ok}" aria-label="${T("Set {n} klaar",{n:si+1})}">✓</button></td></tr>`}).join("")}
         </tbody></table>
@@ -384,10 +394,10 @@ function summaryHTML(P,workouts,wo){
     const b=bestSet(a); if(!b) return;
     const earlier=(workouts||[]).filter(w=>!(w.week===wo.week&&w.dag===wo.dag)).map(w=>bestSet((w.sets||{})[id])).filter(Boolean);
     const prevBest=earlier.reduce((m,s)=>Math.max(m,e1rm(s.kg,s.reps)),0);
-    if(earlier.length&&e1rm(b.kg,b.reps)>prevBest) prs.push(`${EX[id].n}: ${kgFmt(b.kg)} kg × ${b.reps}`);
+    if(earlier.length&&e1rm(b.kg,b.reps)>prevBest) prs.push(`${EX[id].n}: ${kgFmt(b.kg)} ${eenheid} × ${b.reps}`);
   });
   return `<div class="wo-summary"><p class="kicker">${T("Training afgerond")}</p><h2>${T("Sterk werk.")}</h2>
-    <div class="stats"><div><small>${T("Sets")}</small><b>${sets}</b></div><div><small>${T("Volume")}</small><b>${fmt(Math.round(vol))}<span class="unit">kg</span></b></div><div><small>${T("Records")}</small><b>${prs.length}</b></div><div><small>${T("Week")}</small><b>${wo.week}<span class="unit">/ ${(PROGRAMS[P.id]||PROGRAMS.ppl12).weken}</span></b></div></div>
+    <div class="stats"><div><small>${T("Sets")}</small><b>${sets}</b></div><div><small>${T("Volume")}</small><b>${fmt(Math.round(wNum(vol)))}<span class="unit">${eenheid}</span></b></div><div><small>${T("Records")}</small><b>${prs.length}</b></div><div><small>${T("Week")}</small><b>${wo.week}<span class="unit">/ ${(PROGRAMS[P.id]||PROGRAMS.ppl12).weken}</span></b></div></div>
     ${prs.length?`<ul class="prs">${prs.map(p=>`<li>🏆 ${p}</li>`).join("")}</ul>`:""}
     <div class="actions"><button class="btn" type="button" data-tr-back>${T("Terug naar overzicht")}</button></div></div>`;
 }
@@ -408,10 +418,10 @@ function progressionHTML(P,workouts){
   return `<div class="table-scroll"><table class="hist"><thead><tr><th>${T("Oefening")}</th><th>${T("Eerste")}</th><th>${T("Beste")}</th><th>${T("Laatste")}</th><th>${T("Geschatte 1RM")}</th></tr></thead><tbody>${rows.map(r=>{
     const a=e1rm(r.eerste.kg,r.eerste.reps), b=e1rm(r.beste.kg,r.beste.reps), ch=a?Math.round((b/a-1)*100):0;
     const f=s=>`${kgFmt(s.kg)}×${s.reps}<small> ${T("wk {n}",{n:s.week})}</small>`;
-    return `<tr><td>${EX[r.id].n}</td><td>${f(r.eerste)}</td><td>${f(r.beste)}</td><td>${f(r.laatste)}</td><td>${fmt(Math.round(b))} kg <span class="${ch>0?"up":""}">${ch>0?"+":""}${ch}%</span></td></tr>`}).join("")}</tbody></table></div>
+    return `<tr><td>${EX[r.id].n}</td><td>${f(r.eerste)}</td><td>${f(r.beste)}</td><td>${f(r.laatste)}</td><td>${fmt(Math.round(wNum(b)))} ${eenheid} <span class="${ch>0?"up":""}">${ch>0?"+":""}${ch}%</span></td></tr>`}).join("")}</tbody></table></div>
     <p class="sub" style="font-size:13px;margin-top:8px">${T("Geschatte 1RM via de Epley-formule op de beste set per training.")}</p>`;
 }
 
-window.TR={opMaat,oefenGroepen,splitFor,bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
+window.TR={setEenheid,getEenheid,naarKg,toon,opMaat,oefenGroepen,splitFor,bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
   overviewHTML,workoutHTML,summaryHTML,coachGridHTML,progressionHTML};
 })();

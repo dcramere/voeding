@@ -226,13 +226,14 @@ document.addEventListener("input",e=>{
   const t=e.target;
   if(t.matches("[data-set]")&&wo){
     const [id,si,f]=t.dataset.set.split(":");
-    setRow(id,+si)[f]=f==="reps"?(numVal(t.value)==null?null:Math.round(numVal(t.value))):numVal(t.value);
+    setRow(id,+si)[f]=f==="reps"?(numVal(t.value)==null?null:Math.round(numVal(t.value))):TR.naarKg(numVal(t.value)); // typed in kg or lb, kept in kg
     queueSave();
   }else if(t.matches("[data-wo-note]")&&wo){wo.notitie=t.value;queueSave()}
 });
 
 function renderAll(){
   TR.setBijsturing(me.autoTraining===false?null:TR.bijsturing(me.checkins),me.programma);
+  TR.setEenheid(me.gewichtEenheid);
   $("hello").innerHTML=me.naam?`${DC.esc(me.naam.split(" ")[0])} ${DC.avatarHTML(me.avatar,me.naam,28)}`:"";
   $("avMine").innerHTML=DC.avatarHTML(me.avatar,me.naam,72); $("avDel").hidden=!me.avatar;
   renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining(); renderBloed();
@@ -262,10 +263,15 @@ function printPlan(){
 
 // ---------- events ----------
 document.addEventListener("click",async e=>{
-  const tr=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-back],[data-set-ok],[data-wo-finish],[data-rest]");
+  const tr=e.target.closest("[data-tr-week],[data-tr-day],[data-tr-back],[data-set-ok],[data-wo-finish],[data-rest],[data-tr-unit]");
   if(tr){
     if(tr.dataset.trWeek){trWeek=+tr.dataset.trWeek;renderTraining()}
     else if(tr.dataset.trDay) openWorkout(trWeek,tr.dataset.trDay);
+    else if(tr.dataset.trUnit){ // kg ↔ lb: redraw what is on screen, remember the choice on the account
+      me.gewichtEenheid=tr.dataset.trUnit; TR.setEenheid(me.gewichtEenheid);
+      if(wo&&$("v-workout").classList.contains("on")) $("trWorkout").innerHTML=TR.workoutHTML(me.programma,me.workouts,wo); else renderTraining();
+      DC.api("/api/eenheid","PUT",{eenheid:me.gewichtEenheid}).catch(()=>{});
+    }
     else if(tr.hasAttribute("data-tr-back")){wo=null;renderTraining();show("training")}
     else if(tr.dataset.rest){if(tr.dataset.rest==="stop")stopRest();else if(rest)rest.end+=30000}
     else if(tr.dataset.setOk){
@@ -275,7 +281,7 @@ document.addEventListener("click",async e=>{
         // fill empty fields with the target reps and the previous set's (or last time's) weight
         const kgIn=row.querySelector('[data-set$=":kg"]'), repIn=row.querySelector('[data-set$=":reps"]');
         if(s.reps==null){s.reps=numVal(repIn.placeholder);repIn.value=s.reps??""}
-        if(s.kg==null){const prev=+si>0?wo.sets[id][+si-1]:null;s.kg=prev&&prev.kg!=null?prev.kg:numVal(kgIn.placeholder);kgIn.value=s.kg??""}
+        if(s.kg==null){const prev=+si>0?wo.sets[id][+si-1]:null;s.kg=prev&&prev.kg!=null?prev.kg:TR.naarKg(numVal(kgIn.placeholder));kgIn.value=s.kg==null?"":TR.toon(s.kg)}
         if(!Object.values(wo.sets).some(a=>a.some(x=>x&&x.ok&&x!==s))) wo.datum=DC.today();
         startRest(TR.EX[id].rust);
       }

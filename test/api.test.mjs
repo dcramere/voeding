@@ -1167,3 +1167,19 @@ test("blood plan → meal plan proposal: preview only, swaps with equal calories
   assert.ok((await u("/api/me")).data.profiel.maaltijdplan.maaltijden[2].items.some((x) => x.key === "gehakt"));
   assert.equal((await u(url.replace(`/coach/clients/${inv.data.id}`, ""), "POST", {})).status, 404, "coach only");
 });
+
+test("weight unit preference: client and coach, kg kept with two decimals", async () => {
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Lars Pond", email: "lars-lb@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "lars-pass-1234", privacy: true });
+  assert.equal((await u("/api/me")).data.gewichtEenheid, "kg", "default");
+  assert.equal((await u("/api/eenheid", "PUT", { eenheid: "stone" })).status, 400);
+  assert.equal((await u("/api/eenheid", "PUT", { eenheid: "lb" })).data.gewichtEenheid, "lb");
+  assert.equal((await u("/api/me")).data.gewichtEenheid, "lb");
+  assert.equal((await coach("/api/coach/eenheid", "PUT", { eenheid: "lb" })).status, 200);
+  assert.equal((await coach("/api/coach/me")).data.gewichtEenheid, "lb");
+  await coach("/api/coach/eenheid", "PUT", { eenheid: "kg" });
+  await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { programma: { id: "ppl12", start: "2026-10-05" } });
+  const r = await u("/api/workouts", "PUT", { programma: "ppl12", week: 1, dag: "pushA", datum: "2026-10-05", sets: { incline_db_press: [{ kg: 45.359, reps: 8, ok: true }] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.workouts[0].sets.incline_db_press[0].kg, 45.36, "100 lb stays 100 lb");
+});

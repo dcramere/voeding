@@ -408,6 +408,7 @@ const ROUTES = [
   ["POST", "/checkins", withClient(clientAddCheckin)],
   ["POST", "/bloed/akkoord", withClient(bloedAkkoord)],
   ["PUT", "/dagoverzicht", withClient(putDagoverzicht)],
+  ["PUT", "/eenheid", withClient(async (c) => json({ gewichtEenheid: await putEenheid(c, "clients", c.client.id) }), { billing: true })],
   ["POST", "/bloed/upload", withClient((c) => bloedUpload(c, c.client, "client")), RAW],
   ["POST", "/bloed", withClient((c) => bloedNieuw(c, c.client, "client"))],
   ["PUT", /^\/bloed\/(\d+)$/, withClient((c) => bloedWijzig(c, c.client, "client", c.params[0]))],
@@ -435,6 +436,7 @@ const ROUTES = [
     await autoCheckinReply(c.env, row.id, k.datum, c.now);
     return getClient(c);
   })],
+  ["PUT", "/coach/eenheid", withCoach(async (c) => json({ gewichtEenheid: await putEenheid(c, "coaches", c.coach.id) }), { billing: true })],
   ["PUT", "/coach/taal", withCoach(async (c) => { await setTaal(c, "coaches", c.coach.id); return json({ ok: true }); }, { billing: true })],
   ["POST", "/coach/signup", coachSignup],
   ["POST", "/coach/checkout", withCoach(coachCheckout, { billing: true })],
@@ -639,7 +641,7 @@ async function clientMe(c) {
     avatar: avatarUrl("client", cl), coachAvatar: coach ? avatarUrl("coach", coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
-    dagoverzicht: cl.dagoverzicht ?? null,
+    dagoverzicht: cl.dagoverzicht ?? null, gewichtEenheid: cl.gewicht_eenheid === "lb" ? "lb" : "kg",
     bloedAkkoord: cl.bloed_akkoord || null, bloed: await bloedLijst(env, cl.id, pickLang(c.req, c.url), "client"),
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
     programmaDef: cl.programma ? await customDefOut(env, JSON.parse(cl.programma).id, cl.coach_id) : null,
@@ -1565,6 +1567,7 @@ function cleanProgramDef(b) {
   return { naam, data: { weken, deload: !!d.deload && weken > 1, dagen, oefeningen } };
 }
 
+const kg2 = (v) => { num(v, 0, 1000, "Gewicht"); return Math.round(Number(v) * 100) / 100; }; // range check, then 2 decimals
 // sets: {exerciseId: [{kg, reps, ok}]} — shape and ranges only; exercise ids are defined client-side
 function cleanSets(sets) {
   if (!sets || typeof sets !== "object" || Array.isArray(sets)) fail(400, "Ongeldige sets.");
@@ -1574,7 +1577,8 @@ function cleanSets(sets) {
   for (const k of keys) {
     if (!/^[a-z0-9_]{1,40}$/.test(k) || !Array.isArray(sets[k]) || sets[k].length > 10) fail(400, "Ongeldige sets.");
     out[k] = sets[k].map((s) => ({
-      kg: s && s.kg !== null && s.kg !== undefined && s.kg !== "" ? num(s.kg, 0, 1000, "Gewicht") : null,
+      // two decimals, so weights typed in lb come back exactly (100 lb = 45.36 kg)
+      kg: s && s.kg !== null && s.kg !== undefined && s.kg !== "" ? kg2(s.kg) : null,
       reps: s && s.reps !== null && s.reps !== undefined && s.reps !== "" ? Math.round(num(s.reps, 0, 500, "Herhalingen")) : null,
       ok: !!(s && s.ok),
     }));
@@ -2083,6 +2087,7 @@ async function coachMeInfo(c) {
   return json({ id: k.id, naam: k.naam, email: k.email, taal: k.taal || null, isOwner: !!k.is_owner, status: k.is_owner ? "actief" : k.status,
     aboStatus: k.abo_status, aboEinde: k.abo_einde, portaal: !!k.stripe_customer, betalingen: billingReady(c.env), merk: merkOut(k),
     avatar: avatarUrl("coach", k), slug: k.slug, connect: connectOut(c.env, k),
+    gewichtEenheid: (await c.env.DB.prepare("SELECT gewicht_eenheid FROM coaches WHERE id = ?").bind(k.id).first()).gewicht_eenheid === "lb" ? "lb" : "kg",
     ...(await coachInstellingen(c.env, k.id)),
     nieuweAanvragen: (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM aanvragen WHERE coach_id = ? AND status = 'nieuw'").bind(k.id).first()).n });
 }
@@ -2383,6 +2388,12 @@ async function manifest(req, env, url) {
 }
 
 // ---------- daily overview notification ----------
+// training weights: shown and typed in kg or lb, always stored in kg
+async function putEenheid(c, table, id) {
+  if (!["kg", "lb"].includes(c.body.eenheid)) fail(400, "Kies kg of lb.");
+  await c.env.DB.prepare(`UPDATE ${table} SET gewicht_eenheid = ? WHERE id = ?`).bind(c.body.eenheid, id).run();
+  return c.body.eenheid;
+}
 async function putDagoverzicht(c) {
   const uur = c.body.uur === null || c.body.uur === undefined || c.body.uur === "" ? null : Number(c.body.uur);
   if (uur !== null && (!Number.isInteger(uur) || uur < 5 || uur > 12)) fail(400, "Kies een tijd tussen 5:00 en 12:00.");

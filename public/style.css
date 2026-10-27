@@ -655,3 +655,10 @@ html.i18n-wait body{visibility:hidden}
 .mp-totals>div>small{display:block;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
 .mp-totals small small,.mp-totals div div small{display:none}
 @media (max-width:640px){.mp-totals{grid-template-columns:1fr}}
+
+/* training: kg | lb */
+.tr-h1{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tr-h1 h1{margin-right:auto}
+.unit-toggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:20px;padding:2px;flex:none}
+.unit-toggle button{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;font-weight:700;padding:4px 12px;border-radius:16px;cursor:pointer;min-height:30px}
+.unit-toggle button[aria-pressed="true"]{background:var(--gold);color:#0a0a0a}

@@ -143,3 +143,22 @@ test("tailored program from the intake: split, equipment, session length, favour
   const chips = TR.oefenGroepen().flatMap(([, ids]) => ids);
   assert.equal(new Set(chips).size, Object.keys(TR.EX).filter((k) => !TR.EX[k].custom).length);
 });
+
+test("weight unit: kg or lb on screen, always kg in storage, progression steps per unit", () => {
+  const db = TR.EX.incline_db_press, bar = TR.EX.incline_bb_press;
+  TR.setEenheid("kg");
+  assert.equal(TR.doelKg(20, db, true, false), 22); assert.equal(TR.doelKg(60, bar, true, false), 62.5);
+  assert.equal(TR.naarKg(80), 80); assert.equal(TR.toon(45.36), 45.36);
+  TR.setEenheid("lb");
+  assert.equal(TR.getEenheid(), "lb");
+  assert.equal(TR.naarKg(100), 45.36, "typed 100 lb → stored kg");
+  assert.equal(TR.toon(45.36), 100, "and back without drift");
+  assert.equal(TR.toon(20), 44, "20 kg ≈ 44 lb (steps of 0.5 lb)");
+  assert.equal(TR.toon(TR.doelKg(TR.naarKg(100), bar, true, false)), 105, "+5 lb when every rep was done");
+  assert.equal(TR.toon(TR.doelKg(TR.naarKg(100), bar, false, true)), 90, "lighter week: −10% rounded to 5 lb");
+  assert.equal(TR.doelKg(30, TR.EX.push_ups, true, false), 30, "bodyweight: no step");
+  const html = TR.workoutHTML({ id: "ppl12", start: "2026-01-05" }, [], { week: 1, dag: "pushA", sets: { incline_db_press: [{ kg: 45.36, reps: 8, ok: true }] } });
+  assert.match(html, /<th>lb<\/th>/); assert.match(html, /value="100"/); assert.match(html, /data-tr-unit="lb" aria-pressed="true"/);
+  TR.setEenheid("kg");
+  assert.match(TR.workoutHTML({ id: "ppl12", start: "2026-01-05" }, [], { week: 1, dag: "pushA", sets: {} }), /<th>kg<\/th>/);
+});

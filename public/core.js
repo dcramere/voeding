@@ -44,7 +44,56 @@ const FOODS = {
   dhal:{n:"Dhal (spliterwten of linzen), gekookt",s:"dhal",k:116,p:9,c:12,f:0.4,v:8,cat:"koolh",b:"Kook de dhal met masala, knoflook en ui tot hij zacht is."},
   rijstgekookt:{n:"Zilvervliesrijst, gekookt",s:"zilvervliesrijst",k:111,p:2.6,c:21.2,f:0.9,v:1.8,cat:"koolh",b:"Kook de rijst 25–30 minuten gaar. Tip: kook een voorraad voor 2–3 dagen."},
   honing:{n:"Honing",s:"honing",k:304,p:0.3,c:82,f:0,v:0,unit:["tl","tl",7],cat:"koolh"},
-  pindakaas:{n:"Pindakaas (100% pinda)",s:"pindakaas",k:620,p:25,c:12,f:50,v:6,cat:"vet"}
+  pindakaas:{n:"Pindakaas (100% pinda)",s:"pindakaas",k:620,p:25,c:12,f:50,v:6,cat:"vet"},
+  // added 2026-10-27 from the coach's own list (Surinamese and everyday foods); fibre (v) from standard tables
+  acai:{n:"Açaí, ongezoet",s:"açaí",k:60,p:2,c:6,f:5,v:2.6,cat:"fruit"},
+  antroewa:{n:"Antroewa",s:"antroewa",k:30,p:1,c:6,f:0,v:2.5,cat:"groente"},
+  aubergine:{n:"Aubergine",s:"aubergine",k:20,p:1,c:3,f:0,v:3,cat:"groente"},
+  bangbang:{n:"Bangbangvis (acoupa, ombervis)",s:"bangbangvis",k:133,p:21.5,c:0,f:4.6,v:0,tag:["vis"],cat:"eiwit"},
+  bulgur:{n:"Bulgur (droog gewogen)",s:"bulgur",k:340,p:12.3,c:63.4,f:1.3,v:12.5,cat:"koolh"},
+  bulgurgekookt:{n:"Bulgur, gekookt",s:"bulgur",k:80,p:3.1,c:14.1,f:0.2,v:4.5,cat:"koolh"},
+  cashew:{n:"Cashewnoten, ongezouten",s:"cashewnoten",k:615,p:21.2,c:20.8,f:48.8,v:3.3,unit:["handje","handjes",26],cat:"vet"},
+  mais:{n:"Mais, droog (geel)",s:"mais",k:365,p:9.4,c:74.3,f:4.7,v:7.3,cat:"koolh"},
+  maisgekookt:{n:"Mais, gekookt",s:"mais",k:74,p:2.5,c:11.6,f:1.4,v:2.7,cat:"koolh"},
+  dadels:{n:"Dadels",s:"dadels",k:277,p:1.8,c:75,f:0.2,v:6.7,unit:["stuk","stuks",8],cat:"fruit"},
+  eigeel:{n:"Eigeel, rauw",s:"eigeel",k:322,p:16,c:3.6,f:27,v:0,cat:"eiwit"},
+  kailan:{n:"Kailan (gai-lan)",s:"kailan",k:26,p:1.2,c:4.7,f:0.8,v:2.5,cat:"groente"},
+  garnalen:{n:"Garnalen",s:"garnalen",k:70,p:15.4,c:0,f:0.9,v:0,tag:["vis"],cat:"eiwit"},
+  gerooktevis:{n:"Gerookte vis",s:"gerookte vis",k:213,p:20,c:0,f:14.8,v:0,tag:["vis"],cat:"eiwit"},
+  guave:{n:"Guave",s:"guave",k:72,p:1,c:17,f:0,v:5.4,unit:["stuk","stuks",90],cat:"fruit"},
+  kogelbiefstuk:{n:"Kogelbiefstuk",s:"kogelbiefstuk",k:130,p:21,c:0.2,f:4.5,v:0,tag:["vlees","rood"],cat:"eiwit"},
+  ossenhaas:{n:"Ossenhaas (haasbiefstuk)",s:"ossenhaas",k:110,p:23,c:0,f:2,v:0,tag:["vlees","rood"],cat:"eiwit"},
+  steak:{n:"Steak, onbereid",s:"steak",k:108,p:22.9,c:0,f:1.8,v:0,tag:["vlees","rood"],cat:"eiwit"},
+  steakgebakken:{n:"Steak, gebakken (olie, zout)",s:"steak",k:144,p:28.9,c:0,f:3.2,v:0,tag:["vlees","rood"],cat:"eiwit"},
+  sukadelap:{n:"Sukadelap",s:"sukadelap",k:130,p:20.9,c:0,f:5.1,v:0,tag:["vlees","rood"],cat:"eiwit"},
+  komkommer:{n:"Komkommer, met schil",s:"komkommer",k:13,p:0.7,c:1.3,f:0.4,v:0.5,cat:"groente"},
+  meergranenbrood:{n:"Meergranenbrood",s:"meergranenbrood",k:261,p:12.3,c:39,f:4.8,v:6,unit:["snee","sneetjes",35],cat:"koolh"},
+  tarwebrood:{n:"Tarwebrood",s:"tarwebrood",k:236,p:9.8,c:42.9,f:1.7,v:4,unit:["snee","sneetjes",35],cat:"koolh"},
+  tortilla:{n:"Tortilla (wrap)",s:"tortilla",k:302,p:8.3,c:55,f:4.9,v:3,unit:["stuk","stuks",40],cat:"koolh"},
+  okra:{n:"Okra",s:"okra",k:33,p:1.9,c:7,f:0.2,v:3.2,cat:"groente"},
+  paprika:{n:"Paprika",s:"paprika",k:26,p:1,c:6,f:0.3,v:2.1,cat:"groente"},
+  augurk:{n:"Augurken (zuur)",s:"augurken",k:17,p:1.1,c:2.8,f:0,v:1,cat:"groente"},
+  pindagezouten:{n:"Pinda's, gezouten",s:"pinda's",k:620,p:24.8,c:13.2,f:50.4,v:8.5,unit:["handje","handjes",26],cat:"vet"},
+  pindageroosterd:{n:"Pinda's, geroosterd",s:"pinda's",k:577,p:24,c:11.2,f:47.2,v:8.5,unit:["handje","handjes",26],cat:"vet"},
+  popcorn:{n:"Popcorn",s:"popcorn",k:387,p:13,c:77.7,f:4.5,v:14.5,cat:"koolh"},
+  kingpop:{n:"Waterijsje met room (King Pop)",s:"ijsje",k:100,p:1.4,c:12.9,f:5.7,v:0,cat:"zuivel"},
+  pruimen:{n:"Pruimen, gedroogd",s:"gedroogde pruimen",k:220,p:2,c:45,f:0,v:7,cat:"fruit"},
+  rambutan:{n:"Rambutan of lychee",s:"rambutan",k:66,p:0.8,c:16.5,f:0.4,v:1.3,cat:"fruit"},
+  sesambol:{n:"Sesambol",s:"sesambol",k:278,p:10.1,c:45.8,f:5.7,v:3,cat:"koolh"},
+  sinaasappel:{n:"Sinaasappel",s:"sinaasappel",k:48,p:0.8,c:7.9,f:1,v:2.4,unit:["stuk","stuks",130],cat:"fruit"},
+  sopropo:{n:"Sopropo",s:"sopropo",k:26,p:1,c:5,f:0,v:2.8,cat:"groente"},
+  snijbonen:{n:"Snijbonen",s:"snijbonen",k:22,p:1.8,c:2,f:0.2,v:3,cat:"groente"},
+  kousenband:{n:"Kousenband",s:"kousenband",k:31,p:1.8,c:7,f:0.1,v:2.7,cat:"groente"},
+  spinazie:{n:"Spinazie",s:"spinazie",k:26,p:3.2,c:0.9,f:0.6,v:2.2,cat:"groente"},
+  sterappel:{n:"Sterappel (star apple)",s:"sterappel",k:67,p:0.7,c:14.7,f:0,v:3,cat:"fruit"},
+  tomaat:{n:"Tomaat",s:"tomaat",k:23,p:0.7,c:3,f:0.5,v:1.2,cat:"groente"},
+  zuurkool:{n:"Zuurkool, gekookt",s:"zuurkool",k:14,p:0.8,c:1,f:0,v:2.5,cat:"groente"},
+  yoghurtnaturel:{n:"Yoghurt naturel",s:"yoghurt",k:64,p:3.3,c:4.7,f:3,v:0,tag:["zuivel"],cat:"zuivel"},
+  yoghurtaardbei:{n:"Aardbeienyoghurt",s:"aardbeienyoghurt",k:85,p:3.3,c:8.5,f:3.2,v:0,tag:["zuivel"],cat:"zuivel"},
+  vla:{n:"Vanillevla",s:"vanillevla",k:100,p:3.3,c:14.8,f:3,v:0,tag:["zuivel"],cat:"zuivel"},
+  witterijst:{n:"Witte rijst (droog gewogen)",s:"witte rijst",k:352,p:7,c:78,f:1,v:1.3,cat:"koolh"},
+  witterijstgekookt:{n:"Witte rijst, gekookt",s:"witte rijst",k:146,p:3.2,c:32.2,f:0.3,v:0.4,cat:"koolh"},
+  vermicelli:{n:"Vermicelli (droog gewogen)",s:"vermicelli",k:364,p:10.9,c:76.4,f:0.9,v:2,cat:"koolh"}
 };
 for(const f of Object.values(FOODS)){f.n=T(f.n);f.s=T(f.s);if(f.b)f.b=T(f.b);if(f.shop)f.shop=T(f.shop);if(f.unit)f.unit=[T(f.unit[0]),T(f.unit[1]),f.unit[2]]}
 const CATS=[["eiwit",T("Vlees, vis, ei en vegetarisch")],["zuivel",T("Zuivel")],["koolh",T("Brood, granen en knollen")],["groente",T("Groente")],["fruit",T("Fruit")],["vet",T("Noten, oliën en vetten")]];
@@ -625,11 +674,16 @@ const INTAKE_Q=[
   ["producten","foods",T("Welke van deze producten eet u vaak of graag?")],
   ["alcohol","select",T("Hoe vaak drinkt u alcohol?"),[["nooit",T("Nooit")],["soms",T("Soms (minder dan 1× per week)")],["wekelijks",T("Wekelijks")],["dagelijks",T("Dagelijks")]]]
 ];
+// food chips grouped by category (the list is long); each group is its own .checks container with the given attribute
+function foodChipsHTML(filter,attr){
+  return CATS.map(([cat,l])=>{const ks=Object.keys(FOODS).filter(k=>FOODS[k].cat===cat&&filter(k)).sort((a,b)=>FOODS[a].n.localeCompare(FOODS[b].n,I18N.locale));
+    return ks.length?`<div class="ex-groep"><b>${l}</b><div class="checks" ${attr}>${ks.map(k=>`<label class="chip"><input type="checkbox" value="${k}">${esc(FOODS[k].n.replace(/ \(.*\)/,""))}</label>`).join("")}</div></div>`:"";}).join("");
+}
 function intakeFieldsHTML(){
   return INTAKE_Q.map(([k,t,l,x])=>{
     const ph=typeof x==="string"?` placeholder="${x}"`:"";
     if(t==="textarea") return `<label>${l}${x===true?"":` <small>${T("optioneel")}</small>`}<textarea name="${k}" style="min-height:90px"${ph}${x===true?" required":""}></textarea></label>`;
-    if(t==="foods") return `<fieldset><legend>${l} <small>${T("optioneel")}</small></legend><div class="checks" data-intake-foods>${Object.keys(FOODS).filter(f=>!FOODS[f].custom).map(f=>`<label class="chip"><input type="checkbox" value="${f}">${esc(FOODS[f].n.replace(/ \(.*\)/,""))}</label>`).join("")}</div></fieldset>`;
+    if(t==="foods") return `<fieldset><legend>${l} <small>${T("optioneel")}</small></legend>${foodChipsHTML(f=>!FOODS[f].custom,"data-intake-foods")}</fieldset>`;
     if(t==="exercises") return window.TR?`<fieldset><legend>${l} <small>${T("optioneel")}</small></legend><p class="sub" style="margin:0 0 8px;font-size:13px">${T("Uw coach gebruikt dit om een trainingsprogramma op maat te maken, met oefeningen die u kent en leuk vindt.")}</p>${TR.oefenGroepen().map(([g,ids])=>`<div class="ex-groep"><b>${T(g)}</b><div class="checks" data-intake-ex>${ids.map(id=>`<label class="chip"><input type="checkbox" value="${id}">${esc(TR.EX[id].n)}</label>`).join("")}</div></div>`).join("")}</fieldset>`:"";
     if(t==="select") return `<label>${l}<select name="${k}"><option value="">${T("Kies…")}</option>${x.map(([v,o])=>`<option value="${v}">${o}</option>`).join("")}</select></label>`;
     return `<label>${l} <small>${T("optioneel")}</small><input name="${k}" type="${t}"${t==="number"?' inputmode="decimal" step="0.5"':""}${ph}></label>`;
@@ -706,7 +760,7 @@ function profielFieldsHTML(){
     </fieldset>
     <fieldset>
       <legend>${T("Deze producten liever niet")}</legend>
-      <div class="checks" data-excl>${Object.keys(FOODS).filter(k=>k!=="groente").map(k=>`<label class="chip"><input type="checkbox" value="${k}">${FOODS[k].n.replace(/ \(.*\)/,"")}</label>`).join("")}</div>
+      ${foodChipsHTML(k=>k!=="groente"&&!FOODS[k].custom,"data-excl")}
     </fieldset>`;
 }
 function fillProfiel(f,P){

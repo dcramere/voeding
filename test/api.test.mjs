@@ -1076,7 +1076,7 @@ test("phone extras: daily overview at the client's local hour, icon badge count,
   await u("/api/metingen", "POST", { datum: "2026-09-01", gewicht: 70 });
   assert.equal((await u("/api/dagoverzicht", "PUT", { uur: 3, tz: 0 })).status, 400);
   // pick the offset that makes "now" 07:xx local for Dana, so the hourly run sends it right away
-  const tz = (new Date().getUTCHours() - 7) * 60;
+  const d = (new Date().getUTCHours() - 7 + 24) % 24, tz = (d > 12 ? d - 24 : d) * 60; // a real offset (−11…+12 h) at any time of day
   assert.equal((await u("/api/dagoverzicht", "PUT", { uur: 7, tz })).data.dagoverzicht, 7);
   assert.equal((await u("/api/me")).data.dagoverzicht, 7);
   const drain = async () => { let all = [], n; do { n = (await u("/api/push/pending")).data.notificaties || []; all = all.concat(n); } while (n.length); return all; };

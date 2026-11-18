@@ -115,6 +115,7 @@
         <label class="consent"><input type="checkbox" id="autoCheckin"><span>Automatisch reageren op check-ins. De app schrijft binnen een minuut een persoonlijk antwoord in uw naam, op basis van de scores, het gewicht, het dagboek en de trainingen. U krijgt een kopie, en een melding met "aandacht nodig" bij pijn, blessures of ziekte.</span></label>
         <label class="consent"><input type="checkbox" id="autoTraining"><span>Training automatisch aanpassen. Na een check-in met spierpijn of pijn, weinig energie en slechte slaap, of veel stress en slechte slaap wordt die week lichter: ongeveer een derde minder sets en lichtere doelgewichten. Het doelgewicht per set stijgt vanzelf als alle herhalingen gehaald zijn.</span></label>
         <label class="consent"><input type="checkbox" id="autoPlan"><span>Voedingsplan automatisch samenstellen uit de intake. Zodra een nieuwe cliënt intake, profiel en eerste meting heeft ingevuld, maakt de app een eigen voedingsplan met de producten die de cliënt noemt. U kunt het daarna aanpassen.</span></label>
+        <label class="consent"><input type="checkbox" id="autoEvaluatie"><span>Maandevaluatie automatisch maken en delen. Zodra een cliënt een complete set progressiefoto's heeft geüpload, maakt de app een evaluatie van de afgelopen periode (gewicht, check-ins, trainingen, dagboek, foto's) en deelt die met de cliënt. U krijgt een melding.</span></label>
         <h2>E-mail</h2>
         <p class="sub" id="emailInfo"></p>
         <label class="consent"><input type="checkbox" id="emailAan"><span>Stuur mij een e-mail bij check-ins, aanvragen, automatische aanpassingen en nieuwe voedingsplannen.</span></label>
@@ -234,6 +235,7 @@
       <button type="button" data-pane="checkins">Check-ins</button>
       <button type="button" data-pane="fotos">Foto's</button>
       <button type="button" data-pane="bloed">Bloed</button>
+      <button type="button" data-pane="evaluaties">Evaluaties</button>
       <button type="button" data-pane="intake">Intake</button>
       <button type="button" data-pane="profiel">Profiel</button>
       <button type="button" data-pane="notities">Notities</button>
@@ -279,6 +281,7 @@
       <div class="flash" id="fotoMsg" role="status"></div>
     </div>
     <div class="pane" data-pane-body="bloed"><p class="sub">Bloedonderzoek van de cliënt: automatisch uitgelezen en beoordeeld met het referentiebereik van het laboratorium.</p><div id="pBloed" class="bl"></div></div>
+    <div class="pane" data-pane-body="evaluaties"><div id="pEvaluaties" class="ev"></div></div>
     <div class="pane" data-pane-body="intake" id="pIntake"></div>
     <div class="pane" data-pane-body="profiel">
       <form id="fDoelen" novalidate class="doelen">
@@ -317,6 +320,6 @@
 
 <div id="print" aria-hidden="true"></div>
 
-<script src="/i18n.js" data-load="/core.js /training.js /voeding.js /chat.js /bloed.js /coach.js"></script>
+<script src="/i18n.js" data-load="/core.js /training.js /voeding.js /chat.js /bloed.js /evaluatie.js /coach.js"></script>
 </body>
 </html>

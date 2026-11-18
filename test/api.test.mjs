@@ -1183,3 +1183,47 @@ test("weight unit preference: client and coach, kg kept with two decimals", asyn
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.workouts[0].sets.incline_db_press[0].kg, 45.36, "100 lb stays 100 lb");
 });
+
+test("evaluations: monthly after a complete photo set (shared), final by the coach (private until shared)", async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Eva Lueer", email: "eva-ev@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "eva-pass-1234", privacy: true });
+  await u("/api/profiel", "PUT", { naam: "Eva Lueer", profiel: { ...PROFIEL, doel: -0.2, trainingsdagen: [1, 3, 5] } });
+  const w = [[ "2026-09-01", 80 ], [ "2026-09-08", 79.4 ], [ "2026-09-15", 78.9 ], [ "2026-09-22", 78.5 ], [ "2026-09-29", 78 ]];
+  for (const [datum, gewicht] of w) await u("/api/metingen", "POST", { datum, gewicht });
+  for (const datum of ["2026-09-08", "2026-09-15", "2026-09-22"]) await u("/api/checkins", "POST", { datum, energie: 4, honger: 3, slaap: 4, stress: 2, naleving: 4, training: 3 });
+  const jpeg = () => { const b = new Uint8Array(2000).fill(9); b.set([0xff, 0xd8, 0xff, 0xe0]); return b; };
+  const foto = (datum, pose) => u(`/api/fotos?datum=${datum}&pose=${pose}`, "POST", jpeg(), { "content-type": "image/jpeg" });
+  for (const p of ["voor", "achter", "zijkant"]) await foto("2026-09-01", p);
+  await wait(800);
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`)).data.evaluaties.length, 0, "the first set is the starting point");
+  await foto("2026-09-29", "voor"); await foto("2026-09-29", "achter"); await wait(500);
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`)).data.evaluaties.length, 0, "only when the set is complete");
+  await foto("2026-09-29", "zijkant");
+  let evs = [];
+  for (let i = 0; i < 20 && !(evs[0] && evs[0].status === "klaar"); i++) { await wait(300); evs = (await coach(`/api/coach/clients/${inv.data.id}`)).data.evaluaties; }
+  assert.equal(evs.length, 1); const m = evs[0];
+  assert.equal(m.soort, "maand"); assert.equal(m.gedeeld, true); assert.equal(m.van, "2026-09-01"); assert.equal(m.tot, "2026-09-29");
+  assert.equal(m.data.gewicht.verschil, -2); assert.equal(m.data.gewicht.doel, "op schema", "−0.6 %/week fits the fat-loss pace");
+  assert.equal(m.data.checkins.aantal, 3); assert.equal(m.data.checkins.naleving, 4);
+  assert.equal(m.data.fotos.voor.datum, "2026-09-01"); assert.equal(m.data.fotos.na.datum, "2026-09-29"); assert.ok(m.data.fotos.na.zijkant);
+  assert.match(m.tekst, /80 naar 78 kg/); assert.ok(m.coachTekst);
+  const me = (await u("/api/me")).data;
+  assert.equal(me.evaluaties.length, 1); assert.equal(me.evaluaties[0].coachTekst, undefined, "coach notes stay with the coach");
+  // re-uploading a photo of the same set does not create a second one
+  await foto("2026-09-29", "voor"); await wait(500);
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}`)).data.evaluaties.length, 1);
+  // final evaluation: whole period, not shared until the coach shares it
+  const e = await coach(`/api/coach/clients/${inv.data.id}/evaluaties`, "POST", { soort: "eind", tot: "2026-09-30" });
+  assert.equal(e.status, 201);
+  const eind = e.data.evaluaties.find((x) => x.soort === "eind");
+  assert.equal(eind.van, "2026-09-01"); assert.equal(eind.gedeeld, false); assert.equal(eind.status, "klaar");
+  assert.equal((await u("/api/me")).data.evaluaties.length, 1);
+  await coach(`/api/coach/clients/${inv.data.id}/evaluaties/${eind.id}`, "PUT", { gedeeld: true });
+  assert.equal((await u("/api/me")).data.evaluaties.length, 2);
+  // switched off → no automatic monthly evaluation
+  await coach("/api/coach/instellingen", "PUT", { autoEvaluatie: false });
+  assert.equal((await coach("/api/coach/me")).data.autoEvaluatie, false);
+  await coach("/api/coach/instellingen", "PUT", { autoEvaluatie: true });
+  assert.equal((await coach(`/api/coach/clients/${inv.data.id}/evaluaties/${eind.id}`, "DELETE")).data.evaluaties.length, 1);
+});

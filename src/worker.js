@@ -82,6 +82,7 @@ async function runHourly(env, now, force) {
   await backupIfDue(env, now);
   await autoCheckinInhalen(env, now);
   await dagoverzichten(env, now);
+  await evaluatiesInhalen(env, now);
   const hour = new Date(now * 1000).getUTCHours();
   if (force || env.HERINNERING_UUR === "altijd" || hour === Number(env.HERINNERING_UUR || 12)) {
     await sendReminders(env, now);
@@ -424,7 +425,7 @@ const ROUTES = [
   ["GET", "/coach/me", withCoach(coachMeInfo, { billing: true })],
   ["PUT", "/coach/instellingen", withCoach(async (c) => {
     if ("autoCheckin" in c.body) await c.env.DB.prepare("UPDATE coaches SET auto_checkin = ? WHERE id = ?").bind(c.body.autoCheckin ? 1 : 0, c.coach.id).run();
-    for (const [k, col] of [["autoTraining", "auto_training"], ["autoPlan", "auto_plan"], ["emailAan", "email_aan"], ["emailBerichten", "email_berichten"]])
+    for (const [k, col] of [["autoTraining", "auto_training"], ["autoPlan", "auto_plan"], ["emailAan", "email_aan"], ["emailBerichten", "email_berichten"], ["autoEvaluatie", "auto_evaluatie"]])
       if (k in c.body) await c.env.DB.prepare(`UPDATE coaches SET ${col} = ? WHERE id = ?`).bind(c.body[k] ? 1 : 0, c.coach.id).run();
     return json(await coachInstellingen(c.env, c.coach.id));
   })],
@@ -469,6 +470,9 @@ const ROUTES = [
   ["GET", /^\/coach\/fotos\/(\d+)$/, withCoach(coachGetFoto)],
   ["DELETE", /^\/coach\/clients\/(\d+)\/fotos\/(\d+)$/, withCoach(coachDelFoto)],
   ["GET", /^\/coach\/clients\/(\d+)\/dagboek$/, withCoach(coachGetDagboek)],
+  ["POST", /^\/coach\/clients\/(\d+)\/evaluaties$/, withCoach(coachEvaluatieMaken)],
+  ["PUT", /^\/coach\/clients\/(\d+)\/evaluaties\/(\d+)$/, withCoach(coachEvaluatieDelen)],
+  ["DELETE", /^\/coach\/clients\/(\d+)\/evaluaties\/(\d+)$/, withCoach(coachEvaluatieWeg)],
   ["POST", /^\/coach\/clients\/(\d+)\/bloed\/upload$/, withCoach(async (c) => bloedUpload(c, await ownClient(c, c.params[0]), "coach")), RAW],
   ["POST", /^\/coach\/clients\/(\d+)\/bloed$/, withCoach(async (c) => bloedNieuw(c, await ownClient(c, c.params[0]), "coach"))],
   ["PUT", /^\/coach\/clients\/(\d+)\/bloed\/(\d+)$/, withCoach(async (c) => bloedWijzig(c, await ownClient(c, c.params[0]), "coach", c.params[1]))],
@@ -641,6 +645,7 @@ async function clientMe(c) {
     avatar: avatarUrl("client", cl), coachAvatar: coach ? avatarUrl("coach", coach) : null,
     profiel: profielOut(cl), intake: cl.intake ? JSON.parse(cl.intake) : null,
     privacyAkkoord: cl.privacy_akkoord, menu: JSON.parse(cl.menu), metingen, checkins, fotos,
+    evaluaties: await evaluatiesOf(env, cl.id, "client"),
     dagoverzicht: cl.dagoverzicht ?? null, gewichtEenheid: cl.gewicht_eenheid === "lb" ? "lb" : "kg",
     bloedAkkoord: cl.bloed_akkoord || null, bloed: await bloedLijst(env, cl.id, pickLang(c.req, c.url), "client"),
     programma: cl.programma ? JSON.parse(cl.programma) : null, workouts, producten,
@@ -914,8 +919,10 @@ async function getClient(c) {
   const ongelezen = (await c.env.DB.prepare("SELECT COUNT(*) AS n FROM berichten WHERE client_id = ? AND van = 'client' AND gelezen IS NULL").bind(row.id).first()).n;
   const feedback = (await c.env.DB.prepare("SELECT id, tekst, checkin_id, created_at, auto FROM berichten WHERE client_id = ? AND van = 'coach' AND checkin_id IS NOT NULL ORDER BY id").bind(row.id).all()).results;
   const programmaDef = row.programma ? await customDefOut(c.env, JSON.parse(row.programma).id, row.coach_id) : null;
-  const bloed = await bloedLijst(c.env, row.id, pickLang(c.req, c.url), "coach");
-  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback, programmaDef, bloed, bloedAkkoord: row.bloed_akkoord || null });
+  const bloed = await bloedLijst(c.env, row.id, pickLang(c.req, c.url), "coach"), evaluaties = await evaluatiesOf(c.env, row.id, "coach");
+  // an evaluation still waiting (e.g. interrupted) is finished in the background when the coach opens the client
+  for (const e of evaluaties.filter((x) => x.status === "wachtrij" && x.created_at < c.now - 120)) c.ctx?.waitUntil(evaluatieVerwerken(c.env, e.id, c.now));
+  return json({ ...publicClient(row), metingen, checkins, fotos, workouts, producten, ongelezen, feedback, programmaDef, bloed, evaluaties, bloedAkkoord: row.bloed_akkoord || null });
 }
 
 async function coachExport(c) {
@@ -996,6 +1003,7 @@ async function deleteClientData(env, id) {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM fotos WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM bloedonderzoek WHERE client_id = ?").bind(row.id),
+    c.env.DB.prepare("DELETE FROM evaluaties WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM workouts WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM producten WHERE client_id = ?").bind(row.id),
     c.env.DB.prepare("DELETE FROM dagboek WHERE client_id = ?").bind(row.id),
@@ -1064,6 +1072,8 @@ async function storeFoto(c, clientId, door) {
       .bind(clientId, datum, pose, key, type, buf.length, door, c.now),
   ]);
   if (old) await c.env.FOTOS.delete(old.r2_key);
+  const klaar = evaluatieNaFotos(c.env, clientId, datum, c.now); // AI takes a while: finish after the response
+  if (c.ctx) c.ctx.waitUntil(klaar); else await klaar;
   return json({ fotos: await fotosOf(c.env, clientId) }, 201);
 }
 
@@ -2079,8 +2089,8 @@ async function storefrontCheckout(c) {
 
 // --- coaches: platform subscription
 async function coachInstellingen(env, id) {
-  const r = await env.DB.prepare("SELECT auto_checkin, auto_training, auto_plan, email_aan, email_berichten FROM coaches WHERE id = ?").bind(id).first();
-  return { autoCheckin: !!r.auto_checkin, autoTraining: !!r.auto_training, autoPlan: !!r.auto_plan, emailAan: !!r.email_aan, emailBerichten: !!r.email_berichten, emailBeschikbaar: !!env.RESEND_API_KEY };
+  const r = await env.DB.prepare("SELECT auto_checkin, auto_training, auto_plan, email_aan, email_berichten, auto_evaluatie FROM coaches WHERE id = ?").bind(id).first();
+  return { autoEvaluatie: !!r.auto_evaluatie, autoCheckin: !!r.auto_checkin, autoTraining: !!r.auto_training, autoPlan: !!r.auto_plan, emailAan: !!r.email_aan, emailBerichten: !!r.email_berichten, emailBeschikbaar: !!env.RESEND_API_KEY };
 }
 async function coachMeInfo(c) {
   const k = c.coach;
@@ -2440,6 +2450,177 @@ async function dagoverzichten(env, now) {
       }, now);
     }
   } catch (e) { console.error("daily overview failed", e); }
+}
+
+// ---------- evaluations ----------
+// A review of a period: monthly (automatic once the client completes a photo set; shared with the client) or final
+// (made by the coach when a client stops; shared only when the coach chooses). Metrics are computed here; AI writes a
+// review for the client and practical notes for the coach (template text without AI). Rows start as 'wachtrij' so the
+// hourly run finishes any that were interrupted.
+const iso = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+const dagenTussen = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+async function evaluatieData(env, cl, van, tot) {
+  const P = profielOut(cl), metingen = await metingenOf(env, cl.id);
+  const inPeriode = metingen.filter((m) => m.datum >= van && m.datum <= tot && m.gewicht > 0);
+  const start = [...metingen].reverse().find((m) => m.datum <= van && m.gewicht > 0) || inPeriode[0], eind = inPeriode[inPeriode.length - 1] || start;
+  const dagen = Math.max(1, dagenTussen(van, tot));
+  let gewicht = null;
+  if (start && eind && eind.datum > start.datum) {
+    const d = Math.round((eind.gewicht - start.gewicht) * 10) / 10, weken = dagenTussen(start.datum, eind.datum) / 7;
+    const pct = Math.round(d / start.gewicht / weken * 1000) / 10, band = P && ADAPT_TEMPO[String(P.doel)];
+    gewicht = { van: start.gewicht, tot: eind.gewicht, vanDatum: start.datum, totDatum: eind.datum, verschil: d, perWeek: Math.round(d / weken * 100) / 100, pctWeek: pct, metingen: inPeriode.length,
+      doel: band ? (pct < band[0] ? (P.doel < 0 ? "sneller" : "langzamer") : pct > band[1] ? (P.doel < 0 ? "langzamer" : "sneller") : "op schema") : null,
+      reeks: inPeriode.map((m) => [m.datum, m.gewicht]) };
+  }
+  const omtrek = (k) => { const a = [...metingen].filter((m) => m.datum <= tot && m[k]); const s = a.find((m) => m.datum >= van) && (a.filter((m) => m.datum <= van).pop() || a.find((m) => m.datum >= van)), e = a.pop(); return s && e && e.datum > s.datum ? { van: s[k], tot: e[k], verschil: Math.round((e[k] - s[k]) * 10) / 10 } : null; };
+  const { results: ks } = await env.DB.prepare("SELECT datum, energie, honger, slaap, stress, naleving, opmerking FROM checkins WHERE client_id = ? AND datum >= ? AND datum <= ? ORDER BY datum").bind(cl.id, van, tot).all();
+  const gem = (k) => (ks.length ? Math.round(ks.reduce((t, x) => t + x[k], 0) / ks.length * 10) / 10 : null);
+  const checkins = { aantal: ks.length, verwacht: Math.max(1, Math.round(dagen / 7)), energie: gem("energie"), honger: gem("honger"), slaap: gem("slaap"), stress: gem("stress"), naleving: gem("naleving"),
+    opmerkingen: ks.filter((x) => x.opmerking).map((x) => `${x.datum}: ${String(x.opmerking).slice(0, 200)}`).slice(-4) };
+  // training: completed workouts and strength (best set by estimated 1RM, first vs last workout of the period)
+  let training = null;
+  if (cl.programma) {
+    const pr = JSON.parse(cl.programma), def = await programDef(env, pr.id, cl.coach_id);
+    const { results: ws } = await env.DB.prepare("SELECT datum, sets, afgerond FROM workouts WHERE client_id = ? AND programma = ? AND datum >= ? AND datum <= ? ORDER BY datum").bind(cl.id, pr.id, van, tot).all();
+    const klaar = ws.filter((w) => w.afgerond), perWeek = (P && P.trainingsdagen && P.trainingsdagen.length) || (def ? Math.min(def.dagen.length, 6) : 3);
+    const naam = (id) => (def && def.custom && def.data.oefeningen[id] ? def.data.oefeningen[id].n : TR.EX[id] ? TR.EX[id].n : id);
+    const e1 = (s) => (s.ok && s.kg > 0 && s.reps > 0 ? s.kg * (1 + s.reps / 30) : 0), per = {};
+    for (const w of klaar) for (const [id, sets] of Object.entries(JSON.parse(w.sets))) {
+      const b = sets.reduce((m, s) => (e1(s) > e1(m || {}) ? s : m), null); if (!b || !e1(b)) continue;
+      (per[id] = per[id] || []).push({ datum: w.datum, kg: b.kg, reps: b.reps, e1: e1(b) });
+    }
+    const kracht = Object.entries(per).filter(([, a]) => a.length >= 2).map(([id, a]) => ({ naam: naam(id), eerst: a[0], laatst: a[a.length - 1], pct: Math.round((a[a.length - 1].e1 / a[0].e1 - 1) * 100) }))
+      .sort((a, b) => b.pct - a.pct).slice(0, 6).map((x) => ({ naam: x.naam, van: `${x.eerst.kg}×${x.eerst.reps}`, tot: `${x.laatst.kg}×${x.laatst.reps}`, pct: x.pct }));
+    training = { programma: def ? def.naam || "Push · Pull · Legs" : "", afgerond: klaar.length, verwacht: Math.max(1, Math.round(perWeek * dagen / 7)), kracht };
+  }
+  const dag = await env.DB.prepare("SELECT COUNT(DISTINCT datum) AS dagen, SUM(kcal) AS kcal, SUM(eiwit) AS eiwit FROM dagboek WHERE client_id = ? AND datum >= ? AND datum <= ?").bind(cl.id, van, tot).first();
+  const A = P && eind ? DC.analyse(P, eind) : null;
+  const dagboek = { dagen: dag.dagen, van: dagen, kcal: dag.dagen ? Math.round(dag.kcal / dag.dagen) : null, eiwit: dag.dagen ? Math.round(dag.eiwit / dag.dagen) : null, doelKcal: A ? A.kcal : null, doelEiwit: A ? A.prot : null };
+  // photo sets: the last complete-or-not set on/before the start (or the first in the period) and the last in the period
+  const { results: fs } = await env.DB.prepare("SELECT id, datum, pose FROM fotos WHERE client_id = ? AND datum <= ? ORDER BY datum").bind(cl.id, tot).all();
+  const sets = [...new Set(fs.map((f) => f.datum))], set = (d) => d && Object.fromEntries(fs.filter((f) => f.datum === d).map((f) => [f.pose, f.id]));
+  const voorD = sets.filter((d) => d <= van).pop() || sets.find((d) => d >= van), naD = sets.filter((d) => d >= van).pop();
+  const fotos = voorD && naD && naD > voorD ? { voor: { datum: voorD, ...set(voorD) }, na: { datum: naD, ...set(naD) } } : null;
+  const a = adaptiefOf(cl), van0 = Date.parse(van) / 1000, tot0 = Date.parse(tot) / 1000 + DAY;
+  const bijsturingen = (a.historie || []).filter((h) => h.t >= van0 && h.t < tot0).map((h) => ({ datum: iso(h.t), van: h.van, naar: h.naar }));
+  return { van, tot, dagen, doel: P ? P.doel : null, gewicht, taille: omtrek("taille"), heup: omtrek("heup"), checkins, training, dagboek, fotos, bijsturingen };
+}
+async function evaluatieTekst(env, cl, d, soort) {
+  const coach = await env.DB.prepare("SELECT naam, taal FROM coaches WHERE id = ?").bind(cl.coach_id).first();
+  const doel = { "-0.2": "lose fat", "-0.1": "lose weight gradually", "0": "maintain weight", "0.1": "build muscle" }[String(d.doel)] || "not set";
+  const I = cl.intake ? JSON.parse(cl.intake) : {};
+  const feiten = [
+    `Client: ${cl.naam.split(" ")[0]}. Goal: ${doel}.${I.doel ? ` In their words: "${String(I.doel).slice(0, 200)}"` : ""}`,
+    `Period: ${d.van} to ${d.tot} (${d.dagen} days)${soort === "eind" ? ", this is the END of the coaching" : ""}.`,
+    d.gewicht ? `Weight: ${d.gewicht.van} kg (${d.gewicht.vanDatum}) → ${d.gewicht.tot} kg (${d.gewicht.totDatum}), change ${d.gewicht.verschil} kg, ${d.gewicht.perWeek} kg per week (${d.gewicht.pctWeek}% of body weight per week), ${d.gewicht.metingen} weigh-ins. Compared with the goal pace: ${{ "op schema": "ON TRACK", sneller: "FASTER than planned", langzamer: "SLOWER than planned" }[d.gewicht.doel] || "no goal pace"}.` : "Weight: not enough weigh-ins in this period.",
+    d.taille ? `Waist: ${d.taille.van} → ${d.taille.tot} cm.` : "", d.heup ? `Hips: ${d.heup.van} → ${d.heup.tot} cm.` : "",
+    `Check-ins: ${d.checkins.aantal} of about ${d.checkins.verwacht}.${d.checkins.aantal ? ` Average scores 1-5: energy ${d.checkins.energie}, hunger ${d.checkins.honger} (high = very hungry), sleep ${d.checkins.slaap}, stress ${d.checkins.stress} (high = a lot of stress), following the plan ${d.checkins.naleving}.` : ""}${d.checkins.opmerkingen.length ? ` Their comments: ${d.checkins.opmerkingen.join(" | ")}` : ""}`,
+    d.training ? `Training ("${d.training.programma}"): ${d.training.afgerond} workouts completed of about ${d.training.verwacht} planned.${d.training.kracht.length ? ` Strength (best set, first → last): ${d.training.kracht.map((k) => `${k.naam} ${k.van} → ${k.tot} kg×reps (${k.pct >= 0 ? "+" : ""}${k.pct}%)`).join("; ")}.` : ""}` : "No training program.",
+    `Food diary: ${d.dagboek.dagen} of ${d.dagboek.van} days logged${d.dagboek.kcal ? `, on those days on average ${d.dagboek.kcal} kcal (target ${d.dagboek.doelKcal}) and ${d.dagboek.eiwit} g protein (target ${d.dagboek.doelEiwit})` : ""}.`,
+    d.bijsturingen.length ? `The app adjusted the calorie target ${d.bijsturingen.length}x: ${d.bijsturingen.map((b) => `${b.van} → ${b.naar} kcal`).join(", ")}.` : "",
+    d.fotos ? `Progress photos taken on ${d.fotos.voor.datum} and ${d.fotos.na.datum} (shown next to the review; you cannot see them).` : "",
+  ].filter(Boolean).join("\n");
+  // consistency judged here, so the text never praises low numbers
+  const niveau = (a, b) => { const r = b ? a / b : 0; return r >= 0.8 ? "GOOD" : r >= 0.5 ? "OK" : "LOW"; };
+  const consistentie = `Consistency, already judged: check-ins ${niveau(d.checkins.aantal, d.checkins.verwacht)}${d.training ? `, workouts ${niveau(d.training.afgerond, d.training.verwacht)} (${Math.round(d.training.afgerond / d.training.verwacht * 100)}% of planned)` : ""}, food diary ${niveau(d.dagboek.dagen, d.dagboek.van)}.`;
+  const taalNaam = (l, formeel) => (l === "nl" ? (formeel ? "Dutch (formal 'u')" : "Dutch (informal 'je')") : TAAL_NAAM[l] || "English");
+  const ai = async (lang, rol) => {
+    if (!env.AI) return null;
+    const system = rol === "client"
+      ? `You are ${coach.naam}, a certified nutritionist and online coach, writing a ${soort === "eind" ? "final evaluation at the end of the coaching" : "monthly progress review"} for your client, shown in the coaching app.
+Write in ${taalNaam(lang)}. 130-220 words, plain text, short paragraphs, no headings, no markdown, at most 1 emoji.
+Content: the result in numbers (state them exactly), what went well, what was difficult, and ${soort === "eind" ? "3 concrete habits to keep on their own, plus a warm goodbye that leaves the door open to come back" : "2 or 3 concrete focus points for next month"}.
+Rules: only use the facts given, never invent data; follow the interpretations given (ON TRACK, FASTER, SLOWER, GOOD, OK, LOW) but never write these labels themselves: say it in natural words. Never call something LOW good. Be honest but encouraging; no medical advice. Do not comment on the photos (you cannot see them).`
+      : `Write short notes for the coach (${coach.naam}) about the client's ${soort === "eind" ? "full coaching period (the client has stopped)" : "last month"}.
+Write in ${taalNaam(lang, true)}. 80-150 words, plain text; you may use lines starting with "- ". No headings, no greeting.
+Follow the judged consistency (GOOD, OK, LOW) without copying the labels. Cover: the result vs the goal, consistency (check-ins, workouts, diary), strength, the main risk, and ${soort === "eind" ? "what to learn from this client for future clients (and whether a follow-up message makes sense)" : "what to change in the plan or approach next month"}. Only use the facts given.`;
+    try {
+      const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [{ role: "system", content: system }, { role: "user", content: feiten + "\n" + consistentie }], max_tokens: 600, temperature: 0.5 });
+      const txt = String(typeof res.response === "string" ? res.response : "").replace(/\*\*|^#+\s*/gm, "").trim();
+      return txt.length >= 60 ? txt.slice(0, 2500) : null;
+    } catch (e) { console.error("evaluation AI failed", e); return null; }
+  };
+  const sjabloon = (lang) => {
+    const t = (s, v) => tr(lang, s, v), zin = [];
+    if (d.gewicht) zin.push(t("Je gewicht ging van {a} naar {b} kg ({c} kg in {n} dagen).", { a: d.gewicht.van, b: d.gewicht.tot, c: d.gewicht.verschil > 0 ? "+" + d.gewicht.verschil : d.gewicht.verschil, n: dagenTussen(d.gewicht.vanDatum, d.gewicht.totDatum) }));
+    zin.push(t("Check-ins: {a} van de {b}.", { a: d.checkins.aantal, b: d.checkins.verwacht }));
+    if (d.training) zin.push(t("Trainingen afgerond: {a} van de ongeveer {b}.", { a: d.training.afgerond, b: d.training.verwacht }));
+    zin.push(t("Dagboek bijgehouden op {a} van de {b} dagen.", { a: d.dagboek.dagen, b: d.dagboek.van }));
+    return zin.join(" ");
+  };
+  const lc = cl.taal || "nl", lk = (coach && coach.taal) || "nl";
+  const [tc, tk] = await Promise.all([ai(lc, "client"), ai(lk, "coach")]);
+  return { client: { taal: lc, tekst: tc || sjabloon(lc), ai: !!tc }, coach: { taal: lk, tekst: tk || sjabloon(lk), ai: !!tk } };
+}
+async function evaluatieVerwerken(env, id, now) {
+  const ev = await env.DB.prepare("SELECT * FROM evaluaties WHERE id = ? AND status = 'wachtrij'").bind(id).first();
+  if (!ev) return;
+  const cl = await env.DB.prepare("SELECT * FROM clients WHERE id = ?").bind(ev.client_id).first();
+  if (!cl) return;
+  const data = await evaluatieData(env, cl, ev.van, ev.tot), tekst = await evaluatieTekst(env, cl, data, ev.soort);
+  const r = await env.DB.prepare("UPDATE evaluaties SET data = ?, tekst = ?, status = 'klaar' WHERE id = ? AND status = 'wachtrij'").bind(JSON.stringify(data), JSON.stringify(tekst), id).run();
+  if (!r.meta.changes) return;
+  if (ev.soort === "maand") await notify(env, "coach", cl.coach_id, { titel: "Maandevaluatie van {naam} staat klaar", v: { naam: cl.naam }, tekst: "Na de nieuwe progressiefoto's is de evaluatie van de afgelopen periode automatisch gemaakt.", url: `/coach/#/client/${cl.id}/evaluaties` }, now);
+  if (ev.gedeeld) await notify(env, "client", cl.id, { titel: "Uw maandevaluatie staat klaar", tekst: "Bekijk uw resultaten van de afgelopen periode onder Voortgang.", url: "/app/?v=voortgang" }, now);
+}
+async function evaluatieAanmaken(env, cl, soort, door, gedeeld, tot, now) {
+  const vorige = await env.DB.prepare("SELECT tot FROM evaluaties WHERE client_id = ? AND soort = 'maand' AND tot < ? ORDER BY tot DESC LIMIT 1").bind(cl.id, tot).first();
+  const eerste = await env.DB.prepare("SELECT MIN(datum) AS d FROM metingen WHERE client_id = ?").bind(cl.id).first();
+  const begin = eerste.d || iso(cl.created_at);
+  const van = soort === "eind" ? begin : vorige ? vorige.tot : begin;
+  return (await env.DB.prepare("INSERT INTO evaluaties (client_id, soort, van, tot, gedeeld, door, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id")
+    .bind(cl.id, soort, van < tot ? van : begin, tot, gedeeld ? 1 : 0, door, now).first()).id;
+}
+// after a photo upload: a complete set (all poses) → monthly evaluation, at most one per 3 weeks
+async function evaluatieNaFotos(env, clientId, datum, now) {
+  try {
+    const n = (await env.DB.prepare("SELECT COUNT(DISTINCT pose) AS n FROM fotos WHERE client_id = ? AND datum = ?").bind(clientId, datum).first()).n;
+    if (n < POSES.length) return;
+    const cl = await env.DB.prepare("SELECT c.*, co.auto_evaluatie FROM clients c JOIN coaches co ON co.id = c.coach_id WHERE c.id = ?").bind(clientId).first();
+    if (!cl || !cl.auto_evaluatie) return;
+    const sinds = new Date(Date.parse(datum) - 21 * 864e5).toISOString().slice(0, 10);
+    if (await env.DB.prepare("SELECT 1 FROM evaluaties WHERE client_id = ? AND soort = 'maand' AND tot > ?").bind(clientId, sinds).first()) return;
+    // the very first set is the starting point, not a review
+    if (!(await env.DB.prepare("SELECT 1 FROM fotos WHERE client_id = ? AND datum < ?").bind(clientId, sinds).first())) return;
+    const id = await evaluatieAanmaken(env, cl, "maand", "auto", true, datum, now);
+    await evaluatieVerwerken(env, id, now);
+  } catch (e) { console.error("monthly evaluation failed", e); }
+}
+async function evaluatiesInhalen(env, now) {
+  try {
+    const { results } = await env.DB.prepare("SELECT id FROM evaluaties WHERE status = 'wachtrij' AND created_at < ? LIMIT 5").bind(now - 120).all();
+    for (const r of results) await evaluatieVerwerken(env, r.id, now);
+  } catch (e) { console.error("evaluation catch-up failed", e); }
+}
+async function evaluatiesOf(env, clientId, rol) {
+  const { results } = await env.DB.prepare(`SELECT * FROM evaluaties WHERE client_id = ?${rol === "client" ? " AND gedeeld = 1 AND status = 'klaar'" : ""} ORDER BY tot DESC, id DESC`).bind(clientId).all();
+  return results.map((e) => { const t = e.tekst ? JSON.parse(e.tekst) : null;
+    return { id: e.id, soort: e.soort, van: e.van, tot: e.tot, status: e.status, gedeeld: !!e.gedeeld, door: e.door, created_at: e.created_at, data: e.data ? JSON.parse(e.data) : null,
+      tekst: t ? t.client.tekst : null, ...(rol === "coach" ? { coachTekst: t ? t.coach.tekst : null } : {}) }; });
+}
+async function coachEvaluatieMaken(c) {
+  const cl = await ownClient(c, c.params[0]);
+  const soort = c.body.soort === "eind" ? "eind" : "maand";
+  const tot = isDate(c.body.tot) ? c.body.tot : vandaag(c.now);
+  const id = await evaluatieAanmaken(c.env, cl, soort, "coach", false, tot, c.now);
+  await evaluatieVerwerken(c.env, id, c.now);
+  return json({ evaluaties: await evaluatiesOf(c.env, cl.id, "coach") }, 201);
+}
+async function coachEvaluatieDelen(c) {
+  const cl = await ownClient(c, c.params[0]);
+  const ev = await c.env.DB.prepare("SELECT id, soort, gedeeld, status FROM evaluaties WHERE id = ? AND client_id = ?").bind(c.params[1], cl.id).first();
+  if (!ev) fail(404, "Evaluatie niet gevonden.");
+  const aan = !!c.body.gedeeld;
+  await c.env.DB.prepare("UPDATE evaluaties SET gedeeld = ? WHERE id = ?").bind(aan ? 1 : 0, ev.id).run();
+  if (aan && !ev.gedeeld && ev.status === "klaar") await notify(c.env, "client", cl.id, ev.soort === "eind"
+    ? { titel: "Uw eindevaluatie staat klaar", tekst: "Uw coach heeft een evaluatie van uw hele traject met u gedeeld. U vindt die onder Voortgang.", url: "/app/?v=voortgang" }
+    : { titel: "Uw maandevaluatie staat klaar", tekst: "Bekijk uw resultaten van de afgelopen periode onder Voortgang.", url: "/app/?v=voortgang" }, c.now);
+  return json({ evaluaties: await evaluatiesOf(c.env, cl.id, "coach") });
+}
+async function coachEvaluatieWeg(c) {
+  const cl = await ownClient(c, c.params[0]);
+  await c.env.DB.prepare("DELETE FROM evaluaties WHERE id = ? AND client_id = ?").bind(c.params[1], cl.id).run();
+  return json({ evaluaties: await evaluatiesOf(c.env, cl.id, "coach") });
 }
 
 // ---------- adaptive targets ----------

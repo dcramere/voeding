@@ -70,6 +70,12 @@ function renderProgress(){
   }
   $("prog").innerHTML=h;
 }
+let evUI=null;
+function renderEvaluaties(){
+  $("evBlock").hidden=!(me.evaluaties&&me.evaluaties.length);
+  if(!evUI) evUI=EV.mount($("evaluaties"),{get:()=>me,set:l=>{me.evaluaties=l},fotoSrc,info:()=>({naam:me.naam,coach:me.coach,merk:me.merk})});
+  else evUI.render();
+}
 let bloedUI=null;
 function renderBloed(){
   if(!bloedUI) bloedUI=BL.mount($("bloed"),{base:"/api/bloed",get:()=>me,info:()=>({naam:me.naam,coach:me.coach,merk:me.merk}),set:l=>{me.bloed=l},onAkkoord:t=>{me.bloedAkkoord=t}});
@@ -236,7 +242,7 @@ function renderAll(){
   TR.setEenheid(me.gewichtEenheid);
   $("hello").innerHTML=me.naam?`${DC.esc(me.naam.split(" ")[0])} ${DC.avatarHTML(me.avatar,me.naam,28)}`:"";
   $("avMine").innerHTML=DC.avatarHTML(me.avatar,me.naam,72); $("avDel").hidden=!me.avatar;
-  renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining(); renderBloed();
+  renderPlan(); renderProgress(); renderCheckin(); renderFotos(); renderTraining(); renderBloed(); renderEvaluaties();
   const fp=$("fProfiel");
   fp.elements.naam.value=me.naam||"";
   DC.fillProfiel(fp,me.profiel);

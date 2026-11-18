@@ -3,7 +3,7 @@
 "use strict";
 const DC=window.DC, esc=DC.esc, $=id=>document.getElementById(id);
 const STALE_DAYS=14, CHECKIN_LATE=10;
-let bloedUI=null;
+let bloedUI=null, evUI=null;
 let coach=null, clients=[], cur=null, pane="plan", viewDag=null, cmpA=null, cmpB=null, trWeek=null, trSel=null, diary=null;
 const fotoSrc=id=>"/api/coach/fotos/"+id;
 
@@ -221,6 +221,9 @@ function renderClient(){
   $("pCheckins").innerHTML=DC.checkinsHTML(c.checkins)+checkinReplyHTML(c);
   $("paneBadge").hidden=!c.ongelezen; $("paneBadge").textContent=c.ongelezen>9?"9+":c.ongelezen;
   $("pIntake").innerHTML=DC.intakeSummaryHTML(c.intake);
+  if(!evUI) evUI=EV.mount($("pEvaluaties"),{coach:true,get:()=>cur,set:l=>{cur.evaluaties=l},fotoSrc:id=>"/api/coach/fotos/"+id,api:call,
+    base:()=>`/api/coach/clients/${cur.id}/evaluaties`,auto:()=>coach.autoEvaluatie!==false,info:()=>({naam:cur.naam,coach:coach.naam,merk:coach.merk})});
+  else evUI.render();
   if(!bloedUI) bloedUI=BL.mount($("pBloed"),{coach:true,get:()=>cur,mp:{
     basis:()=>cur.maaltijdplan?null:mpVanAutomatisch(),
     previewHTML:mpDiffHTML,
@@ -706,6 +709,7 @@ function renderInstellingen(){
   $("autoCheckin").checked=!!coach.autoCheckin;
   $("autoTraining").checked=coach.autoTraining!==false;
   $("autoPlan").checked=coach.autoPlan!==false;
+  $("autoEvaluatie").checked=coach.autoEvaluatie!==false;
   $("emailAan").checked=!!coach.emailAan; $("emailBerichten").checked=!!coach.emailBerichten; $("emailBerichten").disabled=!coach.emailAan;
   $("emailInfo").textContent=coach.emailBeschikbaar?T("E-mails gaan naar {x}.",{x:coach.email}):T("E-mail is nog niet gekoppeld; zolang dat zo is, krijgt u alleen meldingen in de app.");
   $("cAv").innerHTML=DC.avatarHTML(coach.avatar,coach.naam,88); $("cAvDel").hidden=!coach.avatar;
@@ -745,7 +749,7 @@ $("cAvInput").addEventListener("change",async e=>{
   e.target.value="";
 });
 $("cAvDel").addEventListener("click",async()=>{try{coach.avatar=(await call("/api/coach/avatar","DELETE")).avatar;renderInstellingen()}catch(x){alert(x.message)}});
-[["autoPlan","autoPlan"],["emailAan","emailAan"],["emailBerichten","emailBerichten"]].forEach(([id,key])=>$(id).addEventListener("change",async e=>{
+[["autoPlan","autoPlan"],["autoEvaluatie","autoEvaluatie"],["emailAan","emailAan"],["emailBerichten","emailBerichten"]].forEach(([id,key])=>$(id).addEventListener("change",async e=>{
   try{Object.assign(coach,await call("/api/coach/instellingen","PUT",{[key]:e.target.checked}));renderInstellingen()}catch(x){alert(x.message);e.target.checked=!e.target.checked}
 }));
 $("autoTraining").addEventListener("change",async e=>{

@@ -2475,7 +2475,7 @@ async function evaluatieData(env, cl, van, tot) {
   const omtrek = (k) => { const a = [...metingen].filter((m) => m.datum <= tot && m[k]); const s = a.find((m) => m.datum >= van) && (a.filter((m) => m.datum <= van).pop() || a.find((m) => m.datum >= van)), e = a.pop(); return s && e && e.datum > s.datum ? { van: s[k], tot: e[k], verschil: Math.round((e[k] - s[k]) * 10) / 10 } : null; };
   const { results: ks } = await env.DB.prepare("SELECT datum, energie, honger, slaap, stress, naleving, opmerking FROM checkins WHERE client_id = ? AND datum >= ? AND datum <= ? ORDER BY datum").bind(cl.id, van, tot).all();
   const gem = (k) => (ks.length ? Math.round(ks.reduce((t, x) => t + x[k], 0) / ks.length * 10) / 10 : null);
-  const checkins = { aantal: ks.length, verwacht: Math.max(1, Math.round(dagen / 7)), energie: gem("energie"), honger: gem("honger"), slaap: gem("slaap"), stress: gem("stress"), naleving: gem("naleving"),
+  const checkins = { aantal: ks.length, verwacht: Math.floor(dagen / 7) + 1, energie: gem("energie"), honger: gem("honger"), slaap: gem("slaap"), stress: gem("stress"), naleving: gem("naleving"),
     opmerkingen: ks.filter((x) => x.opmerking).map((x) => `${x.datum}: ${String(x.opmerking).slice(0, 200)}`).slice(-4) };
   // training: completed workouts and strength (best set by estimated 1RM, first vs last workout of the period)
   let training = null;
@@ -2489,8 +2489,11 @@ async function evaluatieData(env, cl, van, tot) {
       const b = sets.reduce((m, s) => (e1(s) > e1(m || {}) ? s : m), null); if (!b || !e1(b)) continue;
       (per[id] = per[id] || []).push({ datum: w.datum, kg: b.kg, reps: b.reps, e1: e1(b) });
     }
-    const kracht = Object.entries(per).filter(([, a]) => a.length >= 2).map(([id, a]) => ({ naam: naam(id), eerst: a[0], laatst: a[a.length - 1], pct: Math.round((a[a.length - 1].e1 / a[0].e1 - 1) * 100) }))
-      .sort((a, b) => b.pct - a.pct).slice(0, 6).map((x) => ({ naam: x.naam, van: `${x.eerst.kg}×${x.eerst.reps}`, tot: `${x.laatst.kg}×${x.laatst.reps}`, pct: x.pct }));
+    // start = best of the first two sessions, end = best of the last two (a light first try or one off day doesn't skew it)
+    const beste = (a) => a.reduce((m, x) => (x.e1 > m.e1 ? x : m));
+    const kracht = Object.entries(per).filter(([, a]) => a.length >= 3).map(([id, a]) => { const v = beste(a.slice(0, 2)), t = beste(a.slice(-2));
+      return { naam: naam(id), van: { kg: v.kg, reps: v.reps }, tot: { kg: t.kg, reps: t.reps }, sessies: a.length, pct: Math.round((t.e1 / v.e1 - 1) * 100) }; })
+      .sort((a, b) => b.pct - a.pct).slice(0, 6);
     training = { programma: def ? def.naam || "Push · Pull · Legs" : "", afgerond: klaar.length, verwacht: Math.max(1, Math.round(perWeek * dagen / 7)), kracht };
   }
   const dag = await env.DB.prepare("SELECT COUNT(DISTINCT datum) AS dagen, SUM(kcal) AS kcal, SUM(eiwit) AS eiwit FROM dagboek WHERE client_id = ? AND datum >= ? AND datum <= ?").bind(cl.id, van, tot).first();
@@ -2509,20 +2512,21 @@ async function evaluatieTekst(env, cl, d, soort) {
   const coach = await env.DB.prepare("SELECT naam, taal FROM coaches WHERE id = ?").bind(cl.coach_id).first();
   const doel = { "-0.2": "lose fat", "-0.1": "lose weight gradually", "0": "maintain weight", "0.1": "build muscle" }[String(d.doel)] || "not set";
   const I = cl.intake ? JSON.parse(cl.intake) : {};
+  const lb = cl.gewicht_eenheid === "lb", gw = (kg) => (lb ? Math.round(kg * 2.20462 * 2) / 2 : kg); // training weights in the client's unit
   const feiten = [
     `Client: ${cl.naam.split(" ")[0]}. Goal: ${doel}.${I.doel ? ` In their words: "${String(I.doel).slice(0, 200)}"` : ""}`,
     `Period: ${d.van} to ${d.tot} (${d.dagen} days)${soort === "eind" ? ", this is the END of the coaching" : ""}.`,
     d.gewicht ? `Weight: ${d.gewicht.van} kg (${d.gewicht.vanDatum}) → ${d.gewicht.tot} kg (${d.gewicht.totDatum}), change ${d.gewicht.verschil} kg, ${d.gewicht.perWeek} kg per week (${d.gewicht.pctWeek}% of body weight per week), ${d.gewicht.metingen} weigh-ins. Compared with the goal pace: ${{ "op schema": "ON TRACK", sneller: "FASTER than planned", langzamer: "SLOWER than planned" }[d.gewicht.doel] || "no goal pace"}.` : "Weight: not enough weigh-ins in this period.",
     d.taille ? `Waist: ${d.taille.van} → ${d.taille.tot} cm.` : "", d.heup ? `Hips: ${d.heup.van} → ${d.heup.tot} cm.` : "",
     `Check-ins: ${d.checkins.aantal} of about ${d.checkins.verwacht}.${d.checkins.aantal ? ` Average scores 1-5: energy ${d.checkins.energie}, hunger ${d.checkins.honger} (high = very hungry), sleep ${d.checkins.slaap}, stress ${d.checkins.stress} (high = a lot of stress), following the plan ${d.checkins.naleving}.` : ""}${d.checkins.opmerkingen.length ? ` Their comments: ${d.checkins.opmerkingen.join(" | ")}` : ""}`,
-    d.training ? `Training ("${d.training.programma}"): ${d.training.afgerond} workouts completed of about ${d.training.verwacht} planned.${d.training.kracht.length ? ` Strength (best set, first → last): ${d.training.kracht.map((k) => `${k.naam} ${k.van} → ${k.tot} kg×reps (${k.pct >= 0 ? "+" : ""}${k.pct}%)`).join("; ")}.` : ""}` : "No training program.",
+    d.training ? `Training ("${d.training.programma}"): ${d.training.afgerond} workouts completed of about ${d.training.verwacht} planned.${d.training.kracht.length ? ` Strength (best set at the start → at the end, ${lb ? "lb" : "kg"}×reps): ${d.training.kracht.map((k) => `${k.naam} ${gw(k.van.kg)}×${k.van.reps} → ${gw(k.tot.kg)}×${k.tot.reps} (${k.pct >= 0 ? "+" : ""}${k.pct}% estimated max)`).join("; ")}.${d.training.kracht.some((k) => k.pct > 100) ? " Very large percentages come from starting light while learning the exercise: mention them as learning the technique, not as raw strength." : ""}` : ""}` : "No training program.",
     `Food diary: ${d.dagboek.dagen} of ${d.dagboek.van} days logged${d.dagboek.kcal ? `, on those days on average ${d.dagboek.kcal} kcal (target ${d.dagboek.doelKcal}) and ${d.dagboek.eiwit} g protein (target ${d.dagboek.doelEiwit})` : ""}.`,
     d.bijsturingen.length ? `The app adjusted the calorie target ${d.bijsturingen.length}x: ${d.bijsturingen.map((b) => `${b.van} → ${b.naar} kcal`).join(", ")}.` : "",
     d.fotos ? `Progress photos taken on ${d.fotos.voor.datum} and ${d.fotos.na.datum} (shown next to the review; you cannot see them).` : "",
   ].filter(Boolean).join("\n");
   // consistency judged here, so the text never praises low numbers
-  const niveau = (a, b) => { const r = b ? a / b : 0; return r >= 0.8 ? "GOOD" : r >= 0.5 ? "OK" : "LOW"; };
-  const consistentie = `Consistency, already judged: check-ins ${niveau(d.checkins.aantal, d.checkins.verwacht)}${d.training ? `, workouts ${niveau(d.training.afgerond, d.training.verwacht)} (${Math.round(d.training.afgerond / d.training.verwacht * 100)}% of planned)` : ""}, food diary ${niveau(d.dagboek.dagen, d.dagboek.van)}.`;
+  const niveau = (a, b) => { const r = b ? a / b : 0; return r >= 0.8 ? "good" : r >= 0.5 ? "reasonable" : "low"; };
+  const consistentie = `How consistent the client was (already judged, describe it in your own words): check-ins ${niveau(d.checkins.aantal, d.checkins.verwacht)}${d.training ? `, workouts ${niveau(d.training.afgerond, d.training.verwacht)} (${Math.round(d.training.afgerond / d.training.verwacht * 100)}% of planned)` : ""}, food diary ${niveau(d.dagboek.dagen, d.dagboek.van)}.`;
   const taalNaam = (l, formeel) => (l === "nl" ? (formeel ? "Dutch (formal 'u')" : "Dutch (informal 'je')") : TAAL_NAAM[l] || "English");
   const ai = async (lang, rol) => {
     if (!env.AI) return null;
@@ -2530,10 +2534,10 @@ async function evaluatieTekst(env, cl, d, soort) {
       ? `You are ${coach.naam}, a certified nutritionist and online coach, writing a ${soort === "eind" ? "final evaluation at the end of the coaching" : "monthly progress review"} for your client, shown in the coaching app.
 Write in ${taalNaam(lang)}. 130-220 words, plain text, short paragraphs, no headings, no markdown, at most 1 emoji.
 Content: the result in numbers (state them exactly), what went well, what was difficult, and ${soort === "eind" ? "3 concrete habits to keep on their own, plus a warm goodbye that leaves the door open to come back" : "2 or 3 concrete focus points for next month"}.
-Rules: only use the facts given, never invent data; follow the interpretations given (ON TRACK, FASTER, SLOWER, GOOD, OK, LOW) but never write these labels themselves: say it in natural words. Never call something LOW good. Be honest but encouraging; no medical advice. Do not comment on the photos (you cannot see them).`
+Rules: only use the facts given, never invent data; follow the interpretations given (ON TRACK, FASTER, SLOWER, and the consistency judgement) but never write these labels themselves: say it in natural words. Never call something judged low good. Be honest but encouraging; no medical advice. Do not comment on the photos (you cannot see them).`
       : `Write short notes for the coach (${coach.naam}) about the client's ${soort === "eind" ? "full coaching period (the client has stopped)" : "last month"}.
 Write in ${taalNaam(lang, true)}. 80-150 words, plain text; you may use lines starting with "- ". No headings, no greeting.
-Follow the judged consistency (GOOD, OK, LOW) without copying the labels. Cover: the result vs the goal, consistency (check-ins, workouts, diary), strength, the main risk, and ${soort === "eind" ? "what to learn from this client for future clients (and whether a follow-up message makes sense)" : "what to change in the plan or approach next month"}. Only use the facts given.`;
+Follow the consistency judgement, in your own words, never as an English label. Cover: the result vs the goal, consistency (check-ins, workouts, diary), strength, the main risk, and ${soort === "eind" ? "what to learn from this client for future clients (and whether a follow-up message makes sense)" : "what to change in the plan or approach next month"}. Only use the facts given.`;
     try {
       const res = await env.AI.run("@cf/meta/llama-4-scout-17b-16e-instruct", { messages: [{ role: "system", content: system }, { role: "user", content: feiten + "\n" + consistentie }], max_tokens: 600, temperature: 0.5 });
       const txt = String(typeof res.response === "string" ? res.response : "").replace(/\*\*|^#+\s*/gm, "").trim();

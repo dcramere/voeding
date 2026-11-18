@@ -35,10 +35,13 @@ function fotosHTML(f,src){
     <div>${f.voor[p]?`<img src="${src(f.voor[p])}" alt="${T(l)} ${d(f.voor.datum)}" loading="lazy">`:"<span></span>"}${f.na[p]?`<img src="${src(f.na[p])}" alt="${T(l)} ${d(f.na.datum)}" loading="lazy">`:"<span></span>"}</div>
     <figcaption>${T(l)} · ${d(f.voor.datum)} → ${d(f.na.datum)}</figcaption></figure>`).join("")}</div>`;
 }
+// training weights in the reader's unit (kg or lb, as chosen in the training screen)
+const set=x=>`${window.TR&&TR.toon?DC.fmt(TR.toon(x.kg),Number.isInteger(TR.toon(x.kg))?0:1):DC.fmt(x.kg,1)}×${x.reps}`;
+const unit=()=>window.TR&&TR.getEenheid?TR.getEenheid():"kg";
 function krachtHTML(t){
   if(!t||!t.kracht.length) return "";
-  return `<h4>${T("Krachtprogressie")}</h4><table class="ev-kracht"><thead><tr><th>${T("Oefening")}</th><th>${T("Eerst")}</th><th>${T("Laatst")}</th><th class="n">±</th></tr></thead><tbody>
-    ${t.kracht.map(k=>`<tr><td>${esc(k.naam)}</td><td>${esc(k.van)}</td><td>${esc(k.tot)}</td><td class="n ${k.pct>0?"ok-t":""}">${k.pct>0?"+":""}${k.pct}%</td></tr>`).join("")}</tbody></table>`;
+  return `<h4>${T("Krachtprogressie")}</h4><table class="ev-kracht"><thead><tr><th>${T("Oefening")}</th><th>${T("Eerst")} <small>(${unit()})</small></th><th>${T("Laatst")} <small>(${unit()})</small></th><th class="n">±</th></tr></thead><tbody>
+    ${t.kracht.map(k=>`<tr><td>${esc(k.naam)}</td><td>${typeof k.van==="object"?set(k.van):esc(k.van)}</td><td>${typeof k.tot==="object"?set(k.tot):esc(k.tot)}</td><td class="n ${k.pct>0?"ok-t":""}">${k.pct>0?"+":""}${k.pct}%</td></tr>`).join("")}</tbody></table>`;
 }
 const titel=e=>`${e.soort==="eind"?T("Eindevaluatie"):T("Maandevaluatie")} · ${d(e.van)} – ${d(e.tot)}`;
 function kaart(e,o,open){

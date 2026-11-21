@@ -212,7 +212,7 @@ function setRow(id,si){
 const numVal=v=>{const n=parseFloat(String(v).replace(",","."));return isFinite(n)?n:null};
 function updateCount(){
   const day=TR.dayOf(me.programma.id,wo.dag);
-  const total=day.ex.reduce((t,x)=>t+TR.setsFor(x.reps,wo.week,me.programma.id).length,0);
+  const total=day.ex.reduce((t,x)=>t+TR.repsOf(x,wo.week,me.programma.id).length,0);
   const done=Object.values(wo.sets).reduce((t,a)=>t+a.filter(s=>s&&s.ok).length,0);
   const c=document.querySelector("[data-wo-count]"); if(c) c.textContent=T("{a} van {b} sets",{a:done,b:total});
   const bar=document.querySelector(".wo-progress i"); if(bar) bar.style.width=(total?done/total*100:0)+"%";

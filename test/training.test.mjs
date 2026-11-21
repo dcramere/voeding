@@ -162,3 +162,23 @@ test("weight unit: kg or lb on screen, always kg in storage, progression steps p
   TR.setEenheid("kg");
   assert.match(TR.workoutHTML({ id: "ppl12", start: "2026-01-05" }, [], { week: 1, dag: "pushA", sets: {} }), /<th>kg<\/th>/);
 });
+
+test("waves: reps and % per week of the cycle, training max from the log, weights on the progression step", () => {
+  const W = [{ reps: [5, 5, 5], pct: [65, 75, 85], plus: true }, { reps: [3, 3, 3], pct: [70, 80, 90], plus: true }, { reps: [5, 3, 1], pct: [75, 85, 95], plus: true }, { reps: [5, 5, 5], pct: [40, 50, 60] }];
+  TR.registerProgram({ id: "c901", naam: "531", weken: 12, deload: false, oefeningen: {}, dagen: [{ key: "d1", naam: "Squat", type: "lower", ex: [{ id: "back_squat", reps: [5, 5, 5], golf: W }] }] });
+  const x = TR.PROGRAMS.c901.dagen[0].ex[0];
+  assert.deepEqual(TR.repsOf(x, 1, "c901"), [5, 5, 5]); assert.deepEqual(TR.repsOf(x, 3, "c901"), [5, 3, 1]);
+  assert.deepEqual(TR.repsOf(x, 5, "c901"), [5, 5, 5], "cycle repeats"); assert.equal(TR.golfOf(x, 7).pct[2], 95);
+  TR.setEenheid("kg");
+  const log = [{ week: 1, dag: "d1", datum: "2026-01-05", sets: { back_squat: [{ kg: 100, reps: 5, ok: true }, { kg: 120, reps: 2, ok: false }] } }];
+  const tm = TR.trainingMax(log, "back_squat");
+  assert.equal(Math.round(tm * 10) / 10, 105, "0.9 × 100 × (1 + 5/30)");
+  assert.equal(TR.pctKg(tm, 85, TR.EX.back_squat), 90, "85% of 105 → 90 kg on 2.5 kg steps");
+  TR.setEenheid("lb");
+  assert.equal(TR.toon(TR.pctKg(tm, 85, TR.EX.back_squat)), 195, "in lb: rounded to 5 lb");
+  TR.setEenheid("kg");
+  const html = TR.workoutHTML({ id: "c901", start: "2026-01-05" }, log, { week: 3, dag: "d1", sets: {} });
+  assert.match(html, /1\+ <small class="pct">95%<\/small>/, "AMRAP on the last set with its %");
+  assert.match(html, /placeholder="100"/, "95% of 105 → 100 kg suggested");
+  assert.match(html, /Trainingsmax 94,5 kg|Trainingsmax 94.5 kg|Trainingsmax 105 kg/);
+});

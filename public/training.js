@@ -163,10 +163,25 @@ function registerProgram(def){
 }
 const dayOf=(prog,key)=>PROGRAMS[prog].dagen.find(x=>x.key===key);
 const e1rm=(kg,reps)=>kg>0&&reps>0?kg*(1+reps/30):0; // Epley
-const repsLabel=(e,reps)=>reps.join(" · ")+" "+(e.unit==="stappen"?T("stappen"):e.unit==="sec"?T("sec"):e.unit||"reps")+(e.side?" "+T("per kant"):"");
+const repsLabel=(e,reps,plus)=>reps.join(" · ")+(plus?"+":"")+" "+(e.unit==="stappen"?T("stappen"):e.unit==="sec"?T("sec"):e.unit||"reps")+(e.side?" "+T("per kant"):"");
 const kgFmt=kg=>{const v=toon(kg);return v==null?"–":fmt(v,Number.isInteger(v)?0:1)};
+// waves: an exercise may change reps (and % of training max) per week of a cycle, e.g. 5/3/1
+const golfOf=(x,week)=>x.golf&&x.golf.length?x.golf[(Math.max(1,week)-1)%x.golf.length]:null;
+const repsOf=(x,week,progId)=>setsFor((golfOf(x,week)||x).reps,week,progId);
+// training max = 90% of the best estimated 1RM in the log (sets up to 10 reps); grows with every good "+" set
+function trainingMax(workouts,exId,except){
+  let b=0;
+  (workouts||[]).forEach(w=>{if(w===except||(except&&w.week===except.week&&w.dag===except.dag))return;
+    ((w.sets||{})[exId]||[]).forEach(s=>{if(s.ok&&s.kg>0&&s.reps>0&&s.reps<=10)b=Math.max(b,e1rm(s.kg,s.reps))})});
+  return b?b*0.9:null;
+}
+// weight for a % of the training max, rounded to the progression step in the chosen unit (kg in storage)
+function pctKg(tm,pct,e,licht){
+  const st=kgStap(e)||(eenheid==="lb"?5:2.5), v=(eenheid==="lb"?tm*LB:tm)*pct/100*(licht?0.9:1);
+  return naarKg(Math.max(st,Math.round(v/st)*st));
+}
 function minutes(day,week,progId){
-  const s=day.ex.reduce((t,x)=>t+setsFor(x.reps,week,progId).length*(45+EX[x.id].rust),0);
+  const s=day.ex.reduce((t,x)=>t+repsOf(x,week,progId).length*(45+EX[x.id].rust),0);
   return Math.round(s/60/5)*5;
 }
 const howto=e=>"https://www.youtube.com/results?search_query="+encodeURIComponent(e.n+" exercise technique");
@@ -349,7 +364,7 @@ function overviewHTML(P,workouts,week,o){
 function workoutHTML(P,workouts,wo,o){
   o=o||{};
   const day=dayOf(P.id,wo.dag), ph=phaseOf(wo.week,P.id), ro=!!o.readonly;
-  const total=day.ex.reduce((t,x)=>t+setsFor(x.reps,wo.week,P.id).length,0);
+  const total=day.ex.reduce((t,x)=>t+repsOf(x,wo.week,P.id).length,0);
   const done=Object.values(wo.sets||{}).reduce((t,a)=>t+a.filter(s=>s.ok).length,0);
   return `
     ${ro?"":`<button class="linkbtn" type="button" data-tr-back>← ${T("Training")}</button>`}
@@ -361,20 +376,25 @@ function workoutHTML(P,workouts,wo,o){
     ${wo.afgerond&&!ro?`<div class="banner"><span><b>${T("Afgerond op {d}.",{d:DC.dateNL(wo.datum,{day:"numeric",month:"long"})})}</b> ${T("U kunt uw sets nog aanpassen.")}</span></div>`:""}
     ${ro?"":`<details class="tips"><summary>${TIPS[day.type]?(day.type==="push"?T("Tips voor push-dagen"):day.type==="pull"?T("Tips voor pull-dagen"):T("Tips voor benen-dagen")):T("Tips voor deze training")}</summary><ul>${(TIPS[day.type]||TIPS.algemeen).map(t=>`<li>${t}</li>`).join("")}</ul></details>`}
     ${day.ex.map((x,i)=>{
-      const e=EX[x.id], reps=setsFor(x.reps,wo.week,P.id), logged=(wo.sets||{})[x.id]||[];
-      const licht=isLicht(wo.week,P.id), prev=lastPerformance(workouts,x.id,wo), sug=suggestion(prev,reps,licht), hit=hitAllOf(prev,reps);
+      const e=EX[x.id], reps=repsOf(x,wo.week,P.id), logged=(wo.sets||{})[x.id]||[], g=golfOf(x,wo.week);
+      const licht=isLicht(wo.week,P.id), prev=lastPerformance(workouts,x.id,wo), hit=hitAllOf(prev,reps);
+      const tm=g&&g.pct?trainingMax(workouts,x.id,wo):null;
+      const sug=g&&g.pct?(tm?T("Trainingsmax {x} {u} (90% van uw beste geschatte max). De gewichten hieronder zijn een percentage daarvan.",{x:kgFmt(tm),u:eenheid})
+        :T("Nog geen trainingsmax: kies een gewicht waarmee u de herhalingen netjes haalt. Daarna rekent de app de gewichten uit."))
+        :suggestion(prev,reps,licht);
       const prevTxt=prev?`${T("Vorige keer (week {n}):",{n:prev.w.week})} ${prev.sets.map(s=>`${kgFmt(s.kg)}×${s.reps}`).join(" · ")}`:"";
       return `<article class="ex" data-ex="${x.id}">
         <div class="ex-h">${bodyMap(e)}<div>
           <p class="kicker">${T("Oefening {n}",{n:i+1})} · ${T(e.eq)}</p><h3>${e.n}</h3>
-          <p class="ex-target">${repsLabel(e,reps)}</p></div></div>
+          <p class="ex-target">${repsLabel(e,reps,g&&g.plus)}${g&&g.pct?` <small>· ${g.pct[0]}–${g.pct[g.pct.length-1]}%</small>`:""}</p></div></div>
         ${ro?"":`<p class="ex-cue">${e.cue}</p>`}
-        ${prevTxt&&!ro?`<p class="ex-prev">${prevTxt}${sug?`<br><b>${sug}</b>`:""}</p>`:""}
+        ${(prevTxt||(g&&g.pct))&&!ro?`<p class="ex-prev">${prevTxt}${sug?`${prevTxt?"<br>":""}<b>${sug}</b>`:""}</p>`:""}
         <table class="sets"><thead><tr><th>${T("Set")}</th><th>${T("Doel")}</th><th>${eenheid}</th><th>${e.unit==="stappen"?T("Stappen"):e.unit==="sec"?T("Sec"):T("Reps")}</th>${ro?"":"<th></th>"}</tr></thead><tbody>
         ${reps.map((t,si)=>{
-          const s=logged[si]||{}, pk=doelKg(prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null),e,hit,licht);
-          return ro?`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td><td>${s.ok?kgFmt(s.kg):"–"}</td><td>${s.ok?(s.reps??"–"):"–"}</td></tr>`
-          :`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${t}</td>
+          const s=logged[si]||{}, pk=tm?pctKg(tm,g.pct[si],e,licht):doelKg(prev&&prev.sets[si]?prev.sets[si].kg:(prev&&prev.sets.length?prev.sets[prev.sets.length-1].kg:null),e,hit,licht);
+          const doel=`${t}${g&&g.plus&&si===reps.length-1?"+":""}${g&&g.pct?` <small class="pct">${g.pct[si]}%</small>`:""}`;
+          return ro?`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${doel}</td><td>${s.ok?kgFmt(s.kg):"–"}</td><td>${s.ok?(s.reps??"–"):"–"}</td></tr>`
+          :`<tr class="${s.ok?"done":""}"><td>${si+1}</td><td>${doel}</td>
             <td><input type="text" inputmode="decimal" data-set="${x.id}:${si}:kg" value="${s.kg==null?"":toon(s.kg)}" placeholder="${pk!=null?kgFmt(pk):eenheid}" aria-label="${T("Gewicht set {n}",{n:si+1})}"></td>
             <td><input type="text" inputmode="numeric" data-set="${x.id}:${si}:reps" value="${s.reps??""}" placeholder="${t}" aria-label="${T("Herhalingen set {n}",{n:si+1})}"></td>
             <td><button class="set-ok" type="button" data-set-ok="${x.id}:${si}" aria-pressed="${!!s.ok}" aria-label="${T("Set {n} klaar",{n:si+1})}">✓</button></td></tr>`}).join("")}
@@ -422,6 +442,6 @@ function progressionHTML(P,workouts){
     <p class="sub" style="font-size:13px;margin-top:8px">${T("Geschatte 1RM via de Epley-formule op de beste set per training.")}</p>`;
 }
 
-window.TR={setEenheid,getEenheid,naarKg,toon,opMaat,oefenGroepen,splitFor,bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
+window.TR={repsOf,golfOf,trainingMax,pctKg,setEenheid,getEenheid,naarKg,toon,opMaat,oefenGroepen,splitFor,bijsturing,setBijsturing,doelKg,EX,PROGRAMS,TIPS,MUSCLE_NL,registerProgram,PHASES,phaseOf,setsFor,weekOf,dayOf,e1rm,bestSet,lastPerformance,stats,progression,bodyMap,
   overviewHTML,workoutHTML,summaryHTML,coachGridHTML,progressionHTML};
 })();

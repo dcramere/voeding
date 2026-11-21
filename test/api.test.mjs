@@ -1227,3 +1227,19 @@ test("evaluations: monthly after a complete photo set (shared), final by the coa
   await coach("/api/coach/instellingen", "PUT", { autoEvaluatie: true });
   assert.equal((await coach(`/api/coach/clients/${inv.data.id}/evaluaties/${eind.id}`, "DELETE")).data.evaluaties.length, 1);
 });
+
+test("programs: waves with %, custom exercises in seconds and per side, validation", async () => {
+  const W = [{ reps: [5, 5, 5], pct: [65, 75, 85], plus: true }, { reps: [3, 3, 3], pct: [70, 80, 90], plus: true }];
+  const body = (golf, eigen = {}) => ({ naam: "Wave test", data: { weken: 8, deload: false, oefeningen: { c_holdtest: { n: "Hold", eq: "Lichaamsgewicht", m: ["abs"], rust: 30, unit: "sec", side: true, cue: "x" }, ...eigen },
+    dagen: [{ naam: "A", type: "lower", ex: [{ id: "back_squat", reps: [5, 5, 5], golf }, { id: "c_holdtest", reps: [30, 30] }] }] } });
+  const r = await coach("/api/coach/programmas", "POST", body(W));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.deepEqual(r.data.dagen[0].ex[0].golf, W); assert.equal(r.data.oefeningen.c_holdtest.unit, "sec"); assert.equal(r.data.oefeningen.c_holdtest.side, true);
+  assert.equal((await coach("/api/coach/programmas", "POST", body([W[0]]))).status, 400, "a wave needs at least 2 weeks");
+  assert.equal((await coach("/api/coach/programmas", "POST", body([{ reps: [5, 5], pct: [65] }, W[1]]))).status, 400, "one % per set");
+  assert.equal((await coach("/api/coach/programmas", "POST", body([{ reps: [5], pct: [150] }, W[1]]))).status, 400, "% range");
+  const bad = await coach("/api/coach/programmas", "POST", body(W, { c_holdtest: { n: "Hold", eq: "Lichaamsgewicht", m: ["abs"], unit: "minutes" } }));
+  assert.equal(bad.data.oefeningen.c_holdtest.unit, undefined, "unknown unit dropped");
+  await coach(`/api/coach/programmas/${r.data.id.slice(1)}`, "DELETE");
+  await coach(`/api/coach/programmas/${bad.data.id.slice(1)}`, "DELETE");
+});

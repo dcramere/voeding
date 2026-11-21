@@ -690,3 +690,5 @@ html.i18n-wait body{visibility:hidden}
 .ev-kracht .n{text-align:right}
 .ev-card .actions{margin:14px 0}
 @media print{#print .ev-tiles>div{border-color:#ddd}#print .ev-curve-wrap{color:#8a6a0a}#print .ev-fotos{grid-template-columns:repeat(3,1fr)}#print .ev-fotos figure{break-inside:avoid}#print .ev-kracht{font-size:9.5pt}}
+.sets small.pct{color:var(--muted);font-size:11px;margin-left:3px}
+.pe-golf small{color:var(--muted);display:block;line-height:1.5}

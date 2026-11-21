@@ -1558,7 +1558,8 @@ function cleanProgramDef(b) {
     const m = (Array.isArray(e.m) ? e.m : []).filter((x) => MUSCLES.includes(x)).slice(0, 3);
     if (!m.length) fail(400, 'Kies de spiergroep van "{x}".', undefined, { x: n });
     oefeningen[k] = { n, eq: EQUIP.includes(e.eq) ? e.eq : "Overig", m, s: (Array.isArray(e.s) ? e.s : []).filter((x) => MUSCLES.includes(x) && !m.includes(x)).slice(0, 3),
-      rust: Math.min(300, Math.max(30, Math.round(Number(e.rust) || 90))), cue: str(e.cue, 300, "Uitleg") || "Voer de oefening gecontroleerd uit over de volledige bewegingsbaan." };
+      rust: Math.min(300, Math.max(30, Math.round(Number(e.rust) || 90))), cue: str(e.cue, 300, "Uitleg") || "Voer de oefening gecontroleerd uit over de volledige bewegingsbaan.",
+      ...(["sec", "stappen"].includes(e.unit) ? { unit: e.unit } : {}), ...(e.side ? { side: true } : {}) };
   }
   const dagenIn = Array.isArray(d.dagen) ? d.dagen : [];
   if (!dagenIn.length || dagenIn.length > 7) fail(400, "Een programma heeft 1 tot 7 trainingsdagen.");
@@ -1569,7 +1570,17 @@ function cleanProgramDef(b) {
       if (!BASE_EX.has(id) && !oefeningen[id]) fail(400, "Onbekende oefening op {x}.", undefined, { x: dn });
       const reps = (Array.isArray(x.reps) ? x.reps : []).map(Number);
       if (!reps.length || reps.length > 10 || reps.some((r) => !Number.isInteger(r) || r < 1 || r > 100)) fail(400, "Controleer de herhalingen op {x} (1 tot 10 sets van 1–100).", undefined, { x: dn });
-      return { id, reps };
+      // optional wave: reps (and % of training max, last set "+") that change per week of a 2–6 week cycle, e.g. 5/3/1
+      if (x.golf == null) return { id, reps };
+      if (!Array.isArray(x.golf) || x.golf.length < 2 || x.golf.length > 6) fail(400, "Een golf heeft 2 tot 6 weken ({x}).", undefined, { x: dn });
+      const golf = x.golf.map((g) => {
+        const r = (Array.isArray(g && g.reps) ? g.reps : []).map(Number);
+        if (!r.length || r.length > 10 || r.some((v) => !Number.isInteger(v) || v < 1 || v > 100)) fail(400, "Controleer de herhalingen op {x} (1 tot 10 sets van 1–100).", undefined, { x: dn });
+        const pct = g.pct == null ? null : (Array.isArray(g.pct) ? g.pct : []).map(Number);
+        if (pct && (pct.length !== r.length || pct.some((v) => !Number.isFinite(v) || v < 30 || v > 110))) fail(400, "Controleer de percentages op {x} (30–110%, één per set).", undefined, { x: dn });
+        return { reps: r, ...(pct ? { pct } : {}), ...(g.plus ? { plus: true } : {}) };
+      });
+      return { id, reps, golf };
     });
     if (!ex.length || ex.length > 15) fail(400, "{x} heeft 1 tot 15 oefeningen nodig.", undefined, { x: dn });
     return { key: `d${i + 1}`, naam: dn, focus: str(day.focus, 80, "Focus"), type: DAYTYPES.includes(day.type) ? day.type : "other", ex };

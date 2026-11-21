@@ -575,7 +575,9 @@ $("progLijst").addEventListener("click",async e=>{
   const tr=e.target.closest("[data-prog]"); if(tr) location.hash="#/programmas/"+tr.dataset.prog;
 });
 const toEditor=p=>({id:p.id||null,naam:p.naam,weken:p.weken,deload:!!p.deload,oefeningen:JSON.parse(JSON.stringify(p.oefeningen||{})),
-  dagen:p.dagen.map(d=>({naam:d.naam,focus:d.focus||"",type:d.type||"other",ex:d.ex.map(x=>({id:x.id,reps:[...x.reps]}))}))});
+  dagen:p.dagen.map(d=>({naam:d.naam,focus:d.focus||"",type:d.type||"other",ex:d.ex.map(x=>({id:x.id,reps:[...x.reps],...(x.golf?{golf:JSON.parse(JSON.stringify(x.golf))}:{})}))}))});
+// a wave (reps / % per week of the cycle) is shown read-only in the editor and kept when saving
+const golfTxt=g=>g.map((w,i)=>`${T("wk {n}",{n:i+1})}: ${w.reps.join("·")}${w.plus?"+":""}${w.pct?` @ ${w.pct.join("/")}%`:""}`).join(" · ");
 function exOptions(sel){
   const all={...TR.EX,...Object.fromEntries(Object.entries(ed.oefeningen).map(([k,v])=>[k,{...v,custom:true}]))};
   const own=Object.keys(ed.oefeningen);
@@ -596,7 +598,8 @@ function editorHTML(){
         <span class="pe-tools"><button class="linkbtn" type="button" data-act="day-up" data-d="${di}" ${di===0?"disabled":""}>↑</button><button class="linkbtn" type="button" data-act="day-down" data-d="${di}" ${di===ed.dagen.length-1?"disabled":""}>↓</button><button class="linkbtn danger-t" type="button" data-act="day-del" data-d="${di}">${T("Verwijder dag")}</button></span></div>
       <table class="pe-ex"><thead><tr><th>#</th><th>${T("Oefening")}</th><th>${T("Herhalingen per set")}</th><th></th></tr></thead><tbody>
       ${d.ex.map((x,xi)=>`<tr><td>${xi+1}</td><td><select data-ex="${di}:${xi}" data-f="id">${exOptions(x.id)}</select></td>
-        <td><input data-ex="${di}:${xi}" data-f="reps" value="${x.reps.join(", ")}" placeholder="10, 8, 8, 6"></td>
+        <td>${x.golf?`<div class="pe-golf"><small>${T("Golf")}: ${esc(golfTxt(x.golf))}</small> <button class="linkbtn" type="button" data-act="golf-del" data-d="${di}" data-x="${xi}">${T("vaste herhalingen gebruiken")}</button></div>`
+          :`<input data-ex="${di}:${xi}" data-f="reps" value="${x.reps.join(", ")}" placeholder="10, 8, 8, 6">`}</td>
         <td class="pe-tools"><button class="linkbtn" type="button" data-act="ex-up" data-d="${di}" data-x="${xi}" ${xi===0?"disabled":""}>↑</button><button class="linkbtn" type="button" data-act="ex-down" data-d="${di}" data-x="${xi}" ${xi===d.ex.length-1?"disabled":""}>↓</button><button class="linkbtn danger-t" type="button" data-act="ex-del" data-d="${di}" data-x="${xi}" aria-label="${T("Verwijder oefening")}">✕</button></td></tr>`).join("")}
       </tbody></table>
       <div class="actions" style="margin-top:8px"><button class="btn small ghost" type="button" data-act="ex-add" data-d="${di}">+ ${T("Oefening")}</button><button class="btn small ghost" type="button" data-act="own-open" data-d="${di}">+ ${T("Eigen oefening")}</button></div>
@@ -607,6 +610,8 @@ function editorHTML(){
         <div class="row3"><label>${T("Primaire spiergroep")}<select data-own-f="m">${Object.entries(TR.MUSCLE_NL).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></label>
           <label>${T("Secundair")} <small>${T("optioneel")}</small><select data-own-f="s"><option value="">–</option>${Object.entries(TR.MUSCLE_NL).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></label>
           <label>${T("Herhalingen")}<input data-own-f="reps" value="10, 10, 10"></label></div>
+        <div class="row3"><label>${T("Eenheid")}<select data-own-f="unit"><option value="">${T("Herhalingen")}</option><option value="sec">${T("Seconden")}</option><option value="stappen">${T("Stappen")}</option></select></label>
+          <label class="consent" style="align-self:end"><input type="checkbox" data-own-f="side"><span>${T("Per kant (links en rechts)")}</span></label></div>
         <label>${T("Uitleg voor de cliënt")} <small>${T("optioneel")}</small><textarea data-own-f="cue" style="min-height:60px" maxlength="300"></textarea></label>
         <div class="actions" style="margin-top:6px"><button class="btn small" type="button" data-act="own-add" data-d="${di}">${T("Toevoegen")}</button><button class="btn small ghost" type="button" data-act="own-close" data-d="${di}">${T("Annuleren")}</button></div>
       </div>
@@ -634,6 +639,7 @@ $("progEditor").addEventListener("click",async e=>{
     case "ex-add": days[d].ex.push({id:days[d].ex.length?days[d].ex[days[d].ex.length-1].id:"flat_db_press",reps:[10,10,10]}); break;
     case "ex-del": if(days[d].ex.length===1) return alert(T("Een trainingsdag heeft minstens één oefening.")); days[d].ex.splice(x,1); break;
     case "ex-up": swap(days[d].ex,x,x-1); break;
+    case "golf-del": if(!confirm(T("De golf verwijderen? De oefening gebruikt dan elke week dezelfde herhalingen ({r}).",{r:days[d].ex[x].reps.join(", ")}))) return; delete days[d].ex[x].golf; break;
     case "ex-down": swap(days[d].ex,x,x+1); break;
     case "own-open": document.querySelector(`[data-own="${d}"]`).hidden=false; return;
     case "own-close": document.querySelector(`[data-own="${d}"]`).hidden=true; return;
@@ -641,7 +647,8 @@ $("progEditor").addEventListener("click",async e=>{
       const box=document.querySelector(`[data-own="${d}"]`), v=k=>box.querySelector(`[data-own-f="${k}"]`).value.trim();
       if(!v("n")) return alert(T("Geef de oefening een naam."));
       const id="c_"+Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,"x").padEnd(8,"x");
-      ed.oefeningen[id]={n:v("n"),eq:v("eq"),m:[v("m")],s:v("s")&&v("s")!==v("m")?[v("s")]:[],rust:+v("rust")||90,cue:v("cue")};
+      ed.oefeningen[id]={n:v("n"),eq:v("eq"),m:[v("m")],s:v("s")&&v("s")!==v("m")?[v("s")]:[],rust:+v("rust")||90,cue:v("cue"),
+        ...(v("unit")?{unit:v("unit")}:{}),...(box.querySelector('[data-own-f="side"]').checked?{side:true}:{})};
       TR.EX[id]={...ed.oefeningen[id],custom:true};
       days[d].ex.push({id,reps:parseReps(v("reps")).length?parseReps(v("reps")):[10,10,10]}); break;
     }

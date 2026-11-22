@@ -283,6 +283,8 @@ ul.prs li{background:var(--gold-soft);border:1px solid var(--gold-dim);border-ra
 table.trgrid{border-collapse:collapse;width:100%;font-size:13px;min-width:620px}
 table.trgrid th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:6px;text-align:center;border-bottom:1px solid var(--line)}
 table.trgrid td{padding:3px;text-align:center;border-bottom:1px solid var(--line)}
+table.trgrid td.off{background:repeating-linear-gradient(135deg,transparent 0 6px,var(--line) 6px 7px);opacity:.6}
+.pe-weeks{max-width:150px}
 table.trgrid td:first-child{text-align:left;font-weight:700;white-space:nowrap}
 table.trgrid td:first-child small{display:block;font-weight:400;color:var(--faint);font-size:11px}
 table.trgrid tr.cur td{background:var(--gold-soft)}

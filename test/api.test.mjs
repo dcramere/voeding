@@ -1243,3 +1243,30 @@ test("programs: waves with %, custom exercises in seconds and per side, validati
   await coach(`/api/coach/programmas/${r.data.id.slice(1)}`, "DELETE");
   await coach(`/api/coach/programmas/${bad.data.id.slice(1)}`, "DELETE");
 });
+
+test("programs: days limited to some weeks (phases, recovery weeks), named phases, minutes", async () => {
+  const ex = [{ id: "push_ups", reps: [15, 15] }];
+  const body = (extra = {}) => ({ naam: "Phased", data: { weken: 4, deload: false, oefeningen: { c_videotest: { n: "Video", eq: "Lichaamsgewicht", m: ["abs"], unit: "min", cue: "x" } },
+    dagen: [{ naam: "A", ex, weken: [1, 2, 3] }, { naam: "Rec", ex: [{ id: "c_videotest", reps: [60] }], weken: [4] }, { naam: "Every", ex, weken: [1, 2, 3, 4] }],
+    fasen: [{ van: 1, tot: 3, naam: "Phase 1", tekst: "Build" }, { van: 4, tot: 4, naam: "Recovery" }], ...extra } });
+  const r = await coach("/api/coach/programmas", "POST", body());
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.deepEqual(r.data.dagen.map((d) => d.weken || null), [[1, 2, 3], [4], null], "all weeks = no limit");
+  assert.equal(r.data.oefeningen.c_videotest.unit, "min"); assert.equal(r.data.fasen[1].naam, "Recovery");
+  const list = (await coach("/api/coach/programmas")).data.find((p) => p.id === r.data.id);
+  assert.equal(list.dagen, 2, "trainings per week = the busiest week");
+  const bad = (d) => coach("/api/coach/programmas", "POST", body(d));
+  assert.equal((await bad({ dagen: [{ naam: "A", ex, weken: [5] }] })).status, 400, "week beyond the program");
+  assert.equal((await bad({ dagen: Array.from({ length: 8 }, (_, i) => ({ naam: `D${i}`, ex })) })).status, 400, "8 in one week");
+  assert.equal((await bad({ dagen: Array.from({ length: 8 }, (_, i) => ({ naam: `D${i}`, ex, weken: [i < 4 ? 1 : 2] })) })).status, 201, "8 days over 2 weeks is fine");
+  assert.equal((await bad({ fasen: [{ van: 3, tot: 2, naam: "x" }] })).status, 400, "phase weeks");
+  // a client can't log a day in a week it isn't scheduled
+  const u = client(), inv = await coach("/api/coach/clients", "POST", { naam: "Fay Fase", email: "fay-fase@t.nl" });
+  await u("/api/invite", "POST", { token: tokenOf(inv.data.link), password: "fay-pass-1234", privacy: true });
+  await coach(`/api/coach/clients/${inv.data.id}`, "PUT", { programma: { id: r.data.id, start: "2026-09-28" } });
+  const put = (week, dag) => u("/api/workouts", "PUT", { programma: r.data.id, week, dag, datum: "2026-09-28", sets: {}, notitie: "" });
+  assert.equal((await put(1, "d1")).status, 200);
+  assert.equal((await put(4, "d1")).status, 400, "A is not on the schedule in week 4");
+  assert.equal((await put(4, "d2")).status, 200);
+  await coach(`/api/coach/clients/${inv.data.id}`, "DELETE");
+});

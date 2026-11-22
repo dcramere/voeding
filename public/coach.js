@@ -575,7 +575,11 @@ $("progLijst").addEventListener("click",async e=>{
   const tr=e.target.closest("[data-prog]"); if(tr) location.hash="#/programmas/"+tr.dataset.prog;
 });
 const toEditor=p=>({id:p.id||null,naam:p.naam,weken:p.weken,deload:!!p.deload,oefeningen:JSON.parse(JSON.stringify(p.oefeningen||{})),
-  dagen:p.dagen.map(d=>({naam:d.naam,focus:d.focus||"",type:d.type||"other",ex:d.ex.map(x=>({id:x.id,reps:[...x.reps],...(x.golf?{golf:JSON.parse(JSON.stringify(x.golf))}:{})}))}))});
+  ...(p.fasen?{fasen:JSON.parse(JSON.stringify(p.fasen))}:{}),
+  dagen:p.dagen.map(d=>({naam:d.naam,focus:d.focus||"",type:d.type||"other",...(d.weken?{weken:[...d.weken]}:{}),ex:d.ex.map(x=>({id:x.id,reps:[...x.reps],...(x.golf?{golf:JSON.parse(JSON.stringify(x.golf))}:{})}))}))});
+// weeks a day is on the schedule: [1,2,3,9] ↔ "1-3, 9"; empty = every week
+const wekenTxt=a=>!a?"":a.reduce((r,w)=>{const l=r[r.length-1];if(l&&w===l[1]+1)l[1]=w;else r.push([w,w]);return r},[]).map(([a,b])=>a===b?`${a}`:`${a}-${b}`).join(", ");
+const parseWeken=v=>{const o=[];String(v).split(",").forEach(p=>{const m=p.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(m)for(let w=+m[1];w<=+(m[2]||m[1])&&w<=16;w++)o.push(w)});return o.length?[...new Set(o)].sort((a,b)=>a-b):null};
 // a wave (reps / % per week of the cycle) is shown read-only in the editor and kept when saving
 const golfTxt=g=>g.map((w,i)=>`${T("wk {n}",{n:i+1})}: ${w.reps.join("·")}${w.plus?"+":""}${w.pct?` @ ${w.pct.join("/")}%`:""}`).join(" · ");
 function exOptions(sel){
@@ -595,6 +599,7 @@ function editorHTML(){
         <input data-day="${di}" data-f="naam" value="${esc(d.naam)}" placeholder="${T("Naam, bijv. Push A")}" maxlength="40">
         <select data-day="${di}" data-f="type">${DAYTYPES.map(([k,l])=>`<option value="${k}"${d.type===k?" selected":""}>${l}</option>`).join("")}</select>
         <input data-day="${di}" data-f="focus" value="${esc(d.focus)}" placeholder="${T("Focus, bijv. borst en schouders")}" maxlength="80" class="pe-focus">
+        <input data-day="${di}" data-f="weken" value="${wekenTxt(d.weken)}" placeholder="${T("Weken: alle")}" title="${T("Alleen in bepaalde weken, bijv. 1-3, 9, 11. Leeg = elke week.")}" aria-label="${T("Weken")}" class="pe-weeks">
         <span class="pe-tools"><button class="linkbtn" type="button" data-act="day-up" data-d="${di}" ${di===0?"disabled":""}>↑</button><button class="linkbtn" type="button" data-act="day-down" data-d="${di}" ${di===ed.dagen.length-1?"disabled":""}>↓</button><button class="linkbtn danger-t" type="button" data-act="day-del" data-d="${di}">${T("Verwijder dag")}</button></span></div>
       <table class="pe-ex"><thead><tr><th>#</th><th>${T("Oefening")}</th><th>${T("Herhalingen per set")}</th><th></th></tr></thead><tbody>
       ${d.ex.map((x,xi)=>`<tr><td>${xi+1}</td><td><select data-ex="${di}:${xi}" data-f="id">${exOptions(x.id)}</select></td>
@@ -610,13 +615,14 @@ function editorHTML(){
         <div class="row3"><label>${T("Primaire spiergroep")}<select data-own-f="m">${Object.entries(TR.MUSCLE_NL).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></label>
           <label>${T("Secundair")} <small>${T("optioneel")}</small><select data-own-f="s"><option value="">–</option>${Object.entries(TR.MUSCLE_NL).map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></label>
           <label>${T("Herhalingen")}<input data-own-f="reps" value="10, 10, 10"></label></div>
-        <div class="row3"><label>${T("Eenheid")}<select data-own-f="unit"><option value="">${T("Herhalingen")}</option><option value="sec">${T("Seconden")}</option><option value="stappen">${T("Stappen")}</option></select></label>
+        <div class="row3"><label>${T("Eenheid")}<select data-own-f="unit"><option value="">${T("Herhalingen")}</option><option value="sec">${T("Seconden")}</option><option value="stappen">${T("Stappen")}</option><option value="min">${T("Minuten")}</option></select></label>
           <label class="consent" style="align-self:end"><input type="checkbox" data-own-f="side"><span>${T("Per kant (links en rechts)")}</span></label></div>
         <label>${T("Uitleg voor de cliënt")} <small>${T("optioneel")}</small><textarea data-own-f="cue" style="min-height:60px" maxlength="300"></textarea></label>
         <div class="actions" style="margin-top:6px"><button class="btn small" type="button" data-act="own-add" data-d="${di}">${T("Toevoegen")}</button><button class="btn small ghost" type="button" data-act="own-close" data-d="${di}">${T("Annuleren")}</button></div>
       </div>
     </section>`).join("")}
-    <div class="actions">${ed.dagen.length<7?`<button class="btn ghost" type="button" data-act="day-add">+ ${T("Trainingsdag")}</button>`:""}</div>
+    ${ed.fasen?`<p class="sub">${T("Fases")}: ${ed.fasen.map(f=>`${esc(f.naam)} (${T("wk {n}",{n:f.van===f.tot?f.van:f.van+"–"+f.tot})})`).join(" · ")}</p>`:""}
+    <div class="actions">${ed.dagen.length<14?`<button class="btn ghost" type="button" data-act="day-add">+ ${T("Trainingsdag")}</button>`:""}</div>
     <div class="pe-save"><button class="btn" type="button" data-act="save">${T("Programma opslaan")}</button>${ed.id?`<button class="btn danger" type="button" data-act="delete">${T("Verwijderen")}</button>`:""}<span class="err" id="edMsg" role="status"></span></div>`;
 }
 const renderEditor=()=>{$("progEditor").innerHTML=editorHTML()};
@@ -624,7 +630,7 @@ const parseReps=v=>String(v).split(/[^\d]+/).filter(Boolean).map(Number);
 $("progEditor").addEventListener("input",e=>{
   const t=e.target;
   if(t.dataset.ed){ed[t.dataset.ed]=t.type==="checkbox"?t.checked:t.type==="number"?+t.value:t.value;return}
-  if(t.dataset.day){ed.dagen[+t.dataset.day][t.dataset.f]=t.value;return}
+  if(t.dataset.day){const dd=ed.dagen[+t.dataset.day];if(t.dataset.f==="weken"){const w=parseWeken(t.value);if(w)dd.weken=w;else delete dd.weken}else dd[t.dataset.f]=t.value;return}
   if(t.dataset.ex){const [d,x]=t.dataset.ex.split(":").map(Number);ed.dagen[d].ex[x][t.dataset.f]=t.dataset.f==="reps"?parseReps(t.value):t.value}
 });
 $("progEditor").addEventListener("change",e=>{if(e.target.dataset.ex||e.target.dataset.day||e.target.dataset.ed)e.target.dispatchEvent(new Event("input",{bubbles:true}))});
@@ -655,7 +661,7 @@ $("progEditor").addEventListener("click",async e=>{
     case "save":{
       $("edMsg").textContent=""; b.disabled=true;
       try{
-        const body={naam:ed.naam,data:{weken:ed.weken,deload:ed.deload,oefeningen:ed.oefeningen,dagen:ed.dagen}};
+        const body={naam:ed.naam,data:{weken:ed.weken,deload:ed.deload,oefeningen:ed.oefeningen,dagen:ed.dagen,...(ed.fasen?{fasen:ed.fasen}:{})}};
         const r=ed.id?await call(`/api/coach/programmas/${ed.id.slice(1)}`,"PUT",body):await call("/api/coach/programmas","POST",body);
         TR.registerProgram(r); ed=toEditor(r); location.hash="#/programmas/"+r.id.slice(1);
         $("edMsg").className="flash"; $("edMsg").textContent=T("Opgeslagen.");

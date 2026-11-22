@@ -8,7 +8,7 @@ const SESSION_TTL = 30 * DAY;
 const INVITE_TTL = 14 * DAY;
 const PBKDF2_ITER = 100000; // Workers' WebCrypto maximum
 const COOKIE = { client: "vc", coach: "vk" };
-const MAX_BODY = 20000;
+const MAX_BODY = 100000; // large enough for a full program with 100 own exercises
 const MAX_FOTO = 5 * 1024 * 1024; // client resizes to ~1600 px, typically 150–400 KB
 const POSES = ["voor", "achter", "zijkant"];
 // training programs the coach can assign (definitions live in public/training.js)
@@ -1533,6 +1533,9 @@ function cleanProgramma(p) {
   if (!isDate(p.start)) fail(400, "Kies een geldige startdatum.");
   return { id: p.id, start: p.start };
 }
+// the days on the schedule in a given week (a coach's day may be limited to some weeks)
+const dagenInWeek = (dagen, week) => dagen.filter((d) => !d.weken || d.weken.includes(week));
+const maxPerWeek = (data) => Math.max(...Array.from({ length: data.weken }, (_, i) => dagenInWeek(data.dagen, i + 1).length));
 // program definition (built-in or a coach's own); null when the id is unknown
 async function programDef(env, id, coachId) {
   if (PROGRAMMAS[id]) return { ...PROGRAMMAS[id], custom: false };
@@ -1552,17 +1555,17 @@ function cleanProgramDef(b) {
   const oefeningen = {};
   for (const [k, e] of Object.entries(d.oefeningen || {})) {
     if (!/^c_[a-z0-9]{4,20}$/.test(k)) fail(400, "Ongeldige eigen oefening.");
-    if (Object.keys(oefeningen).length >= 60) fail(400, "Maximaal 60 eigen oefeningen per programma.");
+    if (Object.keys(oefeningen).length >= 100) fail(400, "Maximaal 100 eigen oefeningen per programma.");
     const n = str(e && e.n, 60, "Naam oefening");
     if (!n) fail(400, "Geef elke eigen oefening een naam.");
     const m = (Array.isArray(e.m) ? e.m : []).filter((x) => MUSCLES.includes(x)).slice(0, 3);
     if (!m.length) fail(400, 'Kies de spiergroep van "{x}".', undefined, { x: n });
     oefeningen[k] = { n, eq: EQUIP.includes(e.eq) ? e.eq : "Overig", m, s: (Array.isArray(e.s) ? e.s : []).filter((x) => MUSCLES.includes(x) && !m.includes(x)).slice(0, 3),
       rust: Math.min(300, Math.max(30, Math.round(Number(e.rust) || 90))), cue: str(e.cue, 300, "Uitleg") || "Voer de oefening gecontroleerd uit over de volledige bewegingsbaan.",
-      ...(["sec", "stappen"].includes(e.unit) ? { unit: e.unit } : {}), ...(e.side ? { side: true } : {}) };
+      ...(["sec", "stappen", "min"].includes(e.unit) ? { unit: e.unit } : {}), ...(e.side ? { side: true } : {}) };
   }
   const dagenIn = Array.isArray(d.dagen) ? d.dagen : [];
-  if (!dagenIn.length || dagenIn.length > 7) fail(400, "Een programma heeft 1 tot 7 trainingsdagen.");
+  if (!dagenIn.length || dagenIn.length > 14) fail(400, "Een programma heeft 1 tot 14 trainingsdagen.");
   const dagen = dagenIn.map((day, i) => {
     const dn = str(day && day.naam, 40, "Naam dag") || `Dag ${i + 1}`;
     const ex = (Array.isArray(day.ex) ? day.ex : []).map((x) => {
@@ -1582,10 +1585,29 @@ function cleanProgramDef(b) {
       });
       return { id, reps, golf };
     });
-    if (!ex.length || ex.length > 15) fail(400, "{x} heeft 1 tot 15 oefeningen nodig.", undefined, { x: dn });
-    return { key: `d${i + 1}`, naam: dn, focus: str(day.focus, 80, "Focus"), type: DAYTYPES.includes(day.type) ? day.type : "other", ex };
+    if (!ex.length || ex.length > 25) fail(400, "{x} heeft 1 tot 25 oefeningen nodig.", undefined, { x: dn });
+    // optional: the weeks this day is on the schedule (phases with different workouts, recovery weeks); none = every week
+    let dw = null;
+    if (day.weken != null) {
+      dw = [...new Set((Array.isArray(day.weken) ? day.weken : []).map(Number))].sort((a, b) => a - b);
+      if (!dw.length || dw.some((w) => !Number.isInteger(w) || w < 1 || w > weken)) fail(400, "Controleer de weken van {x} (1 tot {n}).", undefined, { x: dn, n: weken });
+      if (dw.length === weken) dw = null;
+    }
+    return { key: `d${i + 1}`, naam: dn, focus: str(day.focus, 80, "Focus"), type: DAYTYPES.includes(day.type) ? day.type : "other", ex, ...(dw ? { weken: dw } : {}) };
   });
-  return { naam, data: { weken, deload: !!d.deload && weken > 1, dagen, oefeningen } };
+  for (let w = 1; w <= weken; w++) if (dagen.filter((x) => !x.weken || x.weken.includes(w)).length > 7) fail(400, "Week {n} heeft meer dan 7 trainingen.", undefined, { n: w });
+  // optional named phases (e.g. Phase 1 / Recovery) shown above each week instead of the standard text
+  let fasen = null;
+  if (d.fasen != null) {
+    if (!Array.isArray(d.fasen) || d.fasen.length > 12) fail(400, "Maximaal 12 fases.");
+    fasen = d.fasen.map((f) => {
+      const van = Number(f && f.van), tot = Number(f && f.tot), fn = str(f && f.naam, 40, "Naam fase");
+      if (!fn || !Number.isInteger(van) || !Number.isInteger(tot) || van < 1 || tot < van || tot > weken) fail(400, "Controleer de fases (weken 1 tot {n}).", undefined, { n: weken });
+      return { van, tot, naam: fn, tekst: str(f.tekst, 400, "Uitleg fase") };
+    });
+    if (!fasen.length) fasen = null;
+  }
+  return { naam, data: { weken, deload: !!d.deload && weken > 1, dagen, oefeningen, ...(fasen ? { fasen } : {}) } };
 }
 
 const kg2 = (v) => { num(v, 0, 1000, "Gewicht"); return Math.round(Number(v) * 100) / 100; }; // range check, then 2 decimals
@@ -1593,7 +1615,7 @@ const kg2 = (v) => { num(v, 0, 1000, "Gewicht"); return Math.round(Number(v) * 1
 function cleanSets(sets) {
   if (!sets || typeof sets !== "object" || Array.isArray(sets)) fail(400, "Ongeldige sets.");
   const keys = Object.keys(sets);
-  if (keys.length > 15) fail(400, "Te veel oefeningen.");
+  if (keys.length > 25) fail(400, "Te veel oefeningen.");
   const out = {};
   for (const k of keys) {
     if (!/^[a-z0-9_]{1,40}$/.test(k) || !Array.isArray(sets[k]) || sets[k].length > 10) fail(400, "Ongeldige sets.");
@@ -1624,7 +1646,7 @@ async function clientPutWorkout(c) {
   if (b.programma !== p.id) fail(409, "Uw trainingsprogramma is gewijzigd. Vernieuw de pagina.");
   const week = Number(b.week);
   if (!Number.isInteger(week) || week < 1 || week > def.weken) fail(400, "Ongeldige week.");
-  if (!def.dagen.includes(b.dag)) fail(400, "Ongeldige trainingsdag.");
+  if (!def.dagen.includes(b.dag) || (def.custom && !dagenInWeek(def.data.dagen, week).some((d) => d.key === b.dag))) fail(400, "Ongeldige trainingsdag.");
   if (!isDate(b.datum)) fail(400, "Ongeldige datum.");
   const sets = JSON.stringify(cleanSets(b.sets));
   const notitie = str(b.notitie, 1000, "Notitie");
@@ -2435,7 +2457,7 @@ async function dagoverzichtVoor(env, cl, datum) {
     if (def && datum >= pr.start) {
       const week = Math.min(def.weken, Math.floor((Date.parse(datum) - Date.parse(pr.start)) / (7 * 864e5)) + 1);
       const klaar = new Set((await env.DB.prepare("SELECT dag FROM workouts WHERE client_id = ? AND programma = ? AND week = ? AND afgerond IS NOT NULL").bind(cl.id, pr.id, week).all()).results.map((w) => w.dag));
-      const namen = def.custom ? def.data.dagen.map((d) => [d.key, d.naam]) : TR.PROGRAMS[pr.id].dagen.map((d) => [d.key, d.naam]);
+      const namen = def.custom ? dagenInWeek(def.data.dagen, week).map((d) => [d.key, d.naam]) : TR.PROGRAMS[pr.id].dagen.map((d) => [d.key, d.naam]);
       const volgende = namen.find(([k]) => !klaar.has(k));
       if (volgende) training = { naam: volgende[1], week };
     }
@@ -2493,7 +2515,7 @@ async function evaluatieData(env, cl, van, tot) {
   if (cl.programma) {
     const pr = JSON.parse(cl.programma), def = await programDef(env, pr.id, cl.coach_id);
     const { results: ws } = await env.DB.prepare("SELECT datum, sets, afgerond FROM workouts WHERE client_id = ? AND programma = ? AND datum >= ? AND datum <= ? ORDER BY datum").bind(cl.id, pr.id, van, tot).all();
-    const klaar = ws.filter((w) => w.afgerond), perWeek = (P && P.trainingsdagen && P.trainingsdagen.length) || (def ? Math.min(def.dagen.length, 6) : 3);
+    const klaar = ws.filter((w) => w.afgerond), perWeek = (P && P.trainingsdagen && P.trainingsdagen.length) || (def ? Math.min(def.custom ? maxPerWeek(def.data) : def.dagen.length, 6) : 3);
     const naam = (id) => (def && def.custom && def.data.oefeningen[id] ? def.data.oefeningen[id].n : TR.EX[id] ? TR.EX[id].n : id);
     const e1 = (s) => (s.ok && s.kg > 0 && s.reps > 0 ? s.kg * (1 + s.reps / 30) : 0), per = {};
     for (const w of klaar) for (const [id, sets] of Object.entries(JSON.parse(w.sets))) {
@@ -2722,7 +2744,7 @@ async function checkinContext(env, client, k, now) {
   if (client.programma) {
     const pr = JSON.parse(client.programma), def = await programDef(env, pr.id, client.coach_id);
     const today = new Date(now * 1000).toISOString().slice(0, 10);
-    training = { naam: (def && def.naam) || "Push · Pull · Legs", dagen: def ? def.dagen.length : null, week: Math.max(1, Math.floor((Date.parse(today) - Date.parse(pr.start)) / (7 * 864e5)) + 1),
+    training = { naam: (def && def.naam) || "Push · Pull · Legs", dagen: def ? (def.custom ? maxPerWeek(def.data) : def.dagen.length) : null, week: Math.max(1, Math.floor((Date.parse(today) - Date.parse(pr.start)) / (7 * 864e5)) + 1),
       licht: coach && coach.auto_training ? TR.bijsturing([{ ...k }], today) : null };
   }
   return { P, A, D, laatste, eerste: metingen[0], tempo: gewichtsTempo(metingen, now), dagen, trainingen, vorige, intake, a, training };
@@ -2853,7 +2875,7 @@ async function listProgrammas(c) {
        (SELECT COUNT(*) FROM clients cl WHERE cl.coach_id = p.coach_id AND json_extract(cl.programma, '$.id') = 'c' || p.id) AS clienten
      FROM programmas p WHERE p.coach_id = ? ORDER BY p.updated_at DESC`,
   ).bind(c.coach.id).all();
-  return json(results.map((r) => { const d = JSON.parse(r.data); return { id: `c${r.id}`, naam: r.naam, weken: d.weken, dagen: d.dagen.length, clienten: r.clienten, updated: r.updated_at }; }));
+  return json(results.map((r) => { const d = JSON.parse(r.data); return { id: `c${r.id}`, naam: r.naam, weken: d.weken, dagen: maxPerWeek(d), clienten: r.clienten, updated: r.updated_at }; }));
 }
 async function ownProgramma(c) {
   const r = await c.env.DB.prepare("SELECT * FROM programmas WHERE id = ? AND coach_id = ?").bind(c.params[0], c.coach.id).first();

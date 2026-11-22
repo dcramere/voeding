@@ -182,3 +182,16 @@ test("waves: reps and % per week of the cycle, training max from the log, weight
   assert.match(html, /placeholder="100"/, "95% of 105 → 100 kg suggested");
   assert.match(html, /Trainingsmax 94,5 kg|Trainingsmax 94.5 kg|Trainingsmax 105 kg/);
 });
+
+test("phased programs: days per week, totals, phase text, minutes for video workouts", () => {
+  TR.registerProgram({ id: "c902", naam: "Phased", weken: 4, deload: false, oefeningen: { c_vid01: { n: "Yoga video", eq: "Lichaamsgewicht", m: ["abs"], s: [], rust: 60, unit: "min", cue: "x" } },
+    fasen: [{ van: 1, tot: 3, naam: "Phase 1", tekst: "Build <b>" }, { van: 4, tot: 4, naam: "Recovery", tekst: "" }],
+    dagen: [{ key: "d1", naam: "A", type: "push", weken: [1, 2, 3], ex: [{ id: "push_ups", reps: [15, 15] }] }, { key: "d2", naam: "Yoga", type: "other", ex: [{ id: "c_vid01", reps: [90] }] }] });
+  assert.deepEqual(TR.dagenVan("c902", 1).map((d) => d.key), ["d1", "d2"]);
+  assert.deepEqual(TR.dagenVan("c902", 4).map((d) => d.key), ["d2"]);
+  assert.equal(TR.stats("c902", []).totaal, 7);
+  assert.equal(TR.phaseOf(4, "c902").naam, "Recovery"); assert.equal(TR.phaseOf(2, "c902").tekst, "Build &lt;b&gt;");
+  const wk4 = TR.overviewHTML({ id: "c902", start: "2026-01-05" }, [], 4);
+  assert.doesNotMatch(wk4, /data-tr-day="d1"/); assert.match(wk4, /data-tr-day="d2"/); assert.match(wk4, /±90 min/);
+  assert.match(TR.coachGridHTML({ id: "c902", start: "2026-01-05" }, []), /class="off"/);
+});
